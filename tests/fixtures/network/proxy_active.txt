@@ -1,0 +1,13 @@
+<dictionary> {
+  HTTPEnable : 1
+  HTTPPort : 8080
+  HTTPProxy : proxy.example.test
+  HTTPSEnable : 1
+  HTTPSPort : 8443
+  HTTPSProxy : secure-proxy.example.test
+  SOCKSEnable : 1
+  SOCKSPort : 1080
+  SOCKSProxy : socks.example.test
+  ProxyAutoConfigEnable : 1
+  ProxyAutoConfigURLString : https://analyst:secret@pac.example.test/config.pac?token=secret
+}

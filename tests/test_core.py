@@ -36,7 +36,7 @@ from macos_inspector.collectors.background_items import parse_disabled_services
 from macos_inspector.collectors.browser_artifacts import BrowserArtifactsCollector
 from macos_inspector.collectors.persistence import _program_from_plist
 from macos_inspector.collectors.privacy import PrivacyCollector
-from macos_inspector.collectors.network import parse_certificate_hashes
+from macos_inspector.collectors.network import NetworkCollector, enabled_proxy_types, parse_certificate_hashes, parse_proxy_configuration
 from macos_inspector.collectors.system_extensions import parse_system_extensions
 from macos_inspector.collectors.ioc import IOCCollector
 from macos_inspector.collectors import COLLECTORS
@@ -61,6 +61,33 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_proxy_fixtures_are_interpreted_and_sensitive_url_components_are_redacted(self):
+        fixtures = Path(__file__).parent / "fixtures" / "network"
+        active = parse_proxy_configuration((fixtures / "proxy_active.txt").read_text())
+        self.assertEqual(enabled_proxy_types(active), ("HTTP", "HTTPS", "SOCKS", "PAC"))
+        self.assertEqual(active["HTTPProxy"], "proxy.example.test")
+        self.assertEqual(active["HTTPPort"], 8080)
+        self.assertEqual(active["ProxyAutoConfigURLString"], "https://redacted@pac.example.test/config.pac?redacted")
+        self.assertEqual(enabled_proxy_types(parse_proxy_configuration((fixtures / "proxy_empty.txt").read_text())), ())
+
+        class FakeRunner:
+            def __init__(self, proxy_output):
+                self.proxy_output = proxy_output
+
+            def run(self, argv):
+                command = tuple(argv)
+                if command == ("scutil", "--proxy"):
+                    return CommandResult(command, 0, self.proxy_output, "")
+                if command[0] == "security":
+                    return CommandResult(command, 0, "SHA-1 hash: 0123456789012345678901234567890123456789", "")
+                return CommandResult(command, 0, "fixture output", "")
+
+        active_finding = next(finding for finding in NetworkCollector(FakeRunner((fixtures / "proxy_active.txt").read_text())).collect() if finding.finding_id == "NETWORK-PROXY")
+        self.assertEqual((active_finding.severity, active_finding.status), (Severity.LOW, "Review"))
+        self.assertNotIn("secret", json.dumps(active_finding.to_dict()))
+        empty_finding = next(finding for finding in NetworkCollector(FakeRunner((fixtures / "proxy_empty.txt").read_text())).collect() if finding.finding_id == "NETWORK-PROXY")
+        self.assertEqual((empty_finding.severity, empty_finding.status), (Severity.INFORMATIONAL, "Pass"))
+
     def test_security_control_fixtures_distinguish_failure_from_review(self):
         fixtures = Path(__file__).parent / "fixtures" / "security_controls"
         outputs = {

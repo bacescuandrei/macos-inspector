@@ -3,12 +3,24 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit, urlunsplit
 
 from .base import Collector
 from macos_inspector.core.models import Evidence, Finding, Severity
 
 
 CERT_HASH_RE = re.compile(r"(?:SHA-?256 hash|SHA-1 hash):\s*([0-9A-Fa-f]{40,64})")
+SCUTIL_VALUE_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9]+)\s*:\s*(.*?)\s*$")
+PROXY_ENABLE_KEYS = {
+    "HTTPEnable": "HTTP",
+    "HTTPSEnable": "HTTPS",
+    "FTPEnable": "FTP",
+    "SOCKSEnable": "SOCKS",
+    "RTSPEnable": "RTSP",
+    "GopherEnable": "Gopher",
+    "ProxyAutoConfigEnable": "PAC",
+    "ProxyAutoDiscoveryEnable": "Auto discovery",
+}
 
 
 @dataclass(frozen=True)
@@ -29,6 +41,41 @@ QUERIES = (
 
 def parse_certificate_hashes(output: str) -> list[str]:
     return sorted({match.group(1).upper() for match in CERT_HASH_RE.finditer(output)})
+
+
+def _redact_proxy_url(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        if not parsed.scheme or not parsed.netloc:
+            return value
+        hostname = parsed.hostname or ""
+        if ":" in hostname and not hostname.startswith("["):
+            hostname = f"[{hostname}]"
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        userinfo = "redacted@" if parsed.username or parsed.password else ""
+        query = "redacted" if parsed.query else ""
+        fragment = "redacted" if parsed.fragment else ""
+        return urlunsplit((parsed.scheme, f"{userinfo}{hostname}{port}", parsed.path, query, fragment))
+    except ValueError:
+        return "unparseable URL"
+
+
+def parse_proxy_configuration(output: str) -> dict[str, object]:
+    settings: dict[str, object] = {}
+    for line in output.splitlines():
+        match = SCUTIL_VALUE_RE.match(line)
+        if not match:
+            continue
+        key, value = match.groups()
+        parsed_value: object = int(value) if value.isdigit() else value
+        if key.lower().endswith("urlstring") and isinstance(parsed_value, str):
+            parsed_value = _redact_proxy_url(parsed_value)
+        settings[key] = parsed_value
+    return settings
+
+
+def enabled_proxy_types(settings: dict[str, object]) -> tuple[str, ...]:
+    return tuple(label for key, label in PROXY_ENABLE_KEYS.items() if settings.get(key) == 1)
 
 
 def _finding_id(prefix: str, source: str) -> str:
@@ -71,4 +118,50 @@ class NetworkCollector(Collector):
                 evidence=(Evidence("command_output", result.command, evidence_value),),
                 commands_used=(result.command,), references=("https://support.apple.com/guide/security/welcome/web",),
             ))
+        findings.append(self._proxy_finding())
         return findings
+
+    def _proxy_finding(self) -> Finding:
+        result = self.runner.run(("scutil", "--proxy"))
+        settings = parse_proxy_configuration(result.stdout) if result.returncode == 0 and not result.timed_out else {}
+        enabled = enabled_proxy_types(settings)
+        if result.returncode != 0 or result.timed_out:
+            severity, status = Severity.INFORMATIONAL, "Unknown"
+            observed = result.stderr or f"Command returned exit status {result.returncode}."
+        elif enabled:
+            severity, status = Severity.LOW, "Review"
+            endpoints = []
+            for prefix in ("HTTP", "HTTPS", "FTP", "SOCKS", "RTSP", "Gopher"):
+                host = settings.get(f"{prefix}Proxy")
+                port = settings.get(f"{prefix}Port")
+                if host:
+                    endpoints.append(f"{prefix}={host}{f':{port}' if port is not None else ''}")
+            pac = settings.get("ProxyAutoConfigURLString")
+            if pac:
+                endpoints.append(f"PAC={pac}")
+            observed = f"Enabled proxy mechanism(s): {', '.join(enabled)}."
+            if endpoints:
+                observed += f" Configured endpoint(s): {', '.join(str(value) for value in endpoints)}."
+        else:
+            severity, status = Severity.INFORMATIONAL, "Pass"
+            observed = "No enabled system proxy mechanism was observed."
+        return Finding(
+            finding_id="NETWORK-PROXY", category="Network & Certificates", title="System proxy configuration",
+            severity=severity, status=status,
+            description="Interprets the active macOS HTTP, HTTPS, SOCKS, legacy proxy, PAC, and automatic proxy-discovery settings.",
+            why_it_matters="Unexpected proxy or PAC configuration can redirect, inspect, or alter host network traffic.",
+            what_was_checked=result.command,
+            expected_result="Every enabled proxy mechanism and endpoint is authorized and attributable to the host's network policy.",
+            observed_result=observed,
+            recommendation="Validate enabled proxies and PAC sources against the approved network or VPN configuration; preserve evidence before changing them.",
+            evidence=(Evidence("proxy_configuration", result.command, {
+                "returncode": result.returncode,
+                "timed_out": result.timed_out,
+                "enabled_types": enabled,
+                "settings": settings,
+                "stderr": result.stderr,
+            }),),
+            commands_used=(result.command,),
+            mitre_attack=("T1090 - Proxy",),
+            references=("https://support.apple.com/guide/mac-help/change-proxy-settings-on-mac-mchlp2591/mac",),
+        )
