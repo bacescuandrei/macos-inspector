@@ -5,6 +5,7 @@ from .ioc import IOCCollector
 from .persistence import PersistenceCollector
 from .privacy import PrivacyCollector
 from .network import NetworkCollector
+from .management_profiles import ManagementProfilesCollector
 from .system_extensions import SystemExtensionsCollector
 from .security import SecurityControlsCollector
 
@@ -16,6 +17,7 @@ COLLECTORS = {
     PersistenceCollector.collector_id: PersistenceCollector,
     PrivacyCollector.collector_id: PrivacyCollector,
     NetworkCollector.collector_id: NetworkCollector,
+    ManagementProfilesCollector.collector_id: ManagementProfilesCollector,
     SystemExtensionsCollector.collector_id: SystemExtensionsCollector,
     SecurityControlsCollector.collector_id: SecurityControlsCollector,
 }

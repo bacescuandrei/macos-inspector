@@ -32,8 +32,8 @@ SCAN_PROFILES = (
     {
         "id": "quick",
         "title": "Quick triage",
-        "description": "Core persistence, hardening, network, extension and IOC checks.",
-        "collectors": ("persistence", "background-items", "security", "network", "system-extensions", "ioc"),
+        "description": "Core persistence, hardening, management, network, extension and IOC checks.",
+        "collectors": ("persistence", "background-items", "security", "management-profiles", "network", "system-extensions", "ioc"),
         "default": True,
     },
     {

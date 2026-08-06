@@ -41,6 +41,7 @@ from macos_inspector.collectors.system_extensions import parse_system_extensions
 from macos_inspector.collectors.ioc import IOCCollector
 from macos_inspector.collectors import COLLECTORS
 from macos_inspector.collectors.security import SecurityControlsCollector
+from macos_inspector.collectors.management_profiles import ManagementProfilesCollector, parse_configuration_profile_status, parse_enrollment_status
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.runner import CommandResult, CommandRunner, ScanCancelled
@@ -61,6 +62,28 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_management_profile_status_fixtures(self):
+        fixtures = Path(__file__).parent / "fixtures" / "management_profiles"
+        no_profiles = (fixtures / "configuration_none.txt").read_text()
+        installed_profiles = (fixtures / "configuration_installed.txt").read_text()
+        enrollment_output = (fixtures / "enrollment_managed.txt").read_text()
+        self.assertFalse(parse_configuration_profile_status(no_profiles))
+        self.assertTrue(parse_configuration_profile_status(installed_profiles))
+        enrollment = parse_enrollment_status(enrollment_output)
+        self.assertTrue(enrollment.dep_enrolled)
+        self.assertTrue(enrollment.mdm_enrolled)
+
+        class FakeRunner:
+            def run(self, argv):
+                command = tuple(argv)
+                output = installed_profiles if command[-1] == "configuration" else enrollment_output
+                return CommandResult(command, 0, output, "")
+
+        findings = {finding.finding_id: finding for finding in ManagementProfilesCollector(FakeRunner()).collect()}
+        self.assertEqual((findings["MANAGEMENT-CONFIGURATION-PROFILES"].severity, findings["MANAGEMENT-CONFIGURATION-PROFILES"].status), (Severity.LOW, "Review"))
+        self.assertEqual((findings["MANAGEMENT-ENROLLMENT"].severity, findings["MANAGEMENT-ENROLLMENT"].status), (Severity.INFORMATIONAL, "Observed"))
+        self.assertIn("MDM enrollment=yes", findings["MANAGEMENT-ENROLLMENT"].observed_result)
+
     def test_proxy_fixtures_are_interpreted_and_sensitive_url_components_are_redacted(self):
         fixtures = Path(__file__).parent / "fixtures" / "network"
         active = parse_proxy_configuration((fixtures / "proxy_active.txt").read_text())
