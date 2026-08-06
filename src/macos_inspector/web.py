@@ -22,7 +22,7 @@ from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.readiness import collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.runner import ScanCancelled
-from macos_inspector.reporters import REPORTERS
+from macos_inspector.reporters import REPORTERS, report_format_capabilities, require_report_formats
 from macos_inspector.reporters.manifest_reporter import verify_manifest
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
 from macos_inspector.reporters.common import secure_write_text
@@ -101,10 +101,11 @@ class DashboardState:
         secure_write_text(self.journal_path, json.dumps({"schema_version": 1, "jobs": retained}, indent=2, ensure_ascii=False) + "\n")
 
     def create_job(self, collectors: list[str], formats: list[str], minimum: str, case_reference: str = "", analyst: str = "") -> ScanJob:
+        requested_formats = list(dict.fromkeys(["html", "json", *formats]))
+        require_report_formats(requested_formats)
         with self.lock:
             if any(job.state in {"queued", "running"} for job in self.jobs.values()):
                 raise RuntimeError("A scan is already running.")
-            requested_formats = list(dict.fromkeys(["html", "json", *formats]))
             job = ScanJob(str(uuid.uuid4()), collectors, requested_formats, minimum, case_reference, analyst, total_collectors=len(collectors))
             self.jobs[job.job_id] = job
             self.cancel_events[job.job_id] = threading.Event()
@@ -336,7 +337,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/config":
             self._send_json({
                 "collectors": [{"id": key, "title": value.title} for key, value in COLLECTORS.items()],
-                "formats": list(REPORTERS), "severities": [severity.label() for severity in Severity],
+                "formats": list(REPORTERS), "format_capabilities": report_format_capabilities(),
+                "severities": [severity.label() for severity in Severity],
             })
         elif path == "/api/health":
             self._send_json(self.state.health())

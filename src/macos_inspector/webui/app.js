@@ -66,7 +66,14 @@ function renderCollectors() {
 
 function renderFormats() {
   const labels = { html: 'Interactive HTML', json: 'JSON', markdown: 'Markdown', csv: 'CSV', sarif: 'SARIF', manifest: 'Evidence manifest', pdf: 'PDF (optional)', bundle: 'Case bundle ZIP' };
-  $('#formats').innerHTML = state.config.formats.map((format) => `<label class="format-option"><input type="checkbox" data-format="${escapeHtml(format)}" ${format === 'pdf' ? '' : 'checked'}> ${escapeHtml(labels[format] || format.toUpperCase())}</label>`).join('');
+  const capabilities = state.config.format_capabilities || {};
+  $('#formats').innerHTML = state.config.formats.map((format) => {
+    const capability = capabilities[format] || {available: true, reason: ''};
+    const available = capability.available !== false;
+    const checked = available && format !== 'pdf' ? 'checked' : '';
+    const unavailable = available ? '' : '<span class="format-unavailable">Unavailable</span>';
+    return `<label class="format-option${available ? '' : ' unavailable'}" title="${escapeHtml(capability.reason || '')}" aria-disabled="${available ? 'false' : 'true'}"><input type="checkbox" data-format="${escapeHtml(format)}" ${checked} ${available ? '' : 'disabled'}> ${escapeHtml(labels[format] || format.toUpperCase())}${unavailable}</label>`;
+  }).join('');
 }
 
 async function loadReadiness() {

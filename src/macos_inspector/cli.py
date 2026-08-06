@@ -10,7 +10,7 @@ from macos_inspector import __version__
 from macos_inspector.collectors import COLLECTORS
 from macos_inspector.core.models import Severity
 from macos_inspector.core.scan import run_scan, write_reports
-from macos_inspector.reporters import REPORTERS
+from macos_inspector.reporters import REPORTERS, unavailable_report_formats
 
 
 def _csv(value: str) -> list[str]:
@@ -77,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         parser().error(f"unknown collectors: {', '.join(sorted(unknown))}")
     if bad_formats:
         parser().error(f"unknown formats: {', '.join(sorted(bad_formats))}")
+    unavailable_formats = unavailable_report_formats(formats)
+    if unavailable_formats:
+        parser().error("; ".join(unavailable_formats.values()))
     if len(args.case_reference) > 200 or len(args.analyst) > 200:
         parser().error("case reference and analyst must be at most 200 characters")
     result = run_scan(selected, minimum, case_reference=args.case_reference, analyst=args.analyst)

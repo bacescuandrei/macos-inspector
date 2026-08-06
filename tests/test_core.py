@@ -1,13 +1,14 @@
 import tempfile
 import unittest
 import hashlib
+import io
 import sqlite3
 import json
 import importlib.util
 import plistlib
 import threading
 import zipfile
-from contextlib import closing
+from contextlib import closing, redirect_stderr
 from datetime import datetime, timezone
 from unittest.mock import patch
 from pathlib import Path
@@ -39,10 +40,11 @@ from macos_inspector.core.readiness import _probe_sqlite_readable, collect_readi
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.scoring import calculate_scores
 from macos_inspector.core.timeline import build_timeline
-from macos_inspector.reporters import REPORTERS
+from macos_inspector.reporters import REPORTERS, report_format_capabilities, require_report_formats
 from macos_inspector.reporters.manifest_reporter import verify_manifest, write_manifest
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
 from macos_inspector.web import DashboardState, ScanJob
+from macos_inspector.cli import main as cli_main
 from scripts.build_release import LAUNCHER, build_release
 
 
@@ -51,6 +53,25 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_optional_report_format_is_rejected_before_collection(self):
+        with patch("macos_inspector.reporters.importlib.util.find_spec", return_value=None):
+            capabilities = report_format_capabilities()
+            self.assertFalse(capabilities["pdf"]["available"])
+            self.assertTrue(capabilities["html"]["available"])
+            with self.assertRaisesRegex(ValueError, "PDF export requires"):
+                require_report_formats(["html", "pdf"])
+            with tempfile.TemporaryDirectory() as directory:
+                state = DashboardState(Path(directory))
+                with self.assertRaisesRegex(ValueError, "PDF export requires"):
+                    state.create_job(["security"], ["pdf"], "informational")
+                self.assertEqual(state.jobs, {})
+
+            with patch("macos_inspector.cli.run_scan") as mocked_scan, redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as exit_context:
+                    cli_main(["--collectors", "security", "--formats", "pdf"])
+            self.assertEqual(exit_context.exception.code, 2)
+            mocked_scan.assert_not_called()
+
     def test_readiness_is_bounded_and_reports_access_without_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

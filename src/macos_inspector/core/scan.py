@@ -76,7 +76,9 @@ def write_reports(result: ScanResult, formats: list[str], output_directory) -> l
     from pathlib import Path
     from macos_inspector.reporters.bundle_reporter import write_bundle
     from macos_inspector.reporters.manifest_reporter import write_manifest
+    from macos_inspector.reporters import require_report_formats
 
+    require_report_formats(formats)
     output = Path(output_directory)
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     output.chmod(0o700)
