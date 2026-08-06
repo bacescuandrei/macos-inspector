@@ -15,10 +15,13 @@ from pathlib import Path
 
 from macos_inspector.collectors.application_trust import (
     ApplicationTrustCollector,
+    FileIntegrityDetails,
     SignatureDetails,
+    assess_file_integrity,
     classify_trust,
     discover_applications,
     inspect_file_integrity,
+    merge_trust_assessments,
     assess_entitlements,
     parse_codesign_details,
     parse_entitlements,
@@ -53,6 +56,46 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_application_trust_macOS_command_fixtures(self):
+        fixtures = Path(__file__).parent / "fixtures" / "application_trust"
+        signature = parse_codesign_details((fixtures / "codesign_developer_id.txt").read_text())
+        gatekeeper = parse_gatekeeper_details((fixtures / "spctl_notarized.txt").read_text())
+        entitlements, error = parse_entitlements((fixtures / "entitlements_abstract.txt").read_text())
+
+        self.assertEqual(signature.identifier, "com.example.Acme")
+        self.assertEqual(signature.team_identifier, "ABC1234567")
+        self.assertEqual(signature.signature_type, "Developer ID")
+        self.assertTrue(signature.hardened_runtime)
+        self.assertTrue(gatekeeper.notarized)
+        self.assertEqual(gatekeeper.source, "Notarized Developer ID")
+        self.assertIsNone(error)
+        self.assertTrue(entitlements["com.apple.security.app-sandbox"])
+        self.assertEqual(entitlements["com.apple.security.application-groups"], ["ABC1234567.com.example.shared"])
+
+    def test_application_integrity_gaps_and_risky_permissions_change_trust(self):
+        unavailable = assess_file_integrity(FileIntegrityDetails(error="PermissionError: denied"))
+        self.assertEqual(unavailable[0][:2], (Severity.INFORMATIONAL, "Unknown"))
+        self.assertEqual(
+            merge_trust_assessments((Severity.INFORMATIONAL, "Pass", "Signature accepted."), unavailable)[:2],
+            (Severity.INFORMATIONAL, "Unknown"),
+        )
+
+        group_writable = assess_file_integrity(FileIntegrityDetails(sha256="a" * 64, permissions="0775"))
+        self.assertEqual(group_writable[0][:2], (Severity.MEDIUM, "Review"))
+        self.assertIn("group-writable", group_writable[0][2])
+
+        world_writable = assess_file_integrity(FileIntegrityDetails(
+            sha256="b" * 64, permissions="0777", is_symlink=True, changed_during_read=True,
+        ))
+        merged = merge_trust_assessments(
+            (Severity.LOW, "Review", "Ad-hoc signature."),
+            world_writable,
+        )
+        self.assertEqual(merged[:2], (Severity.HIGH, "Review"))
+        self.assertIn("changed while", merged[2])
+        self.assertIn("world-writable", merged[2])
+        self.assertIn("symbolic link", merged[2])
+
     def test_optional_report_format_is_rejected_before_collection(self):
         with patch("macos_inspector.reporters.importlib.util.find_spec", return_value=None):
             capabilities = report_format_capabilities()
@@ -447,9 +490,18 @@ origin=Developer ID Application: Example (TEAM123)""")
             collector.set_progress_callback(lambda item, completed, total: progress.append((item, completed, total)))
             finding = collector.collect()[0]
             integrity = next(item for item in finding.evidence if item.kind == "executable_integrity")
+            self.assertEqual(finding.status, "Pass")
             self.assertEqual(integrity.value["sha256"], details.sha256)
+            self.assertEqual(integrity.value["owner_uid"], executable.stat().st_uid)
+            self.assertEqual(integrity.value["owner_gid"], executable.stat().st_gid)
             self.assertIn(details.sha256, finding.observed_result)
+            self.assertIn("executable_mode=0751", finding.observed_result)
             self.assertEqual(progress, [("Test.app", 0, 1), (None, 1, 1)])
+
+            executable.chmod(0o775)
+            risky_finding = collector._inspect(bundle)
+            self.assertEqual((risky_finding.severity, risky_finding.status), (Severity.MEDIUM, "Review"))
+            self.assertIn("group-writable", risky_finding.observed_result)
 
     def test_scan_forwards_collector_item_progress(self):
         class ProgressCollector:

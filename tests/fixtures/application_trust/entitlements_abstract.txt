@@ -1,0 +1,9 @@
+Executable=/Applications/Acme.app/Contents/MacOS/Acme
+[Dict]
+	[Key] com.apple.security.app-sandbox
+	[Value]
+		[Bool] true
+	[Key] com.apple.security.application-groups
+	[Value]
+		[Array]
+			[String] ABC1234567.com.example.shared

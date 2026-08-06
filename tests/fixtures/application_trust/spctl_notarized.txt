@@ -1,0 +1,3 @@
+/Applications/Acme.app: accepted
+source=Notarized Developer ID
+origin=Developer ID Application: Example Software SRL (ABC1234567)

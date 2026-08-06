@@ -1,0 +1,12 @@
+Executable=/Applications/Acme.app/Contents/MacOS/Acme
+Identifier=com.example.Acme
+Format=app bundle with Mach-O universal (x86_64 arm64)
+CodeDirectory v=20500 size=980 flags=0x10000(runtime) hashes=22+7 location=embedded
+Signature size=8998
+Authority=Developer ID Application: Example Software SRL (ABC1234567)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=5 Aug 2026 at 10:30:00
+TeamIdentifier=ABC1234567
+Runtime Version=15.0.0
+designated => identifier "com.example.Acme" and anchor apple generic and certificate leaf[subject.OU] = ABC1234567

@@ -54,6 +54,8 @@ class FileIntegrityDetails:
     size_bytes: int | None = None
     modified_at: str | None = None
     permissions: str | None = None
+    owner_uid: int | None = None
+    owner_gid: int | None = None
     is_symlink: bool = False
     changed_during_read: bool = False
     error: str | None = None
@@ -257,11 +259,84 @@ def inspect_file_integrity(path: Path | None) -> FileIntegrityDetails:
             size_bytes=before.st_size,
             modified_at=datetime.fromtimestamp(before.st_mtime, timezone.utc).isoformat(),
             permissions=f"{stat.S_IMODE(before.st_mode):04o}",
+            owner_uid=before.st_uid,
+            owner_gid=before.st_gid,
             is_symlink=is_symlink,
             changed_during_read=changed,
         )
     except OSError as exc:
         return FileIntegrityDetails(is_symlink=is_symlink, error=f"{type(exc).__name__}: {exc}")
+
+
+def assess_file_integrity(details: FileIntegrityDetails) -> tuple[tuple[Severity, str, str], ...]:
+    """Return explicit trust concerns without treating collection gaps as compliance."""
+    if details.error or not details.sha256:
+        return ((
+            Severity.INFORMATIONAL,
+            "Unknown",
+            "The main executable could not be hashed, so file-integrity coverage is incomplete.",
+        ),)
+
+    assessments: list[tuple[Severity, str, str]] = []
+    if details.changed_during_read:
+        assessments.append((
+            Severity.MEDIUM,
+            "Review",
+            "The main executable changed while it was being hashed; reacquire it before relying on the digest.",
+        ))
+
+    mode = None
+    if details.permissions:
+        try:
+            mode = int(details.permissions, 8)
+        except ValueError:
+            assessments.append((
+                Severity.INFORMATIONAL,
+                "Unknown",
+                "The main executable's permission mode could not be interpreted.",
+            ))
+    if mode is not None:
+        if not mode & 0o111:
+            assessments.append((
+                Severity.MEDIUM,
+                "Review",
+                "The declared main executable has no executable permission bits.",
+            ))
+        if mode & 0o002:
+            assessments.append((
+                Severity.HIGH,
+                "Review",
+                "The main executable is world-writable and can be replaced by other local users.",
+            ))
+        elif mode & 0o020:
+            assessments.append((
+                Severity.MEDIUM,
+                "Review",
+                "The main executable is group-writable and its ownership context requires review.",
+            ))
+    if details.is_symlink:
+        assessments.append((
+            Severity.LOW,
+            "Review",
+            "The declared main executable is a symbolic link; validate the resolved target and ownership.",
+        ))
+    return tuple(assessments)
+
+
+def merge_trust_assessments(
+    base: tuple[Severity, str, str],
+    assessments: tuple[tuple[Severity, str, str], ...],
+) -> tuple[Severity, str, str]:
+    severity, status, conclusion = base
+    for candidate_severity, candidate_status, reason in assessments:
+        conclusion = f"{conclusion} {reason}"
+        if status == "Fail":
+            continue
+        if candidate_status == "Review" and (status != "Review" or candidate_severity > severity):
+            severity, status = candidate_severity, candidate_status
+        elif candidate_status == "Unknown" and status == "Pass":
+            severity, status = candidate_severity, candidate_status
+    return severity, status, conclusion
 
 
 def classify_trust(
@@ -374,10 +449,17 @@ class ApplicationTrustCollector(Collector):
         gatekeeper = parse_gatekeeper_details(f"{assessment.stdout}\n{assessment.stderr}")
         quarantine_details = parse_quarantine(quarantine.stdout) if quarantine.returncode == 0 else QuarantineDetails()
         download_sources, download_sources_error = parse_where_froms_hex(where_froms.stdout) if where_froms.returncode == 0 else ((), None)
-        severity, status, conclusion = classify_trust(executable_exists, signature, assessment, details, gatekeeper)
-        if status == "Pass" and entitlement_severity is not None:
-            severity, status = entitlement_severity, "Review"
-            conclusion = "The signature and Gatekeeper assessment are valid, but the application requests security-sensitive entitlements that warrant review."
+        supplemental_assessments = list(assess_file_integrity(executable_integrity))
+        if entitlement_severity is not None:
+            supplemental_assessments.append((
+                entitlement_severity,
+                "Review",
+                "The application requests security-sensitive entitlements that warrant review.",
+            ))
+        severity, status, conclusion = merge_trust_assessments(
+            classify_trust(executable_exists, signature, assessment, details, gatekeeper),
+            tuple(supplemental_assessments),
+        )
 
         display_name = metadata.get("CFBundleDisplayName") or metadata.get("CFBundleName") or bundle.stem
         version = metadata.get("CFBundleShortVersionString") or metadata.get("CFBundleVersion")
@@ -386,6 +468,9 @@ class ApplicationTrustCollector(Collector):
             f"team={details.team_identifier or 'none'}; version={version or 'unknown'}; "
             f"signature={details.signature_type or 'unknown'}; hardened_runtime={'yes' if details.hardened_runtime else 'no'}; "
             f"executable_sha256={executable_integrity.sha256 or 'unavailable'}; "
+            f"executable_mode={executable_integrity.permissions or 'unknown'}; "
+            f"executable_owner={executable_integrity.owner_uid if executable_integrity.owner_uid is not None else 'unknown'}:"
+            f"{executable_integrity.owner_gid if executable_integrity.owner_gid is not None else 'unknown'}; "
             f"gatekeeper_source={gatekeeper.source or 'unknown'}; notarized={('yes' if gatekeeper.notarized else 'no') if gatekeeper.notarized is not None else 'unknown'}; "
             f"sensitive_entitlements={','.join(sensitive_entitlements) or 'none'}; "
             f"quarantine={'present' if quarantine.returncode == 0 else 'absent or inaccessible'}; "
@@ -409,6 +494,8 @@ class ApplicationTrustCollector(Collector):
                 "size_bytes": executable_integrity.size_bytes,
                 "modified_at": executable_integrity.modified_at,
                 "permissions": executable_integrity.permissions,
+                "owner_uid": executable_integrity.owner_uid,
+                "owner_gid": executable_integrity.owner_gid,
                 "is_symlink": executable_integrity.is_symlink,
                 "changed_during_read": executable_integrity.changed_during_read,
                 "error": executable_integrity.error,
@@ -434,14 +521,14 @@ class ApplicationTrustCollector(Collector):
         return Finding(
             finding_id=_finding_id(bundle), category="Application Trust", title=f"Application trust: {display_name}",
             severity=severity, status=status,
-            description="Validates an installed application's bundle metadata, executable hash, code signature, entitlements, acquisition source, and Gatekeeper assessment.",
+            description="Validates an installed application's bundle metadata, executable hash and filesystem integrity, code signature, entitlements, acquisition source, and Gatekeeper assessment.",
             why_it_matters="Unsigned, modified, or policy-rejected applications can indicate untrusted software or post-installation tampering.",
-            what_was_checked="Bundle executable metadata and SHA-256, signature integrity and identity, code entitlements, Gatekeeper policy, quarantine metadata, and recorded download sources.",
-            expected_result="The declared executable exists, the code signature is valid, and Gatekeeper accepts the application.",
+            what_was_checked="Bundle executable metadata, SHA-256, ownership, permissions and read stability; signature integrity and identity; code entitlements; Gatekeeper policy; quarantine metadata; and recorded download sources.",
+            expected_result="The declared executable exists, can be hashed without changing, is not group/world-writable, has executable permissions, has a valid code signature, and is accepted by Gatekeeper.",
             observed_result=observed,
-            recommendation="For failures, preserve the bundle and metadata, validate the publisher and acquisition source, and investigate before execution or removal.",
+            recommendation="For failures or integrity reviews, preserve the bundle and metadata, reacquire unstable hashes, validate filesystem ownership, publisher and acquisition source, and investigate before execution or removal.",
             evidence=evidence,
             commands_used=(signature.command, details_result.command, entitlements_result.command, assessment.command, quarantine.command, where_froms.command),
-            mitre_attack=("T1553.001 - Gatekeeper Bypass", "T1036 - Masquerading"),
+            mitre_attack=("T1553.001 - Gatekeeper Bypass", "T1036 - Masquerading", "T1222.002 - Linux and Mac File and Directory Permissions Modification"),
             references=("https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web",),
         )
