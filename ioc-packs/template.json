@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "enabled": false,
+  "name": "Example IOC pack",
+  "version": "1.0.0",
+  "source": {
+    "name": "Replace with authoritative source",
+    "url": "https://example.invalid/ioc-pack"
+  },
+  "updated_at": "2026-07-11T00:00:00Z",
+  "indicators": [
+    {
+      "id": "example-path",
+      "type": "path",
+      "value": "/tmp/example-malware",
+      "severity": "high",
+      "description": "Replace this disabled example with a sourced indicator."
+    }
+  ]
+}

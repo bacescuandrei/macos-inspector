@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>macOS Inspector dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true">⌘</div>
+    <div>
+      <p class="eyebrow">READ-ONLY DFIR WORKBENCH</p>
+      <h1>macOS Inspector</h1>
+    </div>
+    <span id="connection" class="connection checking" role="status" aria-live="polite">Connecting…</span>
+  </header>
+
+  <main class="layout">
+    <section class="intro" aria-labelledby="intro-title">
+      <div>
+        <p class="eyebrow">AUDIT CONSOLE</p>
+        <h2 id="intro-title">Collect evidence without terminal commands</h2>
+        <p class="lede">Choose the audit sections, run a read-only scan, then inspect findings and exportable reports in one place.</p>
+      </div>
+      <div class="safety-note"><span>●</span> Local only · no remediation · no privilege escalation</div>
+    </section>
+
+    <section class="workspace-grid">
+      <aside class="control-panel" aria-labelledby="controls-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">01 / SCOPE</p><h2 id="controls-title">Audit sections</h2></div>
+          <button id="select-all" class="text-button" type="button">Select all</button>
+        </div>
+        <div id="collectors" class="collector-list" aria-live="polite"><p class="muted">Loading audit sections…</p></div>
+
+        <div class="section-heading compact"><div><p class="eyebrow">02 / EXPORTS</p><h2>Report formats</h2></div></div>
+        <div id="formats" class="format-list"></div>
+
+        <div class="case-fields">
+          <label class="field-label" for="case-reference">Case reference <span>optional</span></label>
+          <input id="case-reference" class="field" type="text" maxlength="200" placeholder="Incident or case ID">
+          <label class="field-label" for="analyst">Analyst <span>optional</span></label>
+          <input id="analyst" class="field" type="text" maxlength="200" placeholder="Name or team">
+        </div>
+        <label class="field-label" for="minimum">Minimum severity shown</label>
+        <select id="minimum" class="field">
+          <option value="informational">All findings</option>
+          <option value="low">Low and above</option>
+          <option value="medium">Medium and above</option>
+          <option value="high">High and above</option>
+          <option value="critical">Critical only</option>
+        </select>
+        <button id="run-selected" class="primary-button" type="button">Run selected audit</button>
+        <button id="cancel-scan" class="cancel-button hidden" type="button">Cancel running scan</button>
+        <p id="action-message" class="action-message" role="status"></p>
+      </aside>
+
+      <section class="results-panel" aria-labelledby="results-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">03 / RESULTS</p><h2 id="results-title">Scan results</h2></div>
+          <span id="scan-state" class="state-pill">Ready</span>
+        </div>
+        <div id="progress" class="progress-box empty"><strong>Ready when you are.</strong><span>Select a section and start an audit.</span></div>
+        <div id="case-banner" class="case-banner hidden"></div>
+        <div id="summary" class="summary-grid hidden"></div>
+        <section id="comparison-panel" class="comparison-panel hidden" aria-labelledby="comparison-title"><div class="comparison-heading"><div><span class="eyebrow">BASELINE DIFF</span><h3 id="comparison-title">Scan comparison</h3></div><button id="close-comparison" class="text-button" type="button">Close</button></div><div id="comparison-summary" class="comparison-summary"></div><div id="comparison-results" class="comparison-results"></div></section>
+        <div id="report-links" class="report-links hidden"></div>
+        <details id="timeline-panel" class="timeline-panel hidden"><summary>Timeline · <span id="timeline-count">0</span> events</summary><div id="timeline" class="timeline-list"></div></details>
+        <div id="findings-toolbar" class="findings-toolbar hidden">
+          <label><span>Search findings</span><input id="finding-search" class="field" type="search" placeholder="Title, ID, evidence…"></label>
+          <label><span>Status</span><select id="finding-status-filter" class="field"><option value="">All statuses</option></select></label>
+          <label><span>Category</span><select id="finding-category-filter" class="field"><option value="">All categories</option></select></label>
+          <div class="finding-page-controls"><span id="finding-range">0 findings</span><button id="findings-prev" class="text-button" type="button">Previous</button><button id="findings-next" class="text-button" type="button">Next</button></div>
+        </div>
+        <div id="findings" class="findings-list"><div class="empty-state"><span class="empty-icon">◌</span><h3>No scan selected</h3><p>Your findings will appear here with evidence, commands and recommendations.</p></div></div>
+      </section>
+    </section>
+
+    <section class="history-section" aria-labelledby="history-title">
+      <div class="section-heading"><div><p class="eyebrow">04 / HISTORY</p><h2 id="history-title">Previous scans</h2></div><button id="refresh-history" class="text-button" type="button">Refresh</button></div>
+      <div class="history-toolbar"><label for="history-search">Find a scan</label><input id="history-search" class="field" type="search" placeholder="Case, analyst, collector or scan ID"><button id="clear-history-search" class="text-button" type="button">Clear</button><span id="history-count"></span></div>
+      <div id="history" class="history-list"><p class="muted">Loading scan history…</p></div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
