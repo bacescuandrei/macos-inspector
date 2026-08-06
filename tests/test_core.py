@@ -101,11 +101,17 @@ class CoreTests(unittest.TestCase):
             self.assertGreaterEqual(idle["uptime_seconds"], 0)
             self.assertNotIn("output", idle)
 
-            job = ScanJob("job-1", ["security"], ["json"], "informational", state="running", current_collector="security", total_collectors=1)
+            job = ScanJob(
+                "job-1", ["security"], ["json"], "informational", state="running",
+                current_collector="security", total_collectors=1, current_item="Example.app",
+                completed_items=3, total_items=10,
+            )
             state.jobs[job.job_id] = job
             active = state.health()["active_job"]
             self.assertEqual(active["job_id"], "job-1")
             self.assertEqual(active["current_collector"], "security")
+            self.assertNotIn("current_item", active)
+            self.assertEqual(job.to_dict()["current_item"], "Example.app")
 
     def test_dashboard_recovers_running_job_as_interrupted(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -120,6 +126,34 @@ class CoreTests(unittest.TestCase):
             self.assertIn("No partial reports", restored.error)
             self.assertIsNotNone(restored.completed_at)
             self.assertEqual(recovered.journal_path.stat().st_mode & 0o777, 0o600)
+
+    def test_dashboard_estimates_item_progress_from_recent_median(self):
+        metadata = ScanMetadata("0.1", "progress-scan", "start", "end", "host", "platform", "user", ("application-trust",))
+        result = ScanResult(metadata, (), 100, {})
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            job = ScanJob("job-progress", ["application-trust"], ["json"], "informational", total_collectors=1)
+            state.jobs[job.job_id] = job
+            state.cancel_events[job.job_id] = threading.Event()
+            estimates = []
+
+            def fake_run_scan(*args, **kwargs):
+                callback = kwargs["item_progress"]
+                for item, completed in (("One.app", 0), ("Two.app", 1), ("Three.app", 2), ("Four.app", 3)):
+                    callback("application-trust", item, completed, 5)
+                    estimates.append(job.estimated_seconds_remaining)
+                callback("application-trust", None, 5, 5)
+                return result
+
+            with patch("macos_inspector.web.run_scan", side_effect=fake_run_scan), patch(
+                "macos_inspector.web.write_reports", return_value=[]
+            ), patch("macos_inspector.web.time.monotonic", side_effect=[100, 110, 112, 114, 116]):
+                state._execute(job)
+
+            self.assertEqual(estimates, [None, None, None, 4])
+            self.assertEqual(job.state, "completed")
+            self.assertIsNone(job.estimated_seconds_remaining)
+            self.assertNotIn(job.job_id, state.item_progress_runtime)
 
     def test_case_metadata_is_serialized(self):
         metadata = ScanMetadata("0.1", "scan", "start", "end", "host", "platform", "user", ("test",), case_reference="CASE-42", analyst="DFIR Team")
@@ -331,10 +365,37 @@ origin=Developer ID Application: Example (TEAM123)""")
             self.assertEqual(details.permissions, "0751")
             self.assertFalse(details.changed_during_read)
 
-            finding = ApplicationTrustCollector(FakeRunner(), (root,)).collect()[0]
+            progress = []
+            collector = ApplicationTrustCollector(FakeRunner(), (root,))
+            collector.set_progress_callback(lambda item, completed, total: progress.append((item, completed, total)))
+            finding = collector.collect()[0]
             integrity = next(item for item in finding.evidence if item.kind == "executable_integrity")
             self.assertEqual(integrity.value["sha256"], details.sha256)
             self.assertIn(details.sha256, finding.observed_result)
+            self.assertEqual(progress, [("Test.app", 0, 1), (None, 1, 1)])
+
+    def test_scan_forwards_collector_item_progress(self):
+        class ProgressCollector:
+            def __init__(self, runner):
+                self.callback = None
+
+            def set_progress_callback(self, callback):
+                self.callback = callback
+
+            def collect(self):
+                self.callback("One.app", 0, 2)
+                self.callback("Two.app", 1, 2)
+                self.callback(None, 2, 2)
+                return []
+
+        events = []
+        with patch.dict("macos_inspector.core.scan.COLLECTORS", {"progress": ProgressCollector}, clear=True):
+            run_scan(["progress"], item_progress=lambda collector, item, completed, total: events.append((collector, item, completed, total)))
+        self.assertEqual(events, [
+            ("progress", "One.app", 0, 2),
+            ("progress", "Two.app", 1, 2),
+            ("progress", None, 2, 2),
+        ])
 
     def test_browser_artifacts_read_chromium_profile(self):
         class FakeRunner:

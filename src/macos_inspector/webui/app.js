@@ -140,7 +140,26 @@ function renderProgress(job) {
   const total = job.total_collectors || job.collectors?.length || 0;
   $('#progress').className = 'progress-box';
   const headline = job.state === 'completed' ? 'Scan completed' : job.state === 'failed' ? 'Scan failed' : job.state === 'cancelled' ? 'Scan cancelled' : job.state === 'interrupted' ? 'Scan interrupted by dashboard restart' : job.cancel_requested ? 'Stopping safely…' : job.current_collector ? `Collecting ${job.current_collector}` : 'Preparing collection…';
-  $('#progress').innerHTML = `<strong>${escapeHtml(headline)}</strong><span>${completed} of ${total} audit sections complete</span>`;
+  const itemTotal = Number(job.total_items || 0);
+  const itemCompleted = Math.min(Number(job.completed_items || 0), itemTotal);
+  const percent = itemTotal ? Math.round(itemCompleted / itemTotal * 100) : 0;
+  let itemProgress = '';
+  if (job.state === 'running' && itemTotal) {
+    const ordinal = Math.min(itemCompleted + (job.current_item ? 1 : 0), itemTotal);
+    const remaining = Math.max(0, Number(job.estimated_seconds_remaining || 0));
+    const estimate = remaining ? ` · about ${formatDuration(remaining)} remaining` : '';
+    const itemLabel = job.current_item ? ` · ${escapeHtml(job.current_item)}` : '';
+    itemProgress = `<div class="item-progress"><div class="progress-meter" role="progressbar" aria-label="Collector item progress" aria-valuemin="0" aria-valuemax="${itemTotal}" aria-valuenow="${itemCompleted}"><span style="width:${percent}%"></span></div><small>Application ${ordinal} of ${itemTotal}${itemLabel}${estimate}</small></div>`;
+  }
+  $('#progress').innerHTML = `<strong>${escapeHtml(headline)}</strong><span>${completed} of ${total} audit sections complete</span>${itemProgress}`;
+}
+
+function formatDuration(seconds) {
+  if (seconds < 60) return `${Math.max(1, seconds)}s`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
 }
 
 async function cancelScan() {

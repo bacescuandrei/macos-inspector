@@ -25,6 +25,7 @@ def run_scan(
     case_reference: str = "",
     analyst: str = "",
     cancel_event: threading.Event | None = None,
+    item_progress: Callable[[str, str | None, int, int], None] | None = None,
 ) -> ScanResult:
     """Run collectors and filter only the report view, never the score inputs."""
     started = datetime.now(timezone.utc)
@@ -36,7 +37,13 @@ def run_scan(
         if progress:
             progress(collector_id, index - 1, len(collector_ids))
         try:
-            all_findings.extend(COLLECTORS[collector_id](command_runner).collect())
+            collector = COLLECTORS[collector_id](command_runner)
+            set_progress_callback = getattr(collector, "set_progress_callback", None)
+            if item_progress and callable(set_progress_callback):
+                set_progress_callback(
+                    lambda item, completed, total, current=collector_id: item_progress(current, item, completed, total)
+                )
+            all_findings.extend(collector.collect())
         except ScanCancelled:
             raise
         except Exception as exc:

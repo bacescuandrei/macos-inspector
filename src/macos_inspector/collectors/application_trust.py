@@ -345,7 +345,13 @@ class ApplicationTrustCollector(Collector):
         self.roots = roots if roots is not None else DEFAULT_APPLICATION_ROOTS
 
     def collect(self) -> list[Finding]:
-        return [self._inspect(bundle) for bundle in discover_applications(self.roots)]
+        applications = discover_applications(self.roots)
+        findings = []
+        for index, bundle in enumerate(applications, start=1):
+            self.report_progress(bundle.name, index - 1, len(applications))
+            findings.append(self._inspect(bundle))
+        self.report_progress(None, len(applications), len(applications))
+        return findings
 
     def _inspect(self, bundle: Path) -> Finding:
         metadata, plist_error = _bundle_metadata(bundle)

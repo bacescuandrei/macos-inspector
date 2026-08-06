@@ -48,7 +48,7 @@ For the local dashboard, start the read-only web interface once:
 python3 -m macos_inspector --web
 ```
 
-It binds to `127.0.0.1:8765` by default. The dashboard provides a button for each audit section, progress and scan history, finding details with evidence and commands, and links to every report export. PDF is unchecked by default and becomes available after installing the optional dependency above. The dashboard never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
+It binds to `127.0.0.1:8765` by default. The dashboard provides a button for each audit section, progress and scan history, finding details with evidence and commands, and links to every report export. Long collectors such as Application Trust also report the current application, item count, progress bar, and estimated remaining time. PDF is unchecked by default and becomes available after installing the optional dependency above. The dashboard never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
 
 Active scans can be cancelled from the dashboard. Unfinished jobs are journaled locally with owner-only permissions (`0600`); if the dashboard stops unexpectedly, they are restored as **interrupted** on the next start. Partial results are never published as completed reports.
 

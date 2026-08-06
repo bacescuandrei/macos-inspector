@@ -39,6 +39,10 @@ class ScanJob:
     current_collector: str | None = None
     completed_collectors: int = 0
     total_collectors: int = 0
+    current_item: str | None = None
+    completed_items: int = 0
+    total_items: int = 0
+    estimated_seconds_remaining: int | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: str | None = None
     scan_id: str | None = None
@@ -58,6 +62,7 @@ class DashboardState:
         self.output.chmod(0o700)
         self.jobs: dict[str, ScanJob] = {}
         self.cancel_events: dict[str, threading.Event] = {}
+        self.item_progress_runtime: dict[str, dict] = {}
         self.lock = threading.Lock()
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.started_monotonic = time.monotonic()
@@ -118,9 +123,43 @@ class DashboardState:
                     job.current_collector = collector
                     job.completed_collectors = completed
                     job.total_collectors = total
+                    job.current_item = None
+                    job.completed_items = 0
+                    job.total_items = 0
+                    job.estimated_seconds_remaining = None
+                    self.item_progress_runtime.pop(job.job_id, None)
                     self._persist_jobs_locked()
 
-            result = run_scan(job.collectors, Severity.parse(job.minimum), progress=progress, case_reference=job.case_reference, analyst=job.analyst, cancel_event=cancel_event)
+            def item_progress(collector: str, item: str | None, completed: int, total: int) -> None:
+                with self.lock:
+                    now = time.monotonic()
+                    runtime = self.item_progress_runtime.setdefault(job.job_id, {
+                        "last_update": now, "completed": completed, "durations": [],
+                    })
+                    previous_completed = int(runtime["completed"])
+                    if completed > previous_completed:
+                        per_item = (now - float(runtime["last_update"])) / (completed - previous_completed)
+                        runtime["durations"].append(per_item)
+                        runtime["durations"] = runtime["durations"][-7:]
+                        runtime["last_update"] = now
+                        runtime["completed"] = completed
+                    durations = sorted(float(value) for value in runtime["durations"])
+                    estimate = None
+                    if len(durations) >= 3 and completed < total:
+                        median = durations[len(durations) // 2]
+                        estimate = max(1, round(median * (total - completed)))
+                    job.current_collector = collector
+                    job.current_item = item
+                    job.completed_items = completed
+                    job.total_items = total
+                    job.estimated_seconds_remaining = estimate
+                    self._persist_jobs_locked()
+
+            result = run_scan(
+                job.collectors, Severity.parse(job.minimum), progress=progress,
+                case_reference=job.case_reference, analyst=job.analyst, cancel_event=cancel_event,
+                item_progress=item_progress,
+            )
             if cancel_event.is_set():
                 raise ScanCancelled("Scan cancelled by user.")
             paths = write_reports(result, job.formats, self.output)
@@ -150,6 +189,7 @@ class DashboardState:
         finally:
             with self.lock:
                 self.cancel_events.pop(job.job_id, None)
+                self.item_progress_runtime.pop(job.job_id, None)
                 self._persist_jobs_locked()
 
     def cancel_job(self, job_id: str) -> dict:
