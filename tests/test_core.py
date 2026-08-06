@@ -17,10 +17,13 @@ from macos_inspector.collectors.application_trust import (
     ApplicationTrustCollector,
     FileIntegrityDetails,
     SignatureDetails,
+    assess_bundle_paths,
     assess_file_integrity,
+    assess_metadata_integrity,
     classify_trust,
     discover_applications,
     inspect_file_integrity,
+    inspect_bundle_paths,
     merge_trust_assessments,
     assess_entitlements,
     parse_codesign_details,
@@ -95,6 +98,30 @@ class CoreTests(unittest.TestCase):
         self.assertIn("changed while", merged[2])
         self.assertIn("world-writable", merged[2])
         self.assertIn("symbolic link", merged[2])
+
+    def test_application_bundle_path_escape_and_metadata_permissions_are_reviewed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = root / "Escaped.app"
+            macos = bundle / "Contents" / "MacOS"
+            macos.mkdir(parents=True)
+            external = root / "outside-executable"
+            external.write_bytes(b"outside bundle")
+            external.chmod(0o755)
+            executable = macos / "Escaped"
+            executable.symlink_to(external)
+
+            paths = inspect_bundle_paths(bundle, executable)
+            self.assertFalse(paths.executable_resolves_within_bundle)
+            path_assessments = assess_bundle_paths(paths)
+            self.assertEqual(path_assessments[0][:2], (Severity.HIGH, "Review"))
+            self.assertIn("outside", path_assessments[0][2])
+
+        metadata_assessments = assess_metadata_integrity(FileIntegrityDetails(
+            sha256="c" * 64, permissions="0666",
+        ))
+        self.assertEqual(metadata_assessments[0][:2], (Severity.HIGH, "Review"))
+        self.assertIn("world-writable", metadata_assessments[0][2])
 
     def test_optional_report_format_is_rejected_before_collection(self):
         with patch("macos_inspector.reporters.importlib.util.find_spec", return_value=None):
@@ -490,12 +517,18 @@ origin=Developer ID Application: Example (TEAM123)""")
             collector.set_progress_callback(lambda item, completed, total: progress.append((item, completed, total)))
             finding = collector.collect()[0]
             integrity = next(item for item in finding.evidence if item.kind == "executable_integrity")
+            plist_integrity = next(item for item in finding.evidence if item.kind == "info_plist_integrity")
+            path_integrity = next(item for item in finding.evidence if item.kind == "bundle_path_integrity")
             self.assertEqual(finding.status, "Pass")
             self.assertEqual(integrity.value["sha256"], details.sha256)
             self.assertEqual(integrity.value["owner_uid"], executable.stat().st_uid)
             self.assertEqual(integrity.value["owner_gid"], executable.stat().st_gid)
             self.assertIn(details.sha256, finding.observed_result)
             self.assertIn("executable_mode=0751", finding.observed_result)
+            self.assertIn(f"info_plist_sha256={plist_integrity.value['sha256']}", finding.observed_result)
+            self.assertIn("executable_inside_bundle=yes", finding.observed_result)
+            self.assertEqual(len(plist_integrity.value["sha256"]), 64)
+            self.assertTrue(path_integrity.value["executable_resolves_within_bundle"])
             self.assertEqual(progress, [("Test.app", 0, 1), (None, 1, 1)])
 
             executable.chmod(0o775)

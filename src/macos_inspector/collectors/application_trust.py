@@ -61,6 +61,17 @@ class FileIntegrityDetails:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class BundlePathDetails:
+    bundle_is_symlink: bool = False
+    contents_is_symlink: bool = False
+    macos_directory_is_symlink: bool = False
+    info_plist_is_symlink: bool = False
+    executable_resolves_within_bundle: bool | None = None
+    resolved_executable: str | None = None
+    resolution_error: str | None = None
+
+
 SENSITIVE_ENTITLEMENTS = {
     "com.apple.security.get-task-allow": Severity.MEDIUM,
     "com.apple.security.cs.allow-unsigned-executable-memory": Severity.MEDIUM,
@@ -71,6 +82,7 @@ SENSITIVE_ENTITLEMENTS = {
 # Runtime exceptions are common in browsers, virtual machines, and Electron apps.
 # Preserve them as evidence, but only a production-debug entitlement changes trust scoring by itself.
 SCORE_AFFECTING_ENTITLEMENTS = {"com.apple.security.get-task-allow": Severity.MEDIUM}
+MAX_INFO_PLIST_BYTES = 16 * 1024 * 1024
 
 
 def parse_codesign_details(output: str) -> SignatureDetails:
@@ -323,6 +335,105 @@ def assess_file_integrity(details: FileIntegrityDetails) -> tuple[tuple[Severity
     return tuple(assessments)
 
 
+def inspect_bundle_paths(bundle: Path, executable: Path | None) -> BundlePathDetails:
+    info_path = bundle / "Contents" / "Info.plist"
+    contents = bundle / "Contents"
+    macos_directory = contents / "MacOS"
+    inside = None
+    resolved_executable = None
+    resolution_error = None
+    if executable is not None:
+        try:
+            resolved_bundle = bundle.resolve(strict=True)
+            resolved_path = executable.resolve(strict=True)
+            resolved_executable = str(resolved_path)
+            inside = resolved_path == resolved_bundle or resolved_bundle in resolved_path.parents
+        except OSError as exc:
+            resolution_error = f"{type(exc).__name__}: {exc}"
+    return BundlePathDetails(
+        bundle_is_symlink=bundle.is_symlink(),
+        contents_is_symlink=contents.is_symlink(),
+        macos_directory_is_symlink=macos_directory.is_symlink(),
+        info_plist_is_symlink=info_path.is_symlink(),
+        executable_resolves_within_bundle=inside,
+        resolved_executable=resolved_executable,
+        resolution_error=resolution_error,
+    )
+
+
+def assess_bundle_paths(details: BundlePathDetails) -> tuple[tuple[Severity, str, str], ...]:
+    assessments: list[tuple[Severity, str, str]] = []
+    if details.resolution_error:
+        assessments.append((
+            Severity.INFORMATIONAL,
+            "Unknown",
+            "The main executable's resolved path could not be verified.",
+        ))
+    elif details.executable_resolves_within_bundle is False:
+        assessments.append((
+            Severity.HIGH,
+            "Review",
+            "The declared main executable resolves outside the application bundle.",
+        ))
+    if details.bundle_is_symlink:
+        assessments.append((
+            Severity.LOW,
+            "Review",
+            "The application bundle itself is a symbolic link; validate its resolved location.",
+        ))
+    if details.contents_is_symlink or details.macos_directory_is_symlink:
+        assessments.append((
+            Severity.MEDIUM,
+            "Review",
+            "An application code directory is a symbolic link and redirects the expected bundle structure.",
+        ))
+    if details.info_plist_is_symlink:
+        assessments.append((
+            Severity.LOW,
+            "Review",
+            "Info.plist is a symbolic link; validate its resolved source and ownership.",
+        ))
+    return tuple(assessments)
+
+
+def assess_metadata_integrity(details: FileIntegrityDetails) -> tuple[tuple[Severity, str, str], ...]:
+    if details.error or not details.sha256:
+        return ((
+            Severity.INFORMATIONAL,
+            "Unknown",
+            "Info.plist could not be captured and hashed reliably.",
+        ),)
+    assessments: list[tuple[Severity, str, str]] = []
+    if details.changed_during_read:
+        assessments.append((
+            Severity.MEDIUM,
+            "Review",
+            "Info.plist changed while it was being read; reacquire bundle metadata.",
+        ))
+    if details.permissions:
+        try:
+            mode = int(details.permissions, 8)
+            if mode & 0o002:
+                assessments.append((
+                    Severity.HIGH,
+                    "Review",
+                    "Info.plist is world-writable and can be altered by other local users.",
+                ))
+            elif mode & 0o020:
+                assessments.append((
+                    Severity.MEDIUM,
+                    "Review",
+                    "Info.plist is group-writable and its ownership context requires review.",
+                ))
+        except ValueError:
+            assessments.append((
+                Severity.INFORMATIONAL,
+                "Unknown",
+                "Info.plist permission mode could not be interpreted.",
+            ))
+    return tuple(assessments)
+
+
 def merge_trust_assessments(
     base: tuple[Severity, str, str],
     assessments: tuple[tuple[Severity, str, str], ...],
@@ -396,14 +507,47 @@ def discover_applications(roots: tuple[Path, ...] = DEFAULT_APPLICATION_ROOTS) -
     return sorted(applications, key=lambda path: str(path).casefold())
 
 
-def _bundle_metadata(bundle: Path) -> tuple[dict[str, object], str | None]:
+def _bundle_metadata_with_integrity(bundle: Path) -> tuple[dict[str, object], str | None, FileIntegrityDetails]:
     info_path = bundle / "Contents" / "Info.plist"
+    is_symlink = info_path.is_symlink()
     try:
         with info_path.open("rb") as stream:
-            value = plistlib.load(stream)
-        return value if isinstance(value, dict) else {}, None
+            before = os.fstat(stream.fileno())
+            if before.st_size > MAX_INFO_PLIST_BYTES:
+                error = f"Info.plist exceeds the {MAX_INFO_PLIST_BYTES}-byte safety limit."
+                return {}, error, FileIntegrityDetails(
+                    size_bytes=before.st_size,
+                    modified_at=datetime.fromtimestamp(before.st_mtime, timezone.utc).isoformat(),
+                    permissions=f"{stat.S_IMODE(before.st_mode):04o}",
+                    owner_uid=before.st_uid,
+                    owner_gid=before.st_gid,
+                    is_symlink=is_symlink,
+                    error=error,
+                )
+            raw = stream.read(MAX_INFO_PLIST_BYTES + 1)
+            after = os.fstat(stream.fileno())
+        changed = (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns)
+        integrity = FileIntegrityDetails(
+            sha256=hashlib.sha256(raw).hexdigest(),
+            size_bytes=before.st_size,
+            modified_at=datetime.fromtimestamp(before.st_mtime, timezone.utc).isoformat(),
+            permissions=f"{stat.S_IMODE(before.st_mode):04o}",
+            owner_uid=before.st_uid,
+            owner_gid=before.st_gid,
+            is_symlink=is_symlink,
+            changed_during_read=changed,
+        )
+        value = plistlib.loads(raw)
+        error = None if isinstance(value, dict) else "Info.plist root is not a dictionary."
+        return (value if isinstance(value, dict) else {}), error, integrity
     except (OSError, plistlib.InvalidFileException) as exc:
-        return {}, f"{type(exc).__name__}: {exc}"
+        error = f"{type(exc).__name__}: {exc}"
+        return {}, error, FileIntegrityDetails(is_symlink=is_symlink, error=error)
+
+
+def _bundle_metadata(bundle: Path) -> tuple[dict[str, object], str | None]:
+    metadata, error, _ = _bundle_metadata_with_integrity(bundle)
+    return metadata, error
 
 
 def _finding_id(bundle: Path) -> str:
@@ -429,11 +573,12 @@ class ApplicationTrustCollector(Collector):
         return findings
 
     def _inspect(self, bundle: Path) -> Finding:
-        metadata, plist_error = _bundle_metadata(bundle)
+        metadata, plist_error, plist_integrity = _bundle_metadata_with_integrity(bundle)
         executable_name = metadata.get("CFBundleExecutable")
         executable = bundle / "Contents" / "MacOS" / str(executable_name) if executable_name else None
         executable_exists = bool(executable and executable.is_file())
         executable_integrity = inspect_file_integrity(executable)
+        bundle_paths = inspect_bundle_paths(bundle, executable)
 
         signature = self.runner.run(("codesign", "--verify", "--deep", "--strict", "--verbose=2", str(bundle)))
         details_result = self.runner.run(("codesign", "--display", "--verbose=4", "--requirements", "-", str(bundle)))
@@ -450,6 +595,8 @@ class ApplicationTrustCollector(Collector):
         quarantine_details = parse_quarantine(quarantine.stdout) if quarantine.returncode == 0 else QuarantineDetails()
         download_sources, download_sources_error = parse_where_froms_hex(where_froms.stdout) if where_froms.returncode == 0 else ((), None)
         supplemental_assessments = list(assess_file_integrity(executable_integrity))
+        supplemental_assessments.extend(assess_bundle_paths(bundle_paths))
+        supplemental_assessments.extend(assess_metadata_integrity(plist_integrity))
         if entitlement_severity is not None:
             supplemental_assessments.append((
                 entitlement_severity,
@@ -471,6 +618,8 @@ class ApplicationTrustCollector(Collector):
             f"executable_mode={executable_integrity.permissions or 'unknown'}; "
             f"executable_owner={executable_integrity.owner_uid if executable_integrity.owner_uid is not None else 'unknown'}:"
             f"{executable_integrity.owner_gid if executable_integrity.owner_gid is not None else 'unknown'}; "
+            f"info_plist_sha256={plist_integrity.sha256 or 'unavailable'}; "
+            f"executable_inside_bundle={('yes' if bundle_paths.executable_resolves_within_bundle else 'no') if bundle_paths.executable_resolves_within_bundle is not None else 'unknown'}; "
             f"gatekeeper_source={gatekeeper.source or 'unknown'}; notarized={('yes' if gatekeeper.notarized else 'no') if gatekeeper.notarized is not None else 'unknown'}; "
             f"sensitive_entitlements={','.join(sensitive_entitlements) or 'none'}; "
             f"quarantine={'present' if quarantine.returncode == 0 else 'absent or inaccessible'}; "
@@ -481,6 +630,26 @@ class ApplicationTrustCollector(Collector):
                 "name": str(display_name), "version": version, "bundle_identifier": metadata.get("CFBundleIdentifier"),
                 "executable": str(executable) if executable else None, "executable_exists": executable_exists,
                 "info_plist_error": plist_error,
+            }),
+            Evidence("bundle_path_integrity", str(bundle), {
+                "bundle_is_symlink": bundle_paths.bundle_is_symlink,
+                "contents_is_symlink": bundle_paths.contents_is_symlink,
+                "macos_directory_is_symlink": bundle_paths.macos_directory_is_symlink,
+                "info_plist_is_symlink": bundle_paths.info_plist_is_symlink,
+                "executable_resolves_within_bundle": bundle_paths.executable_resolves_within_bundle,
+                "resolved_executable": bundle_paths.resolved_executable,
+                "resolution_error": bundle_paths.resolution_error,
+            }),
+            Evidence("info_plist_integrity", str(bundle / "Contents" / "Info.plist"), {
+                "sha256": plist_integrity.sha256,
+                "size_bytes": plist_integrity.size_bytes,
+                "modified_at": plist_integrity.modified_at,
+                "permissions": plist_integrity.permissions,
+                "owner_uid": plist_integrity.owner_uid,
+                "owner_gid": plist_integrity.owner_gid,
+                "is_symlink": plist_integrity.is_symlink,
+                "changed_during_read": plist_integrity.changed_during_read,
+                "error": plist_integrity.error,
             }),
             Evidence("code_signature", str(bundle), {
                 "valid": signature.returncode == 0, "identifier": details.identifier,
@@ -523,10 +692,10 @@ class ApplicationTrustCollector(Collector):
             severity=severity, status=status,
             description="Validates an installed application's bundle metadata, executable hash and filesystem integrity, code signature, entitlements, acquisition source, and Gatekeeper assessment.",
             why_it_matters="Unsigned, modified, or policy-rejected applications can indicate untrusted software or post-installation tampering.",
-            what_was_checked="Bundle executable metadata, SHA-256, ownership, permissions and read stability; signature integrity and identity; code entitlements; Gatekeeper policy; quarantine metadata; and recorded download sources.",
-            expected_result="The declared executable exists, can be hashed without changing, is not group/world-writable, has executable permissions, has a valid code signature, and is accepted by Gatekeeper.",
+            what_was_checked="Main executable and Info.plist SHA-256, ownership, permissions and read stability; bundle path containment; signature integrity and identity; code entitlements; Gatekeeper policy; quarantine metadata; and recorded download sources.",
+            expected_result="The declared executable remains inside the bundle, executable and metadata files can be hashed without changing, neither is group/world-writable, the code signature is valid, and Gatekeeper accepts the application.",
             observed_result=observed,
-            recommendation="For failures or integrity reviews, preserve the bundle and metadata, reacquire unstable hashes, validate filesystem ownership, publisher and acquisition source, and investigate before execution or removal.",
+            recommendation="For failures or integrity reviews, preserve the bundle and metadata, reacquire unstable hashes, validate path resolution, filesystem ownership, publisher and acquisition source, and investigate before execution or removal.",
             evidence=evidence,
             commands_used=(signature.command, details_result.command, entitlements_result.command, assessment.command, quarantine.command, where_froms.command),
             mitre_attack=("T1553.001 - Gatekeeper Bypass", "T1036 - Masquerading", "T1222.002 - Linux and Mac File and Directory Permissions Modification"),
