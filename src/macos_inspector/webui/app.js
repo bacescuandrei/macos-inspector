@@ -56,12 +56,45 @@ function finishActiveJob(jobId) {
 function renderCollectors() {
   $('#collectors').innerHTML = state.config.collectors.map((collector) => `
     <div class="collector-card">
-      <input type="checkbox" id="collector-${escapeHtml(collector.id)}" data-collector="${escapeHtml(collector.id)}" checked>
+      <input type="checkbox" id="collector-${escapeHtml(collector.id)}" data-collector="${escapeHtml(collector.id)}">
       <label for="collector-${escapeHtml(collector.id)}"><span class="collector-title">${escapeHtml(collector.title)}</span><span class="collector-id">${escapeHtml(collector.id)}</span></label>
       <button type="button" class="mini-button" data-run-one="${escapeHtml(collector.id)}">Run</button>
     </div>`).join('');
   document.querySelectorAll('[data-run-one]').forEach((button) => button.addEventListener('click', () => startScan([button.dataset.runOne])));
+  document.querySelectorAll('[data-collector]').forEach((input) => input.addEventListener('change', syncActiveProfile));
+  renderProfiles();
   updateRunAvailability();
+}
+
+function renderProfiles() {
+  const profiles = state.config.profiles || [];
+  $('#scan-profiles').innerHTML = profiles.map((profile) => `<button type="button" class="profile-card" data-profile="${escapeHtml(profile.id)}" title="${escapeHtml(profile.description)}"><strong>${escapeHtml(profile.title)}</strong><small>${escapeHtml(profile.description)}</small><span>${escapeHtml(profile.collectors.length)} section${profile.collectors.length === 1 ? '' : 's'}</span></button>`).join('');
+  document.querySelectorAll('[data-profile]').forEach((button) => button.addEventListener('click', () => selectProfile(button.dataset.profile, true)));
+  const defaultProfile = profiles.find((profile) => profile.default) || profiles[0];
+  if (defaultProfile) selectProfile(defaultProfile.id, false);
+}
+
+function selectedCollectors() {
+  return selectedValues('collector');
+}
+
+function syncActiveProfile() {
+  const selected = new Set(selectedCollectors());
+  document.querySelectorAll('[data-profile]').forEach((button) => {
+    const profile = (state.config.profiles || []).find((item) => item.id === button.dataset.profile);
+    const matches = profile && profile.collectors.length === selected.size && profile.collectors.every((collector) => selected.has(collector));
+    button.classList.toggle('active', Boolean(matches));
+    button.setAttribute('aria-pressed', matches ? 'true' : 'false');
+  });
+}
+
+function selectProfile(profileId, announce = true) {
+  const profile = (state.config.profiles || []).find((item) => item.id === profileId);
+  if (!profile) return;
+  const selected = new Set(profile.collectors);
+  document.querySelectorAll('[data-collector]').forEach((input) => { input.checked = selected.has(input.dataset.collector); });
+  syncActiveProfile();
+  if (announce) setMessage(`${profile.title} selected · ${profile.collectors.length} audit section${profile.collectors.length === 1 ? '' : 's'}. Review the scope, then run the audit.`);
 }
 
 function renderFormats() {
@@ -98,7 +131,7 @@ function selectedValues(attribute) {
 }
 
 async function startScan(collectorOverride = null) {
-  const collectors = collectorOverride || selectedValues('collector');
+  const collectors = collectorOverride || selectedCollectors();
   const formats = selectedValues('format');
   if (!collectors.length) return setMessage('Select at least one audit section.', true);
   if (!formats.length) return setMessage('Select at least one report format.', true);
@@ -419,7 +452,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (window.location.protocol === 'file:') {
     setMessage('Open the dashboard through the local server: python3 -m macos_inspector --web', true);
   }
-  $('#select-all').addEventListener('click', () => { document.querySelectorAll('[data-collector]').forEach((input) => { input.checked = true; }); });
+  $('#select-all').addEventListener('click', () => {
+    document.querySelectorAll('[data-collector]').forEach((input) => { input.checked = true; });
+    syncActiveProfile();
+    setMessage('All audit sections selected.');
+  });
+  $('#clear-selection').addEventListener('click', () => {
+    document.querySelectorAll('[data-collector]').forEach((input) => { input.checked = false; });
+    syncActiveProfile();
+    setMessage('Audit scope cleared. Select a profile or individual sections.');
+  });
   $('#run-selected').addEventListener('click', () => startScan());
   $('#cancel-scan').addEventListener('click', cancelScan);
   $('#refresh-history').addEventListener('click', loadHistory);

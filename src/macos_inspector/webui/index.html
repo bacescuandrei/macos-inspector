@@ -40,8 +40,11 @@
       <aside class="control-panel" aria-labelledby="controls-title">
         <div class="section-heading">
           <div><p class="eyebrow">01 / SCOPE</p><h2 id="controls-title">Audit sections</h2></div>
-          <button id="select-all" class="text-button" type="button">Select all</button>
+          <div class="scope-actions"><button id="select-all" class="text-button" type="button">All</button><button id="clear-selection" class="text-button" type="button">Clear</button></div>
         </div>
+        <p class="scope-label">Scan profiles</p>
+        <div id="scan-profiles" class="profile-grid" aria-label="Scan profiles"><p class="muted">Loading profiles…</p></div>
+        <p class="scope-label sections-label">Individual sections</p>
         <div id="collectors" class="collector-list" aria-live="polite"><p class="muted">Loading audit sections…</p></div>
 
         <div class="section-heading compact"><div><p class="eyebrow">02 / EXPORTS</p><h2>Report formats</h2></div></div>

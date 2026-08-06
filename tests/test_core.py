@@ -39,6 +39,7 @@ from macos_inspector.collectors.privacy import PrivacyCollector
 from macos_inspector.collectors.network import parse_certificate_hashes
 from macos_inspector.collectors.system_extensions import parse_system_extensions
 from macos_inspector.collectors.ioc import IOCCollector
+from macos_inspector.collectors import COLLECTORS
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.runner import CommandResult, CommandRunner, ScanCancelled
@@ -49,7 +50,7 @@ from macos_inspector.core.timeline import build_timeline
 from macos_inspector.reporters import REPORTERS, report_format_capabilities, require_report_formats
 from macos_inspector.reporters.manifest_reporter import verify_manifest, write_manifest
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
-from macos_inspector.web import DashboardState, ScanJob
+from macos_inspector.web import DashboardState, SCAN_PROFILES, ScanJob
 from macos_inspector.cli import main as cli_main
 from scripts.build_release import LAUNCHER, build_release
 
@@ -59,6 +60,19 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_dashboard_scan_profiles_are_valid_and_full_profile_covers_all_collectors(self):
+        profile_ids = [profile["id"] for profile in SCAN_PROFILES]
+        self.assertEqual(len(profile_ids), len(set(profile_ids)))
+        self.assertEqual(sum(bool(profile["default"]) for profile in SCAN_PROFILES), 1)
+        for profile in SCAN_PROFILES:
+            self.assertTrue(profile["collectors"])
+            self.assertEqual(len(profile["collectors"]), len(set(profile["collectors"])))
+            self.assertFalse(set(profile["collectors"]) - set(COLLECTORS))
+        full = next(profile for profile in SCAN_PROFILES if profile["id"] == "full")
+        self.assertEqual(set(full["collectors"]), set(COLLECTORS))
+        quick = next(profile for profile in SCAN_PROFILES if profile["id"] == "quick")
+        self.assertNotIn("application-trust", quick["collectors"])
+
     def test_application_trust_macOS_command_fixtures(self):
         fixtures = Path(__file__).parent / "fixtures" / "application_trust"
         signature = parse_codesign_details((fixtures / "codesign_developer_id.txt").read_text())

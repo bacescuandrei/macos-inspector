@@ -28,6 +28,38 @@ from macos_inspector.reporters.comparison_reporter import write_comparison_repor
 from macos_inspector.reporters.common import secure_write_text
 
 
+SCAN_PROFILES = (
+    {
+        "id": "quick",
+        "title": "Quick triage",
+        "description": "Core persistence, hardening, network, extension and IOC checks.",
+        "collectors": ("persistence", "background-items", "security", "network", "system-extensions", "ioc"),
+        "default": True,
+    },
+    {
+        "id": "application-trust",
+        "title": "Application Trust",
+        "description": "Detailed trust, signature and integrity analysis for installed apps.",
+        "collectors": ("application-trust",),
+        "default": False,
+    },
+    {
+        "id": "privacy-browser",
+        "title": "Privacy & browsers",
+        "description": "TCC permissions plus supported browser history and download evidence.",
+        "collectors": ("privacy", "browser-artifacts"),
+        "default": False,
+    },
+    {
+        "id": "full",
+        "title": "Full collection",
+        "description": "Every available audit section, including longer application analysis.",
+        "collectors": tuple(COLLECTORS),
+        "default": False,
+    },
+)
+
+
 @dataclass
 class ScanJob:
     job_id: str
@@ -337,6 +369,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif path == "/api/config":
             self._send_json({
                 "collectors": [{"id": key, "title": value.title} for key, value in COLLECTORS.items()],
+                "profiles": SCAN_PROFILES,
                 "formats": list(REPORTERS), "format_capabilities": report_format_capabilities(),
                 "severities": [severity.label() for severity in Severity],
             })
