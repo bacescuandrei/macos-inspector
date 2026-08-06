@@ -75,6 +75,12 @@ PYTHONPATH=src python3 -m macos_inspector --output ./reports
 python3 -m unittest discover -s tests -v
 ```
 
+## Continuous integration
+
+The Gitea workflow in `.gitea/workflows/ci.yml` automatically runs the test suite, compiles Python sources, checks dashboard JavaScript syntax, builds the portable ZIP, verifies its contents, and publishes it as a temporary build artifact. The workflow never packages or uploads locally generated reports, case evidence, environment files, or private keys.
+
+Repository Actions and an `ubuntu-latest` runner must be enabled once on the Gitea server. See [docs/GITEA_ACTIONS.md](docs/GITEA_ACTIONS.md) for the setup and the boundary between portable CI checks and validation that requires a real Mac.
+
 Useful options:
 
 ```text

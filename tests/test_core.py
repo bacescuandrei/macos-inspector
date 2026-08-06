@@ -132,6 +132,22 @@ class CoreTests(unittest.TestCase):
             self.assertFalse(any("macos-inspector-reports" in name or "/tmp/" in name or "/output/" in name for name in names))
             self.assertFalse(any(".DS_Store" in name or ".egg-info/" in name or "/._" in name for name in names))
 
+    def test_gitea_workflow_tests_and_verifies_release_without_secrets(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".gitea" / "workflows" / "ci.yml").read_text()
+        expected_steps = (
+            "python -m unittest discover -s tests -v",
+            "python -m compileall -q src scripts tests",
+            "node --check src/macos_inspector/webui/app.js",
+            "python -m scripts.build_release",
+            "actions/upload-artifact@v3",
+            "contents: read",
+        )
+        for step in expected_steps:
+            self.assertIn(step, workflow)
+        self.assertNotIn("MACOS_INSPECTOR_MANIFEST_KEY", workflow)
+        self.assertNotIn("MACOS_INSPECTOR_SIGNING_KEY", workflow)
+
     def test_dashboard_health_reports_only_operational_state(self):
         with tempfile.TemporaryDirectory() as directory:
             state = DashboardState(Path(directory))

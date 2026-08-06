@@ -1,0 +1,95 @@
+name: Test and package
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run unit tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
+
+      - name: Compile Python sources
+        run: python -m compileall -q src scripts tests
+
+      - name: Check dashboard JavaScript syntax
+        run: node --check src/macos_inspector/webui/app.js
+
+      - name: Build portable macOS package
+        env:
+          PYTHONPATH: src
+        run: python -m scripts.build_release
+
+      - name: Verify portable package
+        run: |
+          python - <<'PY'
+          import stat
+          import zipfile
+          from pathlib import Path
+
+          archives = list(Path("dist").glob("macos-inspector-*-macos.zip"))
+          if len(archives) != 1:
+              raise SystemExit(f"Expected one release archive, found {len(archives)}")
+
+          archive_path = archives[0]
+          with zipfile.ZipFile(archive_path) as archive:
+              names = archive.namelist()
+              launcher = next(
+                  (name for name in names if name.endswith("/macOS Inspector.command")),
+                  None,
+              )
+              if launcher is None:
+                  raise SystemExit("Double-click launcher is missing from the archive")
+              mode = archive.getinfo(launcher).external_attr >> 16
+              if not mode & stat.S_IXUSR:
+                  raise SystemExit("Double-click launcher is not executable")
+              forbidden = (
+                  "macos-inspector-reports",
+                  "/reports/",
+                  "/output/",
+                  "/.git/",
+                  "/.env",
+              )
+              leaked = [name for name in names if any(item in name for item in forbidden)]
+              if leaked:
+                  raise SystemExit(f"Release archive contains forbidden paths: {leaked}")
+              required = (
+                  "/src/macos_inspector/webui/index.html",
+                  "/src/macos_inspector/collectors/application_trust.py",
+                  "/src/macos_inspector/core/readiness.py",
+              )
+              missing = [suffix for suffix in required if not any(name.endswith(suffix) for name in names)]
+              if missing:
+                  raise SystemExit(f"Release archive is incomplete: {missing}")
+
+          print(f"Verified {archive_path}")
+          PY
+          sha256sum dist/macos-inspector-*-macos.zip
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-inspector-macos
+          path: dist/macos-inspector-*-macos.zip
+          if-no-files-found: error
+          retention-days: 14
