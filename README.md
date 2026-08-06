@@ -50,6 +50,8 @@ python3 -m macos_inspector --web
 
 It binds to `127.0.0.1:8765` by default. The dashboard provides a button for each audit section, progress and scan history, finding details with evidence and commands, and links to every report export. Long collectors such as Application Trust also report the current application, item count, progress bar, and estimated remaining time. PDF is unchecked by default and becomes available after installing the optional dependency above. The dashboard never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
 
+The **Collection readiness** preflight shows macOS and Python compatibility, trusted command availability, report-storage access, visible application coverage, read-only TCC and browser-database access, and optional PDF/signing support. It reports limitations and recommended actions without requesting privileges or exposing evidence paths and content through the health endpoint.
+
 Active scans can be cancelled from the dashboard. Unfinished jobs are journaled locally with owner-only permissions (`0600`); if the dashboard stops unexpectedly, they are restored as **interrupted** on the next start. Partial results are never published as completed reports.
 
 The header continuously shows the local server connection state and retries automatically after a restart. `GET /api/health` provides a minimal operational status for diagnostics without exposing the report directory or evidence content. Dashboard assets and reports use `Cache-Control: no-store`.

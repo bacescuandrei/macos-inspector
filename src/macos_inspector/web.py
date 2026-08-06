@@ -19,6 +19,7 @@ from macos_inspector import __version__
 from macos_inspector.collectors import COLLECTORS
 from macos_inspector.core.models import Severity
 from macos_inspector.core.comparison import compare_scan_payloads
+from macos_inspector.core.readiness import collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.runner import ScanCancelled
 from macos_inspector.reporters import REPORTERS
@@ -251,6 +252,9 @@ class DashboardState:
             "active_job": active_job,
         }
 
+    def readiness(self) -> dict:
+        return collect_readiness(self.output)
+
     def verify_evidence(self, scan_id: str) -> dict:
         if not scan_id or Path(scan_id).name != scan_id:
             raise ValueError("Invalid scan identifier.")
@@ -336,6 +340,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             })
         elif path == "/api/health":
             self._send_json(self.state.health())
+        elif path == "/api/readiness":
+            self._send_json(self.state.readiness())
         elif path == "/api/scans":
             self._send_json({"scans": self.state.list_jobs()})
         elif path == "/api/compare":

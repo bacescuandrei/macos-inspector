@@ -69,6 +69,23 @@ function renderFormats() {
   $('#formats').innerHTML = state.config.formats.map((format) => `<label class="format-option"><input type="checkbox" data-format="${escapeHtml(format)}" ${format === 'pdf' ? '' : 'checked'}> ${escapeHtml(labels[format] || format.toUpperCase())}</label>`).join('');
 }
 
+async function loadReadiness() {
+  const button = $('#refresh-readiness');
+  button.disabled = true;
+  $('#readiness-summary').textContent = 'Checking local access…';
+  try {
+    const readiness = await api('/api/readiness');
+    const summary = readiness.summary || {};
+    $('#readiness-summary').innerHTML = `<strong class="readiness-overall readiness-${escapeHtml(readiness.overall)}">${escapeHtml(readiness.overall)}</strong><span>${escapeHtml(summary.ready || 0)} ready · ${escapeHtml(summary.limited || 0)} limited · ${escapeHtml(summary.unavailable || 0)} unavailable · ${escapeHtml(summary.optional || 0)} optional</span>`;
+    $('#readiness-checks').innerHTML = (readiness.checks || []).map((check) => `<article class="readiness-card"><div><strong>${escapeHtml(check.title)}</strong><span class="readiness-status readiness-${escapeHtml(check.status)}">${escapeHtml(check.status)}</span></div><p>${escapeHtml(check.detail)}</p><small>${escapeHtml(check.impact)}</small>${check.action && check.action !== 'No action required.' ? `<details><summary>Recommended action</summary><p>${escapeHtml(check.action)}</p></details>` : ''}</article>`).join('');
+  } catch (error) {
+    $('#readiness-summary').textContent = 'Readiness check unavailable.';
+    $('#readiness-checks').innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function selectedValues(attribute) {
   return [...document.querySelectorAll(`[data-${attribute}]:checked`)].map((element) => element.dataset[attribute]);
 }
@@ -305,6 +322,7 @@ async function loadDashboardData() {
     state.config = await api('/api/config');
     renderCollectors();
     renderFormats();
+    await loadReadiness();
     await loadHistory();
   } catch (error) {
     setMessage(error.message, true);
@@ -398,6 +416,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#run-selected').addEventListener('click', () => startScan());
   $('#cancel-scan').addEventListener('click', cancelScan);
   $('#refresh-history').addEventListener('click', loadHistory);
+  $('#refresh-readiness').addEventListener('click', loadReadiness);
   $('#history-search').addEventListener('input', renderHistory);
   $('#clear-history-search').addEventListener('click', () => { $('#history-search').value = ''; renderHistory(); });
   $('#close-comparison').addEventListener('click', () => $('#comparison-panel').classList.add('hidden'));

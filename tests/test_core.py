@@ -35,6 +35,7 @@ from macos_inspector.collectors.ioc import IOCCollector
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.runner import CommandResult, CommandRunner, ScanCancelled
+from macos_inspector.core.readiness import _probe_sqlite_readable, collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.scoring import calculate_scores
 from macos_inspector.core.timeline import build_timeline
@@ -50,6 +51,45 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_readiness_is_bounded_and_reports_access_without_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "reports"
+            output.mkdir()
+            tcc = root / "TCC.db"
+            browser_history = root / "History"
+            with closing(sqlite3.connect(tcc)) as connection:
+                connection.execute("CREATE TABLE access (service TEXT)")
+            with closing(sqlite3.connect(browser_history)) as connection:
+                connection.execute("CREATE TABLE urls (url TEXT)")
+            self.assertTrue(_probe_sqlite_readable(tcc))
+            self.assertFalse(_probe_sqlite_readable(root / "missing.db"))
+
+            profile = type("Profile", (), {"history_path": browser_history})()
+            with patch("macos_inspector.core.readiness.platform.system", return_value="Darwin"), patch(
+                "macos_inspector.core.readiness.platform.release", return_value="25.0"
+            ), patch(
+                "macos_inspector.core.readiness._available_commands",
+                return_value=(list(CommandRunner.ALLOWED), []),
+            ), patch(
+                "macos_inspector.core.readiness._tcc_database_paths", return_value=(tcc,)
+            ), patch(
+                "macos_inspector.core.readiness.discover_applications", return_value=[Path("Test.app")]
+            ), patch(
+                "macos_inspector.core.readiness.discover_browser_profiles", return_value=[profile]
+            ), patch(
+                "macos_inspector.core.readiness._dependency_available", side_effect=lambda name: name == "reportlab"
+            ):
+                readiness = collect_readiness(output, root)
+
+            checks = {check["id"]: check for check in readiness["checks"]}
+            self.assertEqual(readiness["overall"], "ready")
+            self.assertEqual(checks["tcc"]["status"], "ready")
+            self.assertEqual(checks["browser"]["status"], "ready")
+            self.assertEqual(checks["pdf"]["status"], "ready")
+            self.assertEqual(checks["signing"]["status"], "optional")
+            self.assertNotIn(str(root), json.dumps(readiness))
+
     def test_case_bundle_contains_only_current_scan_reports_and_manifest(self):
         metadata = ScanMetadata(
             "0.1", "bundle-scan", "start", "end", "host", "platform", "user", ("test",),
