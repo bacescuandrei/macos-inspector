@@ -15,6 +15,7 @@ class Control:
     good_tokens: tuple[str, ...]
     severity: Severity
     recommendation: str
+    failure_status: str = "Fail"
 
 
 CONTROLS = (
@@ -22,6 +23,8 @@ CONTROLS = (
     Control("CONTROL-FILEVAULT", "FileVault disk encryption", ("fdesetup", "status"), ("filevault is on",), Severity.HIGH, "Enable FileVault using the organization's approved key escrow and recovery process."),
     Control("CONTROL-GATEKEEPER", "Gatekeeper assessment", ("spctl", "--status"), ("assessments enabled",), Severity.HIGH, "Enable Gatekeeper and investigate unauthorized configuration changes."),
     Control("CONTROL-FIREWALL", "Application firewall", ("socketfilterfw", "--getglobalstate"), ("state = 1", "state = 2", "enabled"), Severity.MEDIUM, "Enable the macOS application firewall according to organizational policy."),
+    Control("CONTROL-AUTOMATIC-UPDATES", "Automatic update checks", ("softwareupdate", "--schedule"), ("automatic checking for updates is turned on", "automatic check is on"), Severity.MEDIUM, "Enable automatic update checking and use the organization's approved macOS update deployment policy."),
+    Control("CONTROL-FIREWALL-STEALTH", "Firewall stealth mode", ("socketfilterfw", "--getstealthmode"), ("stealth mode is on", "stealth mode enabled"), Severity.LOW, "Consider enabling firewall stealth mode when it matches the host's network exposure and operational policy.", "Review"),
 )
 
 
@@ -43,7 +46,7 @@ class SecurityControlsCollector(Collector):
             elif passes:
                 severity, status = Severity.INFORMATIONAL, "Pass"
             else:
-                severity, status = control.severity, "Fail"
+                severity, status = control.severity, control.failure_status
             findings.append(Finding(
                 finding_id=control.finding_id, category="System Hardening", title=control.title, severity=severity, status=status,
                 description=f"Checks the current state of {control.title} using a native macOS read-only query.",

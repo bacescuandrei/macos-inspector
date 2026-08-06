@@ -40,6 +40,7 @@ from macos_inspector.collectors.network import parse_certificate_hashes
 from macos_inspector.collectors.system_extensions import parse_system_extensions
 from macos_inspector.collectors.ioc import IOCCollector
 from macos_inspector.collectors import COLLECTORS
+from macos_inspector.collectors.security import SecurityControlsCollector
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.runner import CommandResult, CommandRunner, ScanCancelled
@@ -60,6 +61,33 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_security_control_fixtures_distinguish_failure_from_review(self):
+        fixtures = Path(__file__).parent / "fixtures" / "security_controls"
+        outputs = {
+            ("csrutil", "status"): (0, (fixtures / "csrutil_enabled.txt").read_text()),
+            ("fdesetup", "status"): (0, (fixtures / "filevault_on.txt").read_text()),
+            ("spctl", "--status"): (0, (fixtures / "gatekeeper_enabled.txt").read_text()),
+            ("socketfilterfw", "--getglobalstate"): (0, (fixtures / "firewall_enabled.txt").read_text()),
+            ("softwareupdate", "--schedule"): (0, (fixtures / "automatic_updates_on.txt").read_text()),
+            ("socketfilterfw", "--getstealthmode"): (0, (fixtures / "firewall_stealth_off.txt").read_text()),
+            ("system_profiler", "SPSharingDataType", "-json", "-detailLevel", "mini"): (0, '{"SPSharingDataType": []}'),
+        }
+
+        class FakeRunner:
+            def run(self, argv):
+                command = tuple(argv)
+                returncode, stdout = outputs[command]
+                return CommandResult(command, returncode, stdout, "")
+
+        findings = {finding.finding_id: finding for finding in SecurityControlsCollector(FakeRunner()).collect()}
+        self.assertEqual((findings["CONTROL-AUTOMATIC-UPDATES"].severity, findings["CONTROL-AUTOMATIC-UPDATES"].status), (Severity.INFORMATIONAL, "Pass"))
+        self.assertEqual((findings["CONTROL-FIREWALL-STEALTH"].severity, findings["CONTROL-FIREWALL-STEALTH"].status), (Severity.LOW, "Review"))
+        self.assertEqual(findings["CONTROL-REMOTELOGIN"].status, "Pass")
+
+        outputs[("softwareupdate", "--schedule")] = (0, "Automatic checking for updates is turned off")
+        disabled = {finding.finding_id: finding for finding in SecurityControlsCollector(FakeRunner()).collect()}
+        self.assertEqual((disabled["CONTROL-AUTOMATIC-UPDATES"].severity, disabled["CONTROL-AUTOMATIC-UPDATES"].status), (Severity.MEDIUM, "Fail"))
+
     def test_dashboard_scan_profiles_are_valid_and_full_profile_covers_all_collectors(self):
         profile_ids = [profile["id"] for profile in SCAN_PROFILES]
         self.assertEqual(len(profile_ids), len(set(profile_ids)))

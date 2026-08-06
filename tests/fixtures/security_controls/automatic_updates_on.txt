@@ -1,0 +1,1 @@
+Automatic checking for updates is turned on
