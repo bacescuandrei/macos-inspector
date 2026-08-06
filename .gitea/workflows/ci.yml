@@ -87,7 +87,7 @@ jobs:
           sha256sum dist/macos-inspector-*-macos.zip
 
       - name: Upload portable package
-        uses: actions/upload-artifact@v3
+        uses: christopherhx/gitea-upload-artifact@v4
         with:
           name: macos-inspector-macos
           path: dist/macos-inspector-*-macos.zip

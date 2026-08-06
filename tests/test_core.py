@@ -140,7 +140,7 @@ class CoreTests(unittest.TestCase):
             "python -m compileall -q src scripts tests",
             "node --check src/macos_inspector/webui/app.js",
             "python -m scripts.build_release",
-            "actions/upload-artifact@v3",
+            "christopherhx/gitea-upload-artifact@v4",
             "contents: read",
         )
         for step in expected_steps:
