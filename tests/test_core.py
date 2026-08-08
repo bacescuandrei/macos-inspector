@@ -42,6 +42,7 @@ from macos_inspector.collectors.ioc import IOCCollector
 from macos_inspector.collectors import COLLECTORS
 from macos_inspector.collectors.security import SecurityControlsCollector
 from macos_inspector.collectors.management_profiles import ManagementProfilesCollector, parse_configuration_profile_status, parse_enrollment_status
+from macos_inspector.collectors.accounts_access import AccountsAccessCollector, account_anomalies, parse_group_members, parse_user_records, regular_accounts
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.runner import CommandResult, CommandRunner, ScanCancelled
@@ -62,6 +63,36 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_account_inventory_is_sanitized_and_anomalies_are_classified(self):
+        fixtures = Path(__file__).parent / "fixtures" / "accounts"
+        standard_users = (fixtures / "users_standard.txt").read_text()
+        standard_admins = (fixtures / "admin_standard.txt").read_text()
+        records = parse_user_records(standard_users)
+        self.assertEqual([record.name for record in regular_accounts(records)], ["alice", "analyst"])
+        self.assertEqual(parse_group_members(standard_admins), ("alice", "root"))
+        self.assertNotIn("password", repr(records).lower())
+        self.assertFalse(any(account_anomalies(records, ("alice", "root")).values()))
+
+        anomalous_records = parse_user_records((fixtures / "users_anomalous.txt").read_text())
+        anomalous_admins = parse_group_members((fixtures / "admin_anomalous.txt").read_text())
+        anomalies = account_anomalies(anomalous_records, anomalous_admins)
+        self.assertEqual(anomalies["duplicate_uids"], {"501": ("alice", "alice-copy")})
+        self.assertEqual(anomalies["low_uid_interactive"][0]["name"], "hidden-support")
+        self.assertEqual(anomalies["low_uid_interactive"][1]["name"], "_concealed")
+        self.assertEqual(anomalies["unlisted_administrators"], ("external-admin", "hidden-support"))
+
+        class FakeRunner:
+            def run(self, argv):
+                command = tuple(argv)
+                output = standard_admins if "group" in command else standard_users
+                return CommandResult(command, 0, output, "")
+
+        findings = {finding.finding_id: finding for finding in AccountsAccessCollector(FakeRunner()).collect()}
+        self.assertEqual(findings["ACCOUNTS-ANOMALIES"].status, "Pass")
+        inventory = findings["ACCOUNTS-INVENTORY"].evidence[0].value
+        self.assertFalse(inventory["sensitive_fields_retained"])
+        self.assertNotIn("password", repr(inventory).lower())
+
     def test_management_profile_status_fixtures(self):
         fixtures = Path(__file__).parent / "fixtures" / "management_profiles"
         no_profiles = (fixtures / "configuration_none.txt").read_text()

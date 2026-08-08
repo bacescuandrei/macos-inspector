@@ -32,6 +32,7 @@ class CommandRunner:
         "codesign": "/usr/bin/codesign",
         "csrutil": "/usr/bin/csrutil",
         "defaults": "/usr/bin/defaults",
+        "dscacheutil": "/usr/bin/dscacheutil",
         "fdesetup": "/usr/bin/fdesetup",
         "launchctl": "/bin/launchctl",
         "plutil": "/usr/bin/plutil",

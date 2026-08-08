@@ -1,4 +1,5 @@
 from .application_trust import ApplicationTrustCollector
+from .accounts_access import AccountsAccessCollector
 from .background_items import BackgroundItemsCollector
 from .browser_artifacts import BrowserArtifactsCollector
 from .ioc import IOCCollector
@@ -10,6 +11,7 @@ from .system_extensions import SystemExtensionsCollector
 from .security import SecurityControlsCollector
 
 COLLECTORS = {
+    AccountsAccessCollector.collector_id: AccountsAccessCollector,
     ApplicationTrustCollector.collector_id: ApplicationTrustCollector,
     BackgroundItemsCollector.collector_id: BackgroundItemsCollector,
     BrowserArtifactsCollector.collector_id: BrowserArtifactsCollector,

@@ -1,0 +1,31 @@
+name: hidden-support
+password: ********
+uid: 401
+gid: 20
+dir: /Users/hidden-support
+shell: /bin/zsh
+gecos: Hidden Support
+
+name: _concealed
+password: ********
+uid: 402
+gid: 20
+dir: /Users/_concealed
+shell: /bin/zsh
+gecos: Concealed Account
+
+name: alice
+password: ********
+uid: 501
+gid: 20
+dir: /Users/alice
+shell: /bin/zsh
+gecos: Alice Example
+
+name: alice-copy
+password: ********
+uid: 501
+gid: 20
+dir: /Users/alice-copy
+shell: /bin/zsh
+gecos: Alice Copy

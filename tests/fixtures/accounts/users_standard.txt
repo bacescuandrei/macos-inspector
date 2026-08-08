@@ -1,0 +1,23 @@
+name: root
+password: *
+uid: 0
+gid: 0
+dir: /var/root
+shell: /bin/sh
+gecos: System Administrator
+
+name: alice
+password: ********
+uid: 501
+gid: 20
+dir: /Users/alice
+shell: /bin/zsh
+gecos: Alice Example
+
+name: analyst
+password: ********
+uid: 502
+gid: 20
+dir: /Users/analyst
+shell: /bin/zsh
+gecos: DFIR Analyst
