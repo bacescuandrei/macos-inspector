@@ -113,8 +113,14 @@ def collect_readiness(output: Path, home: Path | None = None) -> dict:
         "action": "Close affected browsers or approve Full Disk Access when the collection policy allows it." if not browser_ready else "No action required.",
     })
 
+    checks.append({
+        "id": "pdf", "title": "PDF export", "status": "ready",
+        "detail": "The built-in portable PDF engine is available.",
+        "impact": "PDF reports can be generated without installing extra packages.",
+        "action": "No action required.",
+    })
+
     for identifier, title, dependency, impact, action in (
-        ("pdf", "PDF export", "reportlab", "HTML, JSON, Markdown, CSV, SARIF and ZIP remain available.", "Install the optional 'pdf' dependency to enable PDF."),
         ("signing", "Asymmetric evidence signing", "cryptography", "Unsigned and HMAC manifests remain available.", "Install the optional 'signing' dependency for Ed25519, RSA or EC signatures."),
     ):
         available = _dependency_available(dependency)

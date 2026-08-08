@@ -22,7 +22,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument("--output", type=Path, default=Path("macos-inspector-reports"))
     p.add_argument("--collectors", default=",".join(COLLECTORS))
-    p.add_argument("--formats", default="html,json,markdown,csv,sarif,manifest,bundle")
+    p.add_argument("--formats", default="html,json,markdown,csv,sarif,manifest,pdf,bundle")
     p.add_argument("--min-severity", default="informational")
     p.add_argument("--case-reference", default="", help="Optional case or incident reference")
     p.add_argument("--analyst", default="", help="Optional analyst name")

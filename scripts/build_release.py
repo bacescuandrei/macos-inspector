@@ -15,7 +15,9 @@ LAUNCHER = "macOS Inspector.command"
 def release_files() -> list[Path]:
     files = [
         ROOT / "README.md",
+        ROOT / "CHANGELOG.md",
         ROOT / "CONTRIBUTING.md",
+        ROOT / "LICENSE",
         ROOT / "pyproject.toml",
         ROOT / LAUNCHER,
     ]

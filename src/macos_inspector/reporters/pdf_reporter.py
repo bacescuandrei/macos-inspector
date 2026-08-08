@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import tempfile
@@ -7,6 +8,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from macos_inspector.core.models import ScanResult
+from macos_inspector.reporters.portable_pdf import write_portable_pdf
 
 
 ACTIONABLE_STATUSES = {"fail", "review", "match", "unknown"}
@@ -15,17 +17,18 @@ MAX_EVIDENCE_CHARS = 4000
 
 
 def write_pdf(result: ScanResult, path: Path) -> None:
-    try:
-        from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-        from reportlab.lib.units import mm
-        from reportlab.platypus import (
-            CondPageBreak, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
-        )
-    except ImportError as exc:
-        raise RuntimeError("PDF export requires the optional dependency: pip install 'macos-inspector[pdf]'") from exc
+    if importlib.util.find_spec("reportlab") is None:
+        write_portable_pdf(result, path)
+        return
+
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        CondPageBreak, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
 
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(path.parent, 0o700)

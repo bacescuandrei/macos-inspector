@@ -8,7 +8,7 @@ import importlib.util
 import plistlib
 import threading
 import zipfile
-from contextlib import closing, redirect_stderr
+from contextlib import closing
 from datetime import datetime, timezone
 from unittest.mock import patch
 from pathlib import Path
@@ -54,7 +54,6 @@ from macos_inspector.reporters import REPORTERS, report_format_capabilities, req
 from macos_inspector.reporters.manifest_reporter import verify_manifest, write_manifest
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
 from macos_inspector.web import DashboardState, SCAN_PROFILES, ScanJob
-from macos_inspector.cli import main as cli_main
 from scripts.build_release import LAUNCHER, build_release
 
 
@@ -246,24 +245,20 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(metadata_assessments[0][:2], (Severity.HIGH, "Review"))
         self.assertIn("world-writable", metadata_assessments[0][2])
 
-    def test_optional_report_format_is_rejected_before_collection(self):
-        with patch("macos_inspector.reporters.importlib.util.find_spec", return_value=None):
-            capabilities = report_format_capabilities()
-            self.assertFalse(capabilities["pdf"]["available"])
-            self.assertTrue(capabilities["html"]["available"])
-            with self.assertRaisesRegex(ValueError, "PDF export requires"):
-                require_report_formats(["html", "pdf"])
-            with tempfile.TemporaryDirectory() as directory:
-                state = DashboardState(Path(directory))
-                with self.assertRaisesRegex(ValueError, "PDF export requires"):
-                    state.create_job(["security"], ["pdf"], "informational")
-                self.assertEqual(state.jobs, {})
-
-            with patch("macos_inspector.cli.run_scan") as mocked_scan, redirect_stderr(io.StringIO()):
-                with self.assertRaises(SystemExit) as exit_context:
-                    cli_main(["--collectors", "security", "--formats", "pdf"])
-            self.assertEqual(exit_context.exception.code, 2)
-            mocked_scan.assert_not_called()
+    def test_pdf_report_is_available_without_optional_dependencies(self):
+        capabilities = report_format_capabilities()
+        self.assertTrue(capabilities["pdf"]["available"])
+        self.assertTrue(capabilities["html"]["available"])
+        require_report_formats(["html", "pdf"])
+        metadata = ScanMetadata("0.1", "portable-pdf", "start", "end", "host", "platform", "user", ("test",))
+        result = ScanResult(metadata, (finding(),), 82, {"Persistence": 82})
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "macos_inspector.reporters.pdf_reporter.importlib.util.find_spec", return_value=None,
+        ):
+            path = Path(directory) / "report.pdf"
+            REPORTERS["pdf"](result, path)
+            self.assertTrue(path.read_bytes().startswith(b"%PDF-1.4"))
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_readiness_is_bounded_and_reports_access_without_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -342,6 +337,8 @@ class CoreTests(unittest.TestCase):
                 launcher = next(name for name in names if name.endswith(f"/{LAUNCHER}"))
                 permissions = archive.getinfo(launcher).external_attr >> 16 & 0o777
             self.assertEqual(permissions, 0o755)
+            self.assertTrue(any(name.endswith("/LICENSE") for name in names))
+            self.assertTrue(any(name.endswith("/CHANGELOG.md") for name in names))
             self.assertTrue(any(name.endswith("/src/macos_inspector/webui/index.html") for name in names))
             self.assertFalse(any("macos-inspector-reports" in name or "/tmp/" in name or "/output/" in name for name in names))
             self.assertFalse(any(".DS_Store" in name or ".egg-info/" in name or "/._" in name for name in names))
@@ -783,8 +780,6 @@ origin=Developer ID Application: Example (TEAM123)""")
         result = ScanResult(metadata, (finding(),), 82, {"Persistence": 82})
         with tempfile.TemporaryDirectory() as directory:
             for name, reporter in REPORTERS.items():
-                if name == "pdf" and importlib.util.find_spec("reportlab") is None:
-                    continue
                 path = Path(directory) / f"report.{name}"
                 reporter(result, path)
                 self.assertGreater(path.stat().st_size, 10)

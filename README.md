@@ -2,7 +2,7 @@
 
 macOS Inspector is a dependency-free, read-only macOS security auditing and DFIR framework. It collects verifiable evidence, produces normalized findings, calculates transparent security scores, and exports professional reports.
 
-> Status: early MVP. The current release audits visible regular accounts, administrative membership and targeted identity anomalies; launchd, cron and shell-profile persistence; application trust (main-executable and Info.plist SHA-256, ownership and permission risks, concurrent modification and bundle path-redirection detection, signature identity, Gatekeeper/notarization, hardened runtime, security-sensitive entitlements, quarantine and download-source metadata); TCC/privacy permissions; Login Items/ServiceManagement state; configuration-profile and MDM enrollment status; local network and sanitized proxy configuration; certificates; system extensions; browser artifacts; local IOC packs; and focused macOS security controls including SIP, FileVault, Gatekeeper, firewall, stealth mode, automatic update checking, and Remote Login. Evidence timestamps are normalized into a shared DFIR timeline. The architecture is intentionally modular; roadmap items are not implied coverage.
+> Status: version 1.0 is feature-complete for the documented scope. The release audits visible regular accounts, administrative membership and targeted identity anomalies; launchd, cron and shell-profile persistence; application trust (main-executable and Info.plist SHA-256, ownership and permission risks, concurrent modification and bundle path-redirection detection, signature identity, Gatekeeper/notarization, hardened runtime, security-sensitive entitlements, quarantine and download-source metadata); TCC/privacy permissions; Login Items/ServiceManagement state; configuration-profile and MDM enrollment status; local network and sanitized proxy configuration; certificates; system extensions; browser artifacts; local IOC packs; and focused macOS security controls including SIP, FileVault, Gatekeeper, firewall, stealth mode, automatic update checking, and Remote Login. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
 
 ## Safety contract
 
@@ -35,12 +35,7 @@ python3 -m macos_inspector --output ./reports
 python3 -m macos_inspector --collectors application-trust,persistence,security --formats html,json,markdown,csv,sarif,manifest
 ```
 
-PDF export is optional. Install its isolated dependency, then select `PDF` in the dashboard or add `pdf` to `--formats`:
-
-```bash
-python3 -m pip install '.[pdf]'
-python3 -m macos_inspector --collectors security --formats html,pdf --output ./reports
-```
+PDF export is built into the portable package and selected by default with the other report formats; no package installation or terminal command is required.
 
 For the local dashboard, start the read-only web interface once:
 
@@ -48,9 +43,9 @@ For the local dashboard, start the read-only web interface once:
 python3 -m macos_inspector --web
 ```
 
-It binds to `127.0.0.1:8765` by default. The dashboard offers Quick triage, Application Trust, Privacy & browsers, and Full collection profiles, plus a separate Run button for every audit section. Quick triage is selected by default so routine checks do not unexpectedly start the longer application inventory. The page also provides progress and scan history, finding details with evidence and commands, and links to every report export. Long collectors such as Application Trust report the current application, item count, progress bar, and estimated remaining time. PDF is unchecked by default, visibly disabled when its optional dependency is missing, and becomes available after installing the dependency above. Unavailable formats are rejected before evidence collection begins. The dashboard never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
+It binds to `127.0.0.1:8765` by default. The dashboard offers Quick triage, Application Trust, Privacy & browsers, and Full collection profiles, plus a separate Run button for every audit section. Quick triage is selected by default so routine checks do not unexpectedly start the longer application inventory. The page also provides progress and scan history, finding details with evidence and commands, and links to every report export. Long collectors such as Application Trust report the current application, item count, progress bar, and estimated remaining time. All report formats, including the dependency-free PDF, are selected by default and can be unchecked individually. The dashboard rejects invalid formats before evidence collection begins and never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
 
-The **Collection readiness** preflight shows macOS and Python compatibility, trusted command availability, report-storage access, visible application coverage, read-only TCC and browser-database access, and optional PDF/signing support. It reports limitations and recommended actions without requesting privileges or exposing evidence paths and content through the health endpoint.
+The **Collection readiness** preflight shows macOS and Python compatibility, trusted command availability, report-storage access, visible application coverage, read-only TCC and browser-database access, built-in PDF support, and optional asymmetric signing support. It reports limitations and recommended actions without requesting privileges or exposing evidence paths and content through the health endpoint.
 
 Active scans can be cancelled from the dashboard. Unfinished jobs are journaled locally with owner-only permissions (`0600`); if the dashboard stops unexpectedly, they are restored as **interrupted** on the next start. Partial results are never published as completed reports.
 
@@ -112,8 +107,8 @@ src/macos_inspector/
 
 Collector modules return `Finding` objects. They do not write reports and reporters do not collect data. This separation makes checks testable and helps keep forensic behavior reviewable.
 
-## Roadmap
+## Post-1.0 maintenance
 
-1. Additional forensic fixtures and broader collector coverage
+The documented 1.0 scope has no required unfinished modules. Future releases may add forensic fixtures, new collectors, and compatibility updates as macOS evolves; those are scope expansions rather than missing 1.0 functionality.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the collector contract.

@@ -317,7 +317,7 @@ class DashboardState:
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
-    server_version = "macOSInspector/0.1"
+    server_version = f"macOSInspector/{__version__}"
 
     @property
     def state(self) -> DashboardState:
