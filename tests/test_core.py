@@ -115,6 +115,17 @@ class CoreTests(unittest.TestCase):
                 state.generate_signing_key()
             self.assertTrue(state.generate_signing_key(replace=True)["configured"])
 
+    def test_dashboard_source_opened_as_file_has_a_styled_launcher(self):
+        webui = Path(__file__).parents[1] / "src" / "macos_inspector" / "webui"
+        index = (webui / "index.html").read_text(encoding="utf-8")
+        script = (webui / "app.js").read_text(encoding="utf-8")
+        self.assertIn('href="styles.css"', index)
+        self.assertIn('src="app.js"', index)
+        self.assertNotIn('href="/styles.css"', index)
+        self.assertNotIn('src="/app.js"', index)
+        self.assertIn('id="local-launcher-help"', index)
+        self.assertIn("window.location.protocol === 'file:'", script)
+
     def test_vulnerability_exposure_correlates_without_claiming_compromise(self):
         payload = json.loads((Path(__file__).parent / "fixtures" / "osint" / "cisa_kev.json").read_text())
         self.assertEqual(len(macos_kev_entries(payload)), 2)

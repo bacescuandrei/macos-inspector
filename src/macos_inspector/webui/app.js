@@ -700,8 +700,11 @@ async function loadHistoryJob(job) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  if (window.location.protocol === 'file:') {
-    setMessage('Open the dashboard through the local server: python3 -m macos_inspector --web', true);
+  if (window.location.protocol === 'file:' || new URLSearchParams(window.location.search).has('source-preview')) {
+    document.body.classList.add('file-mode');
+    $('#local-launcher-help').classList.remove('hidden');
+    applyLanguage('ro');
+    return;
   }
   $('#select-all').addEventListener('click', () => {
     document.querySelectorAll('[data-collector]').forEach((input) => { input.checked = true; });

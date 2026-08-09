@@ -5,9 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title>macOS Inspector dashboard</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <section id="local-launcher-help" class="local-launcher-help hidden" aria-labelledby="local-launcher-title">
+    <div class="launcher-shell">
+      <div class="launcher-brand"><span class="brand-mark" aria-hidden="true">⌘</span><div><p class="eyebrow">MACOS INSPECTOR · LOCAL DASHBOARD</p><strong>macOS Inspector</strong></div></div>
+      <div class="launcher-card">
+        <span class="launcher-status"><i></i> Fișier HTML deschis direct</span>
+        <h1 id="local-launcher-title">Interfața completă rulează prin serverul local securizat</h1>
+        <p>Acest fișier este sursa interfeței, nu launcherul aplicației. Scanările și rapoartele au nevoie de serviciul local de la <code>127.0.0.1</code>.</p>
+        <div class="launcher-actions">
+          <a id="open-live-dashboard" class="launcher-primary" href="http://127.0.0.1:8765/">Deschide dashboardul</a>
+          <span>Serverul trebuie să fie pornit.</span>
+        </div>
+        <div class="launcher-steps">
+          <div><b>01</b><span>Revino în folderul principal al proiectului.</span></div>
+          <div><b>02</b><span>Dă dublu-click pe <strong>macOS Inspector.command</strong>.</span></div>
+          <div><b>03</b><span>Launcherul pornește serverul și deschide automat pagina corectă.</span></div>
+        </div>
+        <p class="launcher-note">Nu sunt necesare comenzi scrise manual în Terminal. Păstrează fereastra launcherului deschisă cât timp folosești aplicația.</p>
+      </div>
+    </div>
+  </section>
   <header class="topbar">
     <div class="brand-mark" aria-hidden="true">⌘</div>
     <div>
@@ -186,6 +206,6 @@
       <div id="history" class="history-list"><p class="muted">Loading scan history…</p></div>
     </section>
   </main>
-  <script src="/app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

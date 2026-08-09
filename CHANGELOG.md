@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1 - 2026-08-09
+
+- Fixed the dashboard source opened through `file://` loading without CSS or JavaScript because its asset links were root-relative.
+- Added a polished, responsive direct-file launch page that explains the local-server boundary and links to the running dashboard.
+- Kept the same relative assets valid when the dashboard is served normally from `127.0.0.1`.
+- Added regression coverage for the direct-file launcher state.
+
 ## 1.2.0 - 2026-08-09
 
 - Added exact macOS version/build exposure correlation across Apple Security Releases, CISA KEV, FIRST EPSS, and NIST NVD without claiming evidence of compromise.

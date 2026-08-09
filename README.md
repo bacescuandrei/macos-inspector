@@ -2,7 +2,7 @@
 
 macOS Inspector is a read-only macOS security auditing and DFIR framework with a dependency-free core. It collects verifiable evidence, produces normalized findings, calculates transparent security scores, and exports professional reports through a local web dashboard.
 
-> Status: version 1.2 is feature-complete for the documented scope. Fifteen collectors cover accounts, persistence, Application Trust, privacy, browsers, management, network, extensions, security controls, live process/network triage, managed IOC/YARA rules, and explicit online vulnerability intelligence. The responsive Romanian/English dashboard provides case management, provider settings, cache provenance, scan controls, findings, comparisons, and nine report formats. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
+> Status: version 1.2.1 is feature-complete for the documented scope. Fifteen collectors cover accounts, persistence, Application Trust, privacy, browsers, management, network, extensions, security controls, live process/network triage, managed IOC/YARA rules, and explicit online vulnerability intelligence. The responsive Romanian/English dashboard provides case management, provider settings, cache provenance, scan controls, findings, comparisons, and nine report formats. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
 
 ## Safety contract
 
@@ -20,6 +20,8 @@ Some macOS commands may update their own access metadata or unified logs simply 
 ## Quick start
 
 For normal use on macOS, double-click **macOS Inspector.command**. The launcher starts the local read-only dashboard and opens `http://127.0.0.1:8765/` automatically. If the dashboard is already running, it simply reopens the page. No terminal commands are required for routine scans.
+
+Do not use `src/macos_inspector/webui/index.html` as the application launcher: it is the dashboard source and cannot start a local Python service from inside a browser. If it is opened directly, it now loads its styling and shows a clear launch page instead of a broken interface.
 
 The small launcher window remains open while the dashboard is running so macOS preserves access to the folder containing the tool. It does not require any input; closing that window stops only the local dashboard server.
 
