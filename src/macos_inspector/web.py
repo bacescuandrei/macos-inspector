@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import re
 import threading
 import time
 import uuid
@@ -21,19 +22,24 @@ from macos_inspector.core.models import Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.readiness import collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
-from macos_inspector.core.runner import ScanCancelled
+from macos_inspector.core.runner import CommandRunner, ScanCancelled
+from macos_inspector.core.storage import CaseStore, SettingsStore
+from macos_inspector.core.intelligence import clear_intelligence_cache, lookup_threatfox
+from macos_inspector.collectors.ioc import load_ioc_pack
+from macos_inspector.collectors.yara_rules import MAX_RULE_BYTES, discover_yara_rules
 from macos_inspector.reporters import REPORTERS, report_format_capabilities, require_report_formats
 from macos_inspector.reporters.manifest_reporter import verify_manifest
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
-from macos_inspector.reporters.common import secure_write_text
+from macos_inspector.reporters.common import secure_write_bytes, secure_write_text
+from macos_inspector.reporters.encrypted_bundle import encryption_available
 
 
 SCAN_PROFILES = (
     {
         "id": "quick",
         "title": "Quick triage",
-        "description": "Core accounts, persistence, hardening, management, network, extension and IOC checks.",
-        "collectors": ("accounts-access", "persistence", "background-items", "security", "management-profiles", "network", "system-extensions", "ioc"),
+        "description": "Core accounts, live processes, persistence, hardening, management, network, extension and IOC checks.",
+        "collectors": ("accounts-access", "live-triage", "persistence", "background-items", "security", "management-profiles", "network", "system-extensions", "ioc"),
         "default": True,
     },
     {
@@ -52,9 +58,16 @@ SCAN_PROFILES = (
     },
     {
         "id": "online-osint",
-        "title": "Online OSINT",
-        "description": "Opt-in retrieval of free public threat intelligence without sending host or case data.",
-        "collectors": ("osint-intelligence",),
+        "title": "Vulnerability Intelligence",
+        "description": "Opt-in Apple, CISA KEV, FIRST EPSS and NIST NVD correlation with a last-known-good cache.",
+        "collectors": ("osint-intelligence", "vulnerability-exposure"),
+        "default": False,
+    },
+    {
+        "id": "threat-hunting",
+        "title": "Threat Hunting",
+        "description": "Live process/network triage plus managed IOC and optional YARA rules.",
+        "collectors": ("live-triage", "ioc", "yara-rules"),
         "default": False,
     },
     {
@@ -90,9 +103,12 @@ class ScanJob:
     summary: dict | None = None
     reports: dict[str, str] = field(default_factory=dict)
     cancel_requested: bool = False
+    _bundle_password: str = field(default="", repr=False)
 
     def to_dict(self) -> dict:
-        return dict(self.__dict__)
+        payload = dict(self.__dict__)
+        payload.pop("_bundle_password", None)
+        return payload
 
 
 class DashboardState:
@@ -100,6 +116,12 @@ class DashboardState:
         self.output = output.resolve()
         self.output.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.output.chmod(0o700)
+        self.data_root = self.output / ".macos-inspector-data"
+        self.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.data_root.chmod(0o700)
+        os.environ["MACOS_INSPECTOR_DATA_DIR"] = str(self.data_root)
+        self.settings = SettingsStore(self.data_root)
+        self.cases = CaseStore(self.data_root)
         self.jobs: dict[str, ScanJob] = {}
         self.cancel_events: dict[str, threading.Event] = {}
         self.item_progress_runtime: dict[str, dict] = {}
@@ -139,13 +161,13 @@ class DashboardState:
         )[-100:]
         secure_write_text(self.journal_path, json.dumps({"schema_version": 1, "jobs": retained}, indent=2, ensure_ascii=False) + "\n")
 
-    def create_job(self, collectors: list[str], formats: list[str], minimum: str, case_reference: str = "", analyst: str = "") -> ScanJob:
+    def create_job(self, collectors: list[str], formats: list[str], minimum: str, case_reference: str = "", analyst: str = "", bundle_password: str = "") -> ScanJob:
         requested_formats = list(dict.fromkeys(["html", "json", *formats]))
         require_report_formats(requested_formats)
         with self.lock:
             if any(job.state in {"queued", "running"} for job in self.jobs.values()):
                 raise RuntimeError("A scan is already running.")
-            job = ScanJob(str(uuid.uuid4()), collectors, requested_formats, minimum, case_reference, analyst, total_collectors=len(collectors))
+            job = ScanJob(str(uuid.uuid4()), collectors, requested_formats, minimum, case_reference, analyst, total_collectors=len(collectors), _bundle_password=bundle_password)
             self.jobs[job.job_id] = job
             self.cancel_events[job.job_id] = threading.Event()
             self._persist_jobs_locked()
@@ -203,13 +225,36 @@ class DashboardState:
             )
             if cancel_event.is_set():
                 raise ScanCancelled("Scan cancelled by user.")
-            paths = write_reports(result, job.formats, self.output)
+            signing = self.settings.load()["signing"]
+            previous_signing_key = os.environ.get("MACOS_INSPECTOR_SIGNING_KEY")
+            previous_hmac_key = os.environ.get("MACOS_INSPECTOR_MANIFEST_KEY")
+            configured_key = str(signing.get("key_path", "")) if signing.get("enabled") else ""
+            if configured_key and signing.get("algorithm") == "HMAC-SHA256":
+                os.environ["MACOS_INSPECTOR_MANIFEST_KEY"] = Path(configured_key).read_text(encoding="ascii").strip()
+                os.environ.pop("MACOS_INSPECTOR_SIGNING_KEY", None)
+            elif configured_key:
+                os.environ["MACOS_INSPECTOR_SIGNING_KEY"] = configured_key
+            try:
+                paths = write_reports(result, job.formats, self.output, bundle_password=job._bundle_password or None)
+            finally:
+                if previous_signing_key is None:
+                    os.environ.pop("MACOS_INSPECTOR_SIGNING_KEY", None)
+                else:
+                    os.environ["MACOS_INSPECTOR_SIGNING_KEY"] = previous_signing_key
+                if previous_hmac_key is None:
+                    os.environ.pop("MACOS_INSPECTOR_MANIFEST_KEY", None)
+                else:
+                    os.environ["MACOS_INSPECTOR_MANIFEST_KEY"] = previous_hmac_key
+            job._bundle_password = ""
             with self.lock:
                 job.state = "completed"
                 job.scan_id = result.metadata.scan_id
                 job.completed_at = result.metadata.completed_at
                 job.summary = result.to_dict()["summary"]
-                job.reports = {path.suffix.lstrip("."): f"/reports/{path.name}" for path in paths}
+                job.reports = {
+                    ("encrypted-bundle" if path.name.endswith(".zip.enc") else path.suffix.lstrip(".")): f"/reports/{path.name}"
+                    for path in paths
+                }
                 if "md" in job.reports:
                     job.reports["markdown"] = job.reports.pop("md")
                 if "zip" in job.reports:
@@ -228,6 +273,7 @@ class DashboardState:
                 job.error = f"{type(exc).__name__}: {exc}"
                 self._persist_jobs_locked()
         finally:
+            job._bundle_password = ""
             with self.lock:
                 self.cancel_events.pop(job.job_id, None)
                 self.item_progress_runtime.pop(job.job_id, None)
@@ -260,7 +306,7 @@ class DashboardState:
                 if scan_id in known_scans:
                     continue
                 reports = {}
-                for suffix, name in (("html", "html"), ("json", "json"), ("markdown", "md"), ("csv", "csv"), ("sarif", "sarif"), ("manifest", "manifest"), ("pdf", "pdf"), ("bundle", "zip")):
+                for suffix, name in (("html", "html"), ("json", "json"), ("markdown", "md"), ("csv", "csv"), ("sarif", "sarif"), ("manifest", "manifest"), ("pdf", "pdf"), ("bundle", "zip"), ("encrypted-bundle", "zip.enc")):
                     candidate = self.output / f"macos-inspector-{scan_id}.{name}"
                     if candidate.is_file():
                         reports[suffix] = f"/reports/{candidate.name}"
@@ -301,7 +347,16 @@ class DashboardState:
         manifest = self.output / f"macos-inspector-{scan_id}.manifest"
         if not manifest.is_file():
             raise FileNotFoundError("Evidence manifest not found.")
-        valid, errors = verify_manifest(manifest, os.environ.get("MACOS_INSPECTOR_MANIFEST_KEY"))
+        verification_key = os.environ.get("MACOS_INSPECTOR_MANIFEST_KEY")
+        signing = self.settings.load().get("signing", {})
+        if not verification_key and signing.get("algorithm") == "HMAC-SHA256":
+            key_path = Path(str(signing.get("key_path", ""))).expanduser()
+            if signing.get("enabled") and key_path.is_file():
+                try:
+                    verification_key = key_path.read_text(encoding="utf-8").strip()
+                except OSError:
+                    verification_key = None
+        valid, errors = verify_manifest(manifest, verification_key)
         payload = json.loads(manifest.read_text(encoding="utf-8"))
         signature = payload.get("signature") or {}
         return {
@@ -321,6 +376,111 @@ class DashboardState:
         paths = write_comparison_reports(comparison, self.output)
         comparison["reports"] = {name: f"/reports/{path.name}" for name, path in paths.items()}
         return comparison
+
+    def list_ioc_packs(self) -> list[dict]:
+        directory = self.data_root / "ioc-packs"
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        records = []
+        for path in sorted(directory.glob("*.json")):
+            pack, error = load_ioc_pack(path)
+            records.append({
+                "filename": path.name, "valid": error is None, "error": error,
+                "name": pack.name if pack else path.stem, "version": pack.version if pack else "",
+                "source": pack.source if pack else "", "indicator_count": len(pack.indicators) if pack else 0,
+                "size": path.stat().st_size,
+            })
+        return records
+
+    def store_ioc_pack(self, filename: str, content: object) -> dict:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.json", filename):
+            raise ValueError("IOC pack filename is invalid.")
+        text = json.dumps(content, indent=2, ensure_ascii=False) + "\n"
+        if len(text.encode()) > 2 * 1024 * 1024:
+            raise ValueError("IOC pack exceeds 2 MiB.")
+        directory = self.data_root / "ioc-packs"
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = directory / filename
+        secure_write_text(path, text)
+        pack, error = load_ioc_pack(path)
+        if error or not pack:
+            path.unlink(missing_ok=True)
+            raise ValueError(error or "IOC pack is disabled or empty.")
+        return next(item for item in self.list_ioc_packs() if item["filename"] == filename)
+
+    def list_yara_rules(self) -> list[dict]:
+        directory = self.data_root / "yara-rules"
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        valid, errors = discover_yara_rules(directory)
+        valid_names = {path.name for path in valid}
+        error_map = {entry.split(":", 1)[0]: entry for entry in errors}
+        return [{
+            "filename": path.name, "valid": path.name in valid_names, "error": error_map.get(path.name),
+            "size": path.stat().st_size,
+        } for path in sorted((*directory.glob("*.yar"), *directory.glob("*.yara")))]
+
+    def store_yara_rule(self, filename: str, content: object) -> dict:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.ya(?:r|ra)", filename):
+            raise ValueError("YARA filename is invalid.")
+        if not isinstance(content, str) or not content.strip() or len(content.encode()) > MAX_RULE_BYTES:
+            raise ValueError("YARA content is empty or too large.")
+        if not re.search(r"\brule\s+[A-Za-z_][A-Za-z0-9_]*", content):
+            raise ValueError("No YARA rule declaration was found.")
+        directory = self.data_root / "yara-rules"
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        secure_write_text(directory / filename, content.rstrip() + "\n")
+        return next(item for item in self.list_yara_rules() if item["filename"] == filename)
+
+    def delete_managed_file(self, kind: str, filename: str) -> None:
+        directory_name, suffixes = ("ioc-packs", {".json"}) if kind == "ioc-packs" else ("yara-rules", {".yar", ".yara"})
+        if Path(filename).name != filename or Path(filename).suffix.lower() not in suffixes:
+            raise ValueError("Managed filename is invalid.")
+        path = (self.data_root / directory_name / filename).resolve()
+        if path.parent != (self.data_root / directory_name).resolve() or not path.is_file():
+            raise FileNotFoundError("Managed file not found.")
+        path.unlink()
+
+    def cache_status(self) -> list[dict]:
+        directory = self.data_root / "osint-cache"
+        records = []
+        if directory.is_dir():
+            for path in sorted(directory.glob("*.json")):
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    records.append({
+                        "name": path.stem, "provider": raw.get("provider", ""), "url": raw.get("url", ""),
+                        "fetched_at": raw.get("fetched_at", ""), "sha256": raw.get("sha256", ""), "size": path.stat().st_size,
+                    })
+                except (OSError, ValueError, json.JSONDecodeError):
+                    continue
+        return records
+
+    def generate_signing_key(self, replace: bool = False) -> dict:
+        signing = self.settings.load().get("signing", {})
+        current_path = Path(str(signing.get("key_path", ""))).expanduser()
+        if current_path.is_file() and not replace:
+            raise RuntimeError("A signing identity is already configured. Confirm replacement explicitly.")
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import ed25519
+        except ImportError:
+            import secrets
+            directory = self.data_root / "keys"
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            path = directory / "manifest-hmac.key"
+            secure_write_text(path, secrets.token_hex(32))
+            self.settings.update({"signing": {"enabled": True, "key_path": str(path), "algorithm": "HMAC-SHA256"}})
+            return {"configured": True, "algorithm": "HMAC-SHA256", "public_key_sha256": None}
+        directory = self.data_root / "keys"
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        directory.chmod(0o700)
+        path = directory / "manifest-ed25519.pem"
+        private_key = ed25519.Ed25519PrivateKey.generate()
+        payload = private_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+        secure_write_bytes(path, payload)
+        self.settings.update({"signing": {"enabled": True, "key_path": str(path), "algorithm": "Ed25519"}})
+        public_der = private_key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        import hashlib
+        return {"configured": True, "algorithm": "Ed25519", "public_key_sha256": hashlib.sha256(public_der).hexdigest()}
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -353,6 +513,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._headers(status, "application/json; charset=utf-8", len(body))
         self.wfile.write(body)
 
+    def _read_json_body(self, max_bytes: int = 65536) -> dict:
+        if self.headers.get("X-MacOS-Inspector") != "1" or self.headers.get_content_type() != "application/json":
+            raise PermissionError("Invalid local request.")
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0 or length > max_bytes:
+            raise ValueError("Invalid request size.")
+        payload = json.loads(self.rfile.read(length))
+        if not isinstance(payload, dict):
+            raise ValueError("Request body must be a JSON object.")
+        return payload
+
     def _send_asset(self, name: str) -> None:
         asset = files("macos_inspector.webui").joinpath(name)
         try:
@@ -381,12 +552,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 } for key, value in COLLECTORS.items()],
                 "profiles": SCAN_PROFILES,
                 "formats": list(REPORTERS), "format_capabilities": report_format_capabilities(),
+                "feature_capabilities": {
+                    "signing": {"available": True, "reason": "HMAC-SHA256 is built in; Ed25519 is used when the optional signing dependency is available."},
+                    "yara": {"available": Path(CommandRunner.ALLOWED["yara"]).is_file(), "reason": "" if Path(CommandRunner.ALLOWED["yara"]).is_file() else "Install YARA with Homebrew to enable local rule execution."},
+                },
                 "severities": [severity.label() for severity in Severity],
             })
         elif path == "/api/health":
             self._send_json(self.state.health())
         elif path == "/api/readiness":
             self._send_json(self.state.readiness())
+        elif path == "/api/settings":
+            self._send_json(self.state.settings.public())
+        elif path == "/api/cases":
+            self._send_json({"cases": self.state.cases.list()})
+        elif path == "/api/ioc-packs":
+            self._send_json({"packs": self.state.list_ioc_packs()})
+        elif path == "/api/yara-rules":
+            self._send_json({"rules": self.state.list_yara_rules()})
+        elif path == "/api/osint-cache":
+            self._send_json({"entries": self.state.cache_status()})
         elif path == "/api/scans":
             self._send_json({"scans": self.state.list_jobs()})
         elif path == "/api/compare":
@@ -424,7 +609,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         body = path.read_bytes()
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        self._headers(200, content_type, len(body), report=path.suffix == ".html", download_name=filename if path.suffix == ".zip" else None)
+        self._headers(200, content_type, len(body), report=path.suffix == ".html", download_name=filename if filename.endswith((".zip", ".zip.enc")) else None)
         self.wfile.write(body)
 
     def do_POST(self) -> None:
@@ -441,24 +626,42 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except RuntimeError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
             return
+        if path in {"/api/settings", "/api/cases", "/api/ioc-packs", "/api/yara-rules", "/api/osint-cache/clear", "/api/signing/generate", "/api/threatfox/lookup"}:
+            try:
+                payload = self._read_json_body(6 * 1024 * 1024)
+                if path == "/api/settings":
+                    result = self.state.settings.update(payload)
+                elif path == "/api/cases":
+                    result = self.state.cases.save(payload)
+                elif path == "/api/ioc-packs":
+                    result = self.state.store_ioc_pack(str(payload.get("filename", "")), payload.get("content"))
+                elif path == "/api/yara-rules":
+                    result = self.state.store_yara_rule(str(payload.get("filename", "")), payload.get("content"))
+                elif path == "/api/signing/generate":
+                    result = self.state.generate_signing_key(bool(payload.get("replace", False)))
+                elif path == "/api/threatfox/lookup":
+                    result = lookup_threatfox(str(payload.get("indicator", "")))
+                else:
+                    result = {"cleared": clear_intelligence_cache()}
+                self._send_json(result, HTTPStatus.CREATED if path in {"/api/cases", "/api/ioc-packs", "/api/yara-rules"} else HTTPStatus.OK)
+            except PermissionError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+            except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         if path != "/api/scans":
             self.send_error(404)
             return
-        if self.headers.get("X-MacOS-Inspector") != "1" or self.headers.get_content_type() != "application/json":
-            self._send_json({"error": "Invalid local request."}, HTTPStatus.FORBIDDEN)
-            return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > 65536:
-                raise ValueError("Invalid request size.")
-            payload = json.loads(self.rfile.read(length))
-            if not isinstance(payload, dict):
-                raise ValueError("Request body must be a JSON object.")
+            payload = self._read_json_body()
             collectors = list(dict.fromkeys(payload.get("collectors", [])))
             formats = list(dict.fromkeys(payload.get("formats", [])))
             minimum = str(payload.get("minimum", "informational")).lower()
             case_reference = str(payload.get("case_reference", "")).strip()
             analyst = str(payload.get("analyst", "")).strip()
+            bundle_password = str(payload.get("bundle_password", ""))
             if not collectors or any(item not in COLLECTORS for item in collectors):
                 raise ValueError("Select at least one valid audit section.")
             if any(item not in REPORTERS for item in formats):
@@ -466,11 +669,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
             Severity.parse(minimum)
             if len(case_reference) > 200 or len(analyst) > 200 or any(ord(char) < 32 and char != "\t" for char in case_reference + analyst):
                 raise ValueError("Case reference and analyst must be plain text up to 200 characters.")
-            job = self.state.create_job(collectors, formats, minimum, case_reference, analyst)
+            if "encrypted-bundle" in formats and not 12 <= len(bundle_password) <= 256:
+                raise ValueError("Encrypted case bundle password must contain 12 to 256 characters.")
+            if "encrypted-bundle" not in formats:
+                bundle_password = ""
+            job = self.state.create_job(collectors, formats, minimum, case_reference, analyst, bundle_password)
             self._send_json(job.to_dict(), HTTPStatus.ACCEPTED)
         except RuntimeError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+        except PermissionError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
         except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def do_DELETE(self) -> None:
+        path = urlparse(self.path).path
+        if self.headers.get("X-MacOS-Inspector") != "1":
+            self._send_json({"error": "Invalid local request."}, HTTPStatus.FORBIDDEN)
+            return
+        match = re.fullmatch(r"/api/(ioc-packs|yara-rules)/([^/]+)", path)
+        if not match:
+            self.send_error(404)
+            return
+        try:
+            self.state.delete_managed_file(match.group(1), unquote(match.group(2)))
+            self._send_json({"deleted": True})
+        except FileNotFoundError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+        except (OSError, ValueError) as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
 

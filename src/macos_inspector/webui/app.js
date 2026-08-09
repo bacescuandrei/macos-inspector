@@ -1,7 +1,38 @@
-const state = { config: null, activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [] };
+const state = { config: null, settings: null, cases: [], activeCaseId: '', language: 'ro', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [] };
+
+const I18N = {
+  ro: {
+    manage:'Administrare', introTitle:'Colectează dovezi fără comenzi în Terminal', introText:'Alege secțiunile, rulează scanarea read-only și analizează constatările și rapoartele într-un singur loc.', safety:'Local-first · OSINT online doar cu acord · fără remediere', operationsTitle:'Cazuri, surse și reguli', localSettings:'Configurări locale · permisiuni private', casesTitle:'Management cazuri', casesHelp:'Organizează scanările, analistul și notele investigației.', activeCase:'Caz activ', caseReference:'Referință', caseTitle:'Titlu caz', analyst:'Analist', archived:'Arhivat', caseNotes:'Note locale', saveCase:'Salvează cazul', osintHelp:'Activează providerii și verifică proveniența copiilor locale.', cacheHours:'Cache (ore)', saveSettings:'Salvează configurarea', clearCache:'Golește cache-ul', rulesHelp:'Importă pachete versionate și scanează doar ținte explicite.', chooseFile:'Alege fișier', enableYara:'Activează scanarea YARA', yaraOptional:'Necesită executabilul yara într-o cale de încredere.', yaraTargets:'Ținte YARA explicite · o cale pe linie', saveYara:'Salvează țintele YARA', evidenceProtection:'Protecția dovezilor', evidenceHelp:'HMAC inclus, Ed25519 și AES-256-GCM când suportul criptografic este disponibil.', generateKey:'Generează identitatea de semnare', signManifests:'Semnează manifestele automat', keyPrivacy:'Secretul sau cheia privată rămâne local, cu permisiuni 0600, și nu este inclusă în rapoarte sau arhive.', attachCase:'Atașează un caz salvat', bundlePassword:'Parolă arhivă criptată · minimum 12 caractere', noSavedCase:'Fără caz salvat', configured:'configurată', notConfigured:'neconfigurată',
+    publicNoKey:'Sursă publică · fără cheie', optionalKey:'API public · cheie opțională', optionalFreeKey:'Opțional · Auth-Key gratuit', optional:'opțional', explicitLookup:'Căutare IOC explicită în ThreatFox', lookup:'Caută', threatfoxPrivacy:'Doar indicatorul introdus mai sus este trimis la ThreatFox după apăsarea butonului. Nu se transmite nimic automat.', iocPacks:'Pachete IOC', yaraRules:'Reguli YARA', readinessTitle:'Pregătirea colectării', recheck:'Reverifică', checkingAccess:'Verific accesul local…', runningDiagnostics:'Rulez diagnostice read-only…', auditSections:'Secțiuni de audit', all:'Toate', clear:'Golește', scanProfiles:'Profiluri de scanare', individualSections:'Secțiuni individuale', reportFormats:'Formate de raport', caseReferenceOptional:'Referință caz', analystOptional:'Analist', optionalLabel:'opțional', casePlaceholder:'ID incident sau caz', analystPlaceholder:'Nume sau echipă', minimumSeverity:'Severitatea minimă afișată', severityAll:'Toate constatările', severityLow:'Low și mai sus', severityMedium:'Medium și mai sus', severityHigh:'High și mai sus', severityCritical:'Doar Critical', runSelected:'Rulează auditul selectat', cancelScan:'Anulează scanarea', scanResults:'Rezultatele scanării', ready:'Pregătit', readyTitle:'Totul este pregătit.', readyHelp:'Selectează o secțiune și pornește un audit.', scanComparison:'Compararea scanărilor', close:'Închide', searchFindings:'Caută în constatări', searchFindingsPlaceholder:'Titlu, ID, dovadă…', status:'Stare', allStatuses:'Toate stările', category:'Categorie', allCategories:'Toate categoriile', previous:'Anterior', next:'Următor', noScan:'Nicio scanare selectată', noScanHelp:'Constatările vor apărea aici cu dovezi, comenzi și recomandări.', previousScans:'Scanări anterioare', refresh:'Actualizează', findScan:'Caută o scanare', findScanPlaceholder:'Caz, analist, colector sau ID scanare', interfaceLanguage:'Limba interfeței', onlineOptIn:'Online cu acord', run:'Rulează', sections:'secțiuni', unavailable:'Indisponibil'
+  },
+  en: {
+    manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, then inspect findings and reports in one place.', safety:'Local-first · online OSINT is opt-in · no remediation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings · private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets · one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password · minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
+    publicNoKey:'Public source · no key', optionalKey:'Public API · optional key', optionalFreeKey:'Optional · free Auth-Key', optional:'optional', explicitLookup:'Explicit ThreatFox IOC lookup', lookup:'Lookup', threatfoxPrivacy:'Only the indicator entered above is sent to ThreatFox after you press Lookup. Nothing is submitted automatically.', iocPacks:'IOC packs', yaraRules:'YARA rules', readinessTitle:'Collection readiness', recheck:'Recheck', checkingAccess:'Checking local access…', runningDiagnostics:'Running read-only diagnostics…', auditSections:'Audit sections', all:'All', clear:'Clear', scanProfiles:'Scan profiles', individualSections:'Individual sections', reportFormats:'Report formats', caseReferenceOptional:'Case reference', analystOptional:'Analyst', optionalLabel:'optional', casePlaceholder:'Incident or case ID', analystPlaceholder:'Name or team', minimumSeverity:'Minimum severity shown', severityAll:'All findings', severityLow:'Low and above', severityMedium:'Medium and above', severityHigh:'High and above', severityCritical:'Critical only', runSelected:'Run selected audit', cancelScan:'Cancel running scan', scanResults:'Scan results', ready:'Ready', readyTitle:'Ready when you are.', readyHelp:'Select a section and start an audit.', scanComparison:'Scan comparison', close:'Close', searchFindings:'Search findings', searchFindingsPlaceholder:'Title, ID, evidence…', status:'Status', allStatuses:'All statuses', category:'Category', allCategories:'All categories', previous:'Previous', next:'Next', noScan:'No scan selected', noScanHelp:'Your findings will appear here with evidence, commands and recommendations.', previousScans:'Previous scans', refresh:'Refresh', findScan:'Find a scan', findScanPlaceholder:'Case, analyst, collector or scan ID', interfaceLanguage:'Interface language', onlineOptIn:'Online opt-in', run:'Run', sections:'sections', unavailable:'Unavailable'
+  }
+};
+
+const COLLECTOR_TITLES_RO = { 'accounts-access':'Conturi și acces administrativ', 'application-trust':'Încrederea aplicațiilor', 'background-items':'Elemente de login și fundal', 'browser-artifacts':'Artefacte din browsere', ioc:'Pachete IOC', 'live-triage':'Triaj live al incidentului', persistence:'Mecanisme de persistență', privacy:'Permisiuni TCC și confidențialitate', network:'Rețea și certificate', 'osint-intelligence':'Inteligență OSINT gratuită', 'vulnerability-exposure':'Expunere la vulnerabilități', 'yara-rules':'Reguli YARA administrate', 'management-profiles':'Management și profiluri de configurare', 'system-extensions':'Extensii de sistem', security:'Controale de securitate' };
+const PROFILE_COPY_RO = { quick:['Triaj rapid','Conturi, procese live, persistență, întărire, management, rețea, extensii și verificări IOC.'], 'application-trust':['Application Trust','Analiză detaliată de încredere, semnătură și integritate pentru aplicațiile instalate.'], 'privacy-browser':['Confidențialitate și browsere','Permisiuni TCC plus istoric și descărcări din browserele acceptate.'], 'online-osint':['Inteligență despre vulnerabilități','Corelare opțională Apple, CISA KEV, FIRST EPSS și NIST NVD, cu cache last-known-good.'], 'threat-hunting':['Threat Hunting','Triaj live de procese și rețea plus IOC și reguli YARA opționale.'], full:['Colectare locală completă','Toate secțiunile locale, inclusiv analiza aplicațiilor; exclude OSINT online.'] };
 
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+const t = (key) => I18N[state.language]?.[key] || I18N.en[key] || key;
+const writeOptions = (method, body) => ({method, headers:{'Content-Type':'application/json', 'X-MacOS-Inspector':'1'}, body:JSON.stringify(body)});
+
+function applyLanguage(language) {
+  state.language = language === 'en' ? 'en' : 'ro';
+  document.documentElement.lang = state.language;
+  $('#language-select').value = state.language;
+  document.querySelectorAll('[data-i18n]').forEach((element) => { const value = t(element.dataset.i18n); if (value) element.textContent = value; });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((element) => { element.placeholder = t(element.dataset.i18nPlaceholder); });
+  document.querySelectorAll('[data-i18n-aria]').forEach((element) => { element.setAttribute('aria-label', t(element.dataset.i18nAria)); });
+  const emptyOptions = [$('#case-select option[value=""]'), $('#scan-case-select option[value=""]')];
+  emptyOptions.forEach((option) => { if (option) option.textContent = t('noSavedCase'); });
+  if (state.config) {
+    renderCollectors(true);
+    renderFormats(true);
+  }
+}
 const api = async (url, options = {}) => {
   let response;
   try {
@@ -53,25 +84,30 @@ function finishActiveJob(jobId) {
   updateRunAvailability();
 }
 
-function renderCollectors() {
+function renderCollectors(preserve = false) {
+  const previouslySelected = preserve ? new Set(selectedCollectors()) : new Set();
   $('#collectors').innerHTML = state.config.collectors.map((collector) => `
     <div class="collector-card${collector.external_network ? ' external' : ''}">
       <input type="checkbox" id="collector-${escapeHtml(collector.id)}" data-collector="${escapeHtml(collector.id)}">
-      <label for="collector-${escapeHtml(collector.id)}"><span class="collector-title">${escapeHtml(collector.title)}${collector.external_network ? '<em class="online-badge">Online opt-in</em>' : ''}</span><span class="collector-id">${escapeHtml(collector.id)}</span>${collector.privacy_note ? `<small class="collector-note">${escapeHtml(collector.privacy_note)}</small>` : ''}</label>
-      <button type="button" class="mini-button" data-run-one="${escapeHtml(collector.id)}">Run</button>
+      <label for="collector-${escapeHtml(collector.id)}"><span class="collector-title">${escapeHtml(state.language === 'ro' ? (COLLECTOR_TITLES_RO[collector.id] || collector.title) : collector.title)}${collector.external_network ? `<em class="online-badge">${escapeHtml(t('onlineOptIn'))}</em>` : ''}</span><span class="collector-id">${escapeHtml(collector.id)}</span>${collector.privacy_note ? `<small class="collector-note">${escapeHtml(collector.privacy_note)}</small>` : ''}</label>
+      <button type="button" class="mini-button" data-run-one="${escapeHtml(collector.id)}">${escapeHtml(t('run'))}</button>
     </div>`).join('');
   document.querySelectorAll('[data-run-one]').forEach((button) => button.addEventListener('click', () => startScan([button.dataset.runOne])));
   document.querySelectorAll('[data-collector]').forEach((input) => input.addEventListener('change', syncActiveProfile));
-  renderProfiles();
+  if (preserve) document.querySelectorAll('[data-collector]').forEach((input) => { input.checked = previouslySelected.has(input.dataset.collector); });
+  renderProfiles(preserve);
   updateRunAvailability();
 }
 
-function renderProfiles() {
+function renderProfiles(preserve = false) {
   const profiles = state.config.profiles || [];
-  $('#scan-profiles').innerHTML = profiles.map((profile) => `<button type="button" class="profile-card" data-profile="${escapeHtml(profile.id)}" title="${escapeHtml(profile.description)}"><strong>${escapeHtml(profile.title)}</strong><small>${escapeHtml(profile.description)}</small><span>${escapeHtml(profile.collectors.length)} section${profile.collectors.length === 1 ? '' : 's'}</span></button>`).join('');
+  $('#scan-profiles').innerHTML = profiles.map((profile) => { const copy = state.language === 'ro' ? PROFILE_COPY_RO[profile.id] : null; const title = copy?.[0] || profile.title, description = copy?.[1] || profile.description; return `<button type="button" class="profile-card" data-profile="${escapeHtml(profile.id)}" title="${escapeHtml(description)}"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(description)}</small><span>${escapeHtml(profile.collectors.length)} ${escapeHtml(t('sections'))}</span></button>`; }).join('');
   document.querySelectorAll('[data-profile]').forEach((button) => button.addEventListener('click', () => selectProfile(button.dataset.profile, true)));
-  const defaultProfile = profiles.find((profile) => profile.default) || profiles[0];
-  if (defaultProfile) selectProfile(defaultProfile.id, false);
+  if (preserve) syncActiveProfile();
+  else {
+    const defaultProfile = profiles.find((profile) => profile.default) || profiles[0];
+    if (defaultProfile) selectProfile(defaultProfile.id, false);
+  }
 }
 
 function selectedCollectors() {
@@ -97,16 +133,28 @@ function selectProfile(profileId, announce = true) {
   if (announce) setMessage(`${profile.title} selected · ${profile.collectors.length} audit section${profile.collectors.length === 1 ? '' : 's'}. Review the scope, then run the audit.`);
 }
 
-function renderFormats() {
-  const labels = { html: 'Interactive HTML', json: 'JSON', markdown: 'Markdown', csv: 'CSV', sarif: 'SARIF', manifest: 'Evidence manifest', pdf: 'PDF', bundle: 'Case bundle ZIP' };
+function renderFormats(preserve = false) {
+  const selectedBefore = preserve ? new Set(selectedValues('format')) : new Set();
+  const labels = state.language === 'ro'
+    ? { html: 'HTML interactiv', json: 'JSON', markdown: 'Markdown', csv: 'CSV', sarif: 'SARIF', manifest: 'Manifest de dovezi', pdf: 'PDF', bundle: 'Arhivă ZIP de caz', 'encrypted-bundle': 'Arhivă de caz criptată' }
+    : { html: 'Interactive HTML', json: 'JSON', markdown: 'Markdown', csv: 'CSV', sarif: 'SARIF', manifest: 'Evidence manifest', pdf: 'PDF', bundle: 'Case bundle ZIP', 'encrypted-bundle': 'Encrypted case bundle' };
   const capabilities = state.config.format_capabilities || {};
   $('#formats').innerHTML = state.config.formats.map((format) => {
     const capability = capabilities[format] || {available: true, reason: ''};
     const available = capability.available !== false;
-    const checked = available ? 'checked' : '';
-    const unavailable = available ? '' : '<span class="format-unavailable">Unavailable</span>';
+    // Encryption is deliberately opt-in because selecting it requires a password.
+    const checked = available && (preserve ? selectedBefore.has(format) : format !== 'encrypted-bundle') ? 'checked' : '';
+    const unavailable = available ? '' : `<span class="format-unavailable">${escapeHtml(t('unavailable'))}</span>`;
     return `<label class="format-option${available ? '' : ' unavailable'}" title="${escapeHtml(capability.reason || '')}" aria-disabled="${available ? 'false' : 'true'}"><input type="checkbox" data-format="${escapeHtml(format)}" ${checked} ${available ? '' : 'disabled'}> ${escapeHtml(labels[format] || format.toUpperCase())}${unavailable}</label>`;
   }).join('');
+  document.querySelectorAll('[data-format]').forEach((input) => input.addEventListener('change', updateBundlePasswordVisibility));
+  updateBundlePasswordVisibility();
+}
+
+function updateBundlePasswordVisibility() {
+  const selected = document.querySelector('[data-format="encrypted-bundle"]:checked');
+  $('#bundle-password-wrap').classList.toggle('hidden', !selected);
+  if (!selected) $('#bundle-password').value = '';
 }
 
 async function loadReadiness() {
@@ -135,6 +183,7 @@ async function startScan(collectorOverride = null) {
   const formats = selectedValues('format');
   if (!collectors.length) return setMessage('Select at least one audit section.', true);
   if (!formats.length) return setMessage('Select at least one report format.', true);
+  if (formats.includes('encrypted-bundle') && $('#bundle-password').value.length < 12) return setMessage('Encrypted bundle password must contain at least 12 characters.', true);
   const onlineCollectors = (state.config.collectors || []).filter((collector) => collectors.includes(collector.id) && collector.external_network);
   if (onlineCollectors.length && !window.confirm(`This scan will access the internet for: ${onlineCollectors.map((collector) => collector.title).join(', ')}. No host, case, hash, or file data is sent. Continue?`)) return;
   state.starting = true;
@@ -143,7 +192,7 @@ async function startScan(collectorOverride = null) {
   $('#cancel-scan').disabled = false;
   setMessage('Starting read-only collection…');
   try {
-    const job = await api('/api/scans', { method: 'POST', headers: {'Content-Type': 'application/json', 'X-MacOS-Inspector': '1'}, body: JSON.stringify({ collectors, formats, minimum: $('#minimum').value, case_reference: $('#case-reference').value, analyst: $('#analyst').value }) });
+    const job = await api('/api/scans', writeOptions('POST', { collectors, formats, minimum: $('#minimum').value, case_reference: $('#case-reference').value, analyst: $('#analyst').value, bundle_password: $('#bundle-password').value }));
     state.activeJob = job.job_id;
     state.starting = false;
     updateRunAvailability();
@@ -357,6 +406,205 @@ async function loadHistory() {
   } catch (error) { $('#history').innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`; }
 }
 
+function setInline(selector, message, error = false) {
+  const element = $(selector);
+  if (!element) return;
+  element.textContent = message || '';
+  element.classList.toggle('error', error);
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KiB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+async function loadOperationsData() {
+  try {
+    const [settings, cases, packs, rules, cache] = await Promise.all([
+      api('/api/settings'), api('/api/cases'), api('/api/ioc-packs'), api('/api/yara-rules'), api('/api/osint-cache')
+    ]);
+    state.settings = settings;
+    state.cases = cases.cases || [];
+    applyLanguage(settings.language || state.language);
+    renderCases();
+    renderSettings();
+    renderManagedFiles(packs.packs || [], rules.rules || []);
+    renderCache(cache.entries || []);
+  } catch (error) {
+    setInline('#osint-settings-message', error.message, true);
+  }
+}
+
+function renderCases() {
+  const options = `<option value="">${escapeHtml(t('noSavedCase'))}</option>` + state.cases.map((item) => `<option value="${escapeHtml(item.id)}">${item.archived ? '◌ ' : ''}${escapeHtml(item.reference)} · ${escapeHtml(item.title)}</option>`).join('');
+  $('#case-select').innerHTML = options;
+  $('#scan-case-select').innerHTML = options;
+  if (state.activeCaseId && state.cases.some((item) => item.id === state.activeCaseId)) $('#case-select').value = state.activeCaseId;
+}
+
+function loadCaseIntoEditor(caseId) {
+  state.activeCaseId = caseId || '';
+  const item = state.cases.find((entry) => entry.id === caseId) || {};
+  $('#managed-case-reference').value = item.reference || '';
+  $('#managed-case-title').value = item.title || '';
+  $('#managed-case-analyst').value = item.analyst || '';
+  $('#managed-case-notes').value = item.notes || '';
+  $('#managed-case-archived').checked = Boolean(item.archived);
+}
+
+function attachCaseToScan(caseId) {
+  const item = state.cases.find((entry) => entry.id === caseId);
+  if (!item) return;
+  $('#case-reference').value = item.reference || '';
+  $('#analyst').value = item.analyst || '';
+  setMessage(`${item.reference} attached to the next scan.`);
+}
+
+async function saveCase() {
+  setInline('#case-message', 'Saving…');
+  try {
+    const saved = await api('/api/cases', writeOptions('POST', {
+      id: state.activeCaseId || undefined,
+      reference: $('#managed-case-reference').value,
+      title: $('#managed-case-title').value,
+      analyst: $('#managed-case-analyst').value,
+      notes: $('#managed-case-notes').value,
+      archived: $('#managed-case-archived').checked,
+    }));
+    state.activeCaseId = saved.id;
+    const payload = await api('/api/cases');
+    state.cases = payload.cases || [];
+    renderCases();
+    $('#case-select').value = saved.id;
+    $('#scan-case-select').value = saved.id;
+    attachCaseToScan(saved.id);
+    setInline('#case-message', `Saved ${saved.reference}.`);
+  } catch (error) { setInline('#case-message', error.message, true); }
+}
+
+function renderSettings() {
+  const settings = state.settings || {};
+  document.querySelectorAll('[data-provider]').forEach((input) => { input.checked = Boolean(settings.providers?.[input.dataset.provider]?.enabled); });
+  $('#cache-hours').value = settings.cache_hours || 24;
+  $('#nvd-key-state').textContent = settings.providers?.nvd?.api_key_configured ? `· ${t('configured')}` : `· ${t('notConfigured')}`;
+  $('#threatfox-key-state').textContent = settings.providers?.threatfox?.auth_key_configured ? `· ${t('configured')}` : `· ${t('notConfigured')}`;
+  $('#yara-enabled').checked = Boolean(settings.yara?.enabled);
+  $('#yara-targets').value = (settings.yara?.targets || []).join('\n');
+  $('#signing-enabled').checked = Boolean(settings.signing?.enabled);
+  const signingAlgorithm = settings.signing?.algorithm || 'HMAC-SHA256 / Ed25519';
+  $('#signing-status').innerHTML = settings.signing?.key_configured ? `<strong>${escapeHtml(signingAlgorithm)}</strong><br>${escapeHtml(t('configured'))} · signing material stored locally` : `<strong>${escapeHtml(signingAlgorithm)}</strong><br>${escapeHtml(t('notConfigured'))}`;
+  const signingCapability = state.config?.feature_capabilities?.signing || {available:true, reason:''};
+  $('#generate-signing-key').disabled = signingCapability.available === false;
+  $('#generate-signing-key').title = signingCapability.reason || '';
+  const yaraCapability = state.config?.feature_capabilities?.yara || {available:true, reason:''};
+  $('#yara-enabled').title = yaraCapability.reason || '';
+}
+
+async function saveOsintSettings() {
+  const providers = {};
+  document.querySelectorAll('[data-provider]').forEach((input) => { providers[input.dataset.provider] = {enabled: input.checked}; });
+  if ($('#nvd-api-key').value) providers.nvd.api_key = $('#nvd-api-key').value;
+  if ($('#threatfox-auth-key').value) providers.threatfox.auth_key = $('#threatfox-auth-key').value;
+  try {
+    state.settings = await api('/api/settings', writeOptions('POST', {cache_hours:Number($('#cache-hours').value), providers}));
+    $('#nvd-api-key').value = '';
+    $('#threatfox-auth-key').value = '';
+    renderSettings();
+    setInline('#osint-settings-message', 'Settings saved locally.');
+  } catch (error) { setInline('#osint-settings-message', error.message, true); }
+}
+
+async function saveYaraSettings() {
+  try {
+    const targets = $('#yara-targets').value.split('\n').map((value) => value.trim()).filter(Boolean);
+    state.settings = await api('/api/settings', writeOptions('POST', {yara:{enabled:$('#yara-enabled').checked, targets}}));
+    renderSettings();
+    setInline('#rules-message', 'YARA scope saved locally.');
+  } catch (error) { setInline('#rules-message', error.message, true); }
+}
+
+async function updateSigningEnabled() {
+  try {
+    state.settings = await api('/api/settings', writeOptions('POST', {signing:{enabled:$('#signing-enabled').checked}}));
+    renderSettings();
+    setInline('#signing-message', 'Signing preference saved.');
+  } catch (error) { setInline('#signing-message', error.message, true); }
+}
+
+async function generateSigningKey() {
+  const replace = Boolean(state.settings?.signing?.key_configured);
+  if (replace && !window.confirm('Replace the current signing identity? Keep the old identity if you must verify earlier HMAC-signed manifests.')) return;
+  try {
+    const result = await api('/api/signing/generate', writeOptions('POST', {replace}));
+    state.settings = await api('/api/settings');
+    renderSettings();
+    setInline('#signing-message', result.public_key_sha256 ? `${result.algorithm} ready · fingerprint ${result.public_key_sha256}` : `${result.algorithm} ready · local secret stored with 0600 permissions.`);
+  } catch (error) { setInline('#signing-message', error.message, true); }
+}
+
+async function importManagedFile(kind, input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  setInline('#rules-message', `Validating ${file.name}…`);
+  try {
+    const text = await file.text();
+    const content = kind === 'ioc-packs' ? JSON.parse(text) : text;
+    await api(`/api/${kind}`, writeOptions('POST', {filename:file.name, content}));
+    input.value = '';
+    const [packs, rules] = await Promise.all([api('/api/ioc-packs'), api('/api/yara-rules')]);
+    renderManagedFiles(packs.packs || [], rules.rules || []);
+    setInline('#rules-message', `${file.name} imported locally.`);
+  } catch (error) { setInline('#rules-message', error.message, true); }
+}
+
+function renderManagedFiles(packs, rules) {
+  const row = (kind, item, detail) => `<div class="managed-row"><span><strong>${escapeHtml(item.filename)}</strong><small>${escapeHtml(detail)}</small></span><button type="button" data-delete-kind="${kind}" data-delete-name="${escapeHtml(item.filename)}">Delete</button></div>`;
+  $('#ioc-pack-list').innerHTML = packs.length ? packs.map((item) => row('ioc-packs', item, item.valid ? `${item.name} · v${item.version} · ${item.indicator_count} indicators · ${formatBytes(item.size)}` : item.error)).join('') : '<p class="muted">No imported IOC packs.</p>';
+  $('#yara-rule-list').innerHTML = rules.length ? rules.map((item) => row('yara-rules', item, item.valid ? formatBytes(item.size) : item.error)).join('') : '<p class="muted">No imported YARA rules.</p>';
+  document.querySelectorAll('[data-delete-kind]').forEach((button) => button.addEventListener('click', () => deleteManagedFile(button.dataset.deleteKind, button.dataset.deleteName)));
+}
+
+async function deleteManagedFile(kind, filename) {
+  if (!window.confirm(`Delete local managed file ${filename}?`)) return;
+  try {
+    await api(`/api/${kind}/${encodeURIComponent(filename)}`, {method:'DELETE', headers:{'X-MacOS-Inspector':'1'}});
+    const [packs, rules] = await Promise.all([api('/api/ioc-packs'), api('/api/yara-rules')]);
+    renderManagedFiles(packs.packs || [], rules.rules || []);
+    setInline('#rules-message', `${filename} deleted.`);
+  } catch (error) { setInline('#rules-message', error.message, true); }
+}
+
+function renderCache(entries) {
+  $('#cache-list').innerHTML = entries.length ? entries.map((item) => `<div class="managed-row"><span><strong>${escapeHtml(item.provider || item.name)}</strong><small>${escapeHtml(item.fetched_at)} · ${formatBytes(item.size)} · SHA-256 ${escapeHtml(String(item.sha256).slice(0,16))}…</small></span></div>`).join('') : '<p class="muted">No cached intelligence yet.</p>';
+}
+
+async function clearOsintCache() {
+  if (!window.confirm('Delete the local OSINT cache? Future online scans will download fresh public data.')) return;
+  try {
+    const result = await api('/api/osint-cache/clear', writeOptions('POST', {}));
+    renderCache([]);
+    setInline('#osint-settings-message', `${result.cleared} cache file(s) deleted.`);
+  } catch (error) { setInline('#osint-settings-message', error.message, true); }
+}
+
+async function lookupThreatFox() {
+  const indicator = $('#threatfox-indicator').value.trim();
+  if (!indicator) return setInline('#osint-settings-message', 'Enter an indicator for the explicit lookup.', true);
+  if (!window.confirm(`Send only this indicator to ThreatFox?\n\n${indicator}`)) return;
+  $('#threatfox-result').innerHTML = '<p class="muted">Querying ThreatFox…</p>';
+  try {
+    const result = await api('/api/threatfox/lookup', writeOptions('POST', {indicator}));
+    const rows = result.data || [];
+    $('#threatfox-result').innerHTML = rows.length ? rows.slice(0,50).map((item) => `<div class="managed-row"><span><strong>${escapeHtml(item.ioc || item.id || indicator)}</strong><small>${escapeHtml(item.threat_type || item.malware_printable || result.query_status)} · confidence ${escapeHtml(item.confidence_level ?? '—')}</small></span></div>`).join('') : `<p class="muted">${escapeHtml(result.query_status)} · no matching IOC returned.</p>`;
+    setInline('#osint-settings-message', 'Explicit ThreatFox lookup complete. The result was not persisted automatically.');
+  } catch (error) {
+    $('#threatfox-result').innerHTML = '';
+    setInline('#osint-settings-message', error.message, true);
+  }
+}
+
 async function loadDashboardData() {
   if (state.loadingConfig) return;
   state.loadingConfig = true;
@@ -364,6 +612,7 @@ async function loadDashboardData() {
     state.config = await api('/api/config');
     renderCollectors();
     renderFormats();
+    await loadOperationsData();
     await loadReadiness();
     await loadHistory();
   } catch (error) {
@@ -465,6 +714,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     setMessage('Audit scope cleared. Select a profile or individual sections.');
   });
   $('#run-selected').addEventListener('click', () => startScan());
+  $('#language-select').addEventListener('change', async () => {
+    applyLanguage($('#language-select').value);
+    try { state.settings = await api('/api/settings', writeOptions('POST', {language:state.language})); } catch (error) { setMessage(error.message, true); }
+  });
+  $('#case-select').addEventListener('change', () => loadCaseIntoEditor($('#case-select').value));
+  $('#scan-case-select').addEventListener('change', () => attachCaseToScan($('#scan-case-select').value));
+  $('#save-case').addEventListener('click', saveCase);
+  $('#save-osint-settings').addEventListener('click', saveOsintSettings);
+  $('#clear-osint-cache').addEventListener('click', clearOsintCache);
+  $('#lookup-threatfox').addEventListener('click', lookupThreatFox);
+  $('#save-yara-settings').addEventListener('click', saveYaraSettings);
+  $('#ioc-pack-file').addEventListener('change', () => importManagedFile('ioc-packs', $('#ioc-pack-file')));
+  $('#yara-rule-file').addEventListener('change', () => importManagedFile('yara-rules', $('#yara-rule-file')));
+  $('#generate-signing-key').addEventListener('click', generateSigningKey);
+  $('#signing-enabled').addEventListener('change', updateSigningEnabled);
   $('#cancel-scan').addEventListener('click', cancelScan);
   $('#refresh-history').addEventListener('click', loadHistory);
   $('#refresh-readiness').addEventListener('click', loadReadiness);
@@ -477,6 +741,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#findings-prev').addEventListener('click', () => { if (state.findingPage > 1) { state.findingPage -= 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   $('#findings-next').addEventListener('click', () => { if (state.findingPage * state.findingPageSize < state.filteredFindings.length) { state.findingPage += 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   setConnection('checking');
+  applyLanguage('ro');
   const health = await checkHealth();
   if (!health) setMessage('Dashboard server unavailable. Retrying automatically…', true);
   state.healthPoll = setInterval(checkHealth, 4000);

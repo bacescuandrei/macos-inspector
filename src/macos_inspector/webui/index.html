@@ -14,6 +14,11 @@
       <p class="eyebrow">READ-ONLY DFIR WORKBENCH</p>
       <h1>macOS Inspector</h1>
     </div>
+    <div class="topbar-actions">
+      <label class="visually-hidden" for="language-select" data-i18n="interfaceLanguage">Limba interfeței</label>
+      <select id="language-select" class="compact-select" aria-label="Limba interfeței" data-i18n-aria="interfaceLanguage"><option value="ro">RO</option><option value="en">EN</option></select>
+      <a class="topbar-link" href="#operations" data-i18n="manage">Administrare</a>
+    </div>
     <span id="connection" class="connection checking" role="status" aria-live="polite">Connecting…</span>
   </header>
 
@@ -21,78 +26,163 @@
     <section class="intro" aria-labelledby="intro-title">
       <div>
         <p class="eyebrow">AUDIT CONSOLE</p>
-        <h2 id="intro-title">Collect evidence without terminal commands</h2>
-        <p class="lede">Choose the audit sections, run a read-only scan, then inspect findings and exportable reports in one place.</p>
+        <h2 id="intro-title" data-i18n="introTitle">Colectează dovezi fără comenzi în Terminal</h2>
+        <p class="lede" data-i18n="introText">Alege secțiunile, rulează scanarea read-only și analizează constatările și rapoartele într-un singur loc.</p>
       </div>
-      <div class="safety-note"><span>●</span> Local-first · online OSINT opt-in · no remediation</div>
+      <div class="safety-note"><span>●</span> <span data-i18n="safety">Local-first · OSINT online doar cu acord · fără remediere</span></div>
+    </section>
+
+    <section id="operations" class="operations-section" aria-labelledby="operations-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">CONTROL CENTER</p><h2 id="operations-title" data-i18n="operationsTitle">Cazuri, surse și reguli</h2></div>
+        <span class="privacy-chip" data-i18n="localSettings">Configurări locale · permisiuni private</span>
+      </div>
+      <div class="operations-grid">
+        <details class="operation-card" open>
+          <summary><span class="operation-icon" aria-hidden="true">01</span><span><strong data-i18n="casesTitle">Management cazuri</strong><small data-i18n="casesHelp">Organizează scanările, analistul și notele investigației.</small></span></summary>
+          <div class="operation-body">
+            <label class="field-label" for="case-select" data-i18n="activeCase">Caz activ</label>
+            <select id="case-select" class="field"><option value="">Fără caz salvat</option></select>
+            <div class="form-grid two-columns">
+              <label><span data-i18n="caseReference">Referință</span><input id="managed-case-reference" class="field" maxlength="2000"></label>
+              <label><span data-i18n="caseTitle">Titlu caz</span><input id="managed-case-title" class="field" maxlength="2000"></label>
+              <label><span data-i18n="analyst">Analist</span><input id="managed-case-analyst" class="field" maxlength="2000"></label>
+              <label class="checkbox-line"><input id="managed-case-archived" type="checkbox"><span data-i18n="archived">Arhivat</span></label>
+            </div>
+            <label class="field-label" for="managed-case-notes" data-i18n="caseNotes">Note locale</label>
+            <textarea id="managed-case-notes" class="field textarea" maxlength="2000"></textarea>
+            <button id="save-case" class="secondary-button" type="button" data-i18n="saveCase">Salvează cazul</button>
+            <p id="case-message" class="inline-message" role="status"></p>
+          </div>
+        </details>
+
+        <details class="operation-card">
+          <summary><span class="operation-icon" aria-hidden="true">02</span><span><strong>OSINT &amp; cache</strong><small data-i18n="osintHelp">Activează providerii și verifică proveniența copiilor locale.</small></span></summary>
+          <div class="operation-body">
+            <div class="provider-grid">
+              <label class="toggle-row"><span><strong>Apple Security Releases</strong><small data-i18n="publicNoKey">Sursă publică · fără cheie</small></span><input data-provider="apple" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>CISA KEV</strong><small data-i18n="publicNoKey">Sursă publică · fără cheie</small></span><input data-provider="cisa" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>FIRST EPSS</strong><small data-i18n="publicNoKey">Sursă publică · fără cheie</small></span><input data-provider="epss" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>NIST NVD</strong><small data-i18n="optionalKey">API public · cheie opțională</small></span><input data-provider="nvd" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>ThreatFox</strong><small data-i18n="optionalFreeKey">Opțional · Auth-Key gratuit</small></span><input data-provider="threatfox" type="checkbox"></label>
+            </div>
+            <div class="form-grid two-columns">
+              <label><span data-i18n="cacheHours">Cache (ore)</span><input id="cache-hours" class="field" type="number" min="1" max="168"></label>
+              <label><span>NVD API key <small id="nvd-key-state"></small></span><input id="nvd-api-key" class="field" type="password" autocomplete="off" placeholder="opțional" data-i18n-placeholder="optional"></label>
+              <label><span>ThreatFox Auth-Key <small id="threatfox-key-state"></small></span><input id="threatfox-auth-key" class="field" type="password" autocomplete="off" placeholder="opțional" data-i18n-placeholder="optional"></label>
+            </div>
+            <div class="explicit-lookup">
+              <label><span data-i18n="explicitLookup">Căutare IOC explicită în ThreatFox</span><input id="threatfox-indicator" class="field" maxlength="2048" placeholder="IP, domain, URL sau hash"></label>
+              <button id="lookup-threatfox" class="secondary-button" type="button" data-i18n="lookup">Caută</button>
+            </div>
+            <p class="privacy-copy" data-i18n="threatfoxPrivacy">Doar indicatorul introdus mai sus este trimis la ThreatFox după apăsarea butonului. Nu se transmite nimic automat.</p>
+            <div id="threatfox-result" class="managed-list"></div>
+            <div class="button-row"><button id="save-osint-settings" class="secondary-button" type="button" data-i18n="saveSettings">Salvează configurarea</button><button id="clear-osint-cache" class="danger-outline" type="button" data-i18n="clearCache">Golește cache-ul</button></div>
+            <div id="cache-list" class="managed-list"></div>
+            <p id="osint-settings-message" class="inline-message" role="status"></p>
+          </div>
+        </details>
+
+        <details class="operation-card">
+          <summary><span class="operation-icon" aria-hidden="true">03</span><span><strong>IOC &amp; YARA</strong><small data-i18n="rulesHelp">Importă pachete versionate și scanează doar ținte explicite.</small></span></summary>
+          <div class="operation-body">
+            <div class="upload-grid">
+              <label class="upload-card"><strong>IOC pack JSON</strong><small>max 2 MiB</small><input id="ioc-pack-file" type="file" accept="application/json,.json"><span data-i18n="chooseFile">Alege fișier</span></label>
+              <label class="upload-card"><strong>YARA rules</strong><small>.yar / .yara · max 5 MiB</small><input id="yara-rule-file" type="file" accept=".yar,.yara,text/plain"><span data-i18n="chooseFile">Alege fișier</span></label>
+            </div>
+            <label class="toggle-row solo"><span><strong data-i18n="enableYara">Activează scanarea YARA</strong><small data-i18n="yaraOptional">Necesită executabilul yara într-o cale de încredere.</small></span><input id="yara-enabled" type="checkbox"></label>
+            <label class="field-label" for="yara-targets" data-i18n="yaraTargets">Ținte YARA explicite · o cale pe linie</label>
+            <textarea id="yara-targets" class="field textarea code-field" rows="4"></textarea>
+            <button id="save-yara-settings" class="secondary-button" type="button" data-i18n="saveYara">Salvează țintele YARA</button>
+            <div class="managed-columns"><div><h3 data-i18n="iocPacks">Pachete IOC</h3><div id="ioc-pack-list" class="managed-list"></div></div><div><h3 data-i18n="yaraRules">Reguli YARA</h3><div id="yara-rule-list" class="managed-list"></div></div></div>
+            <p id="rules-message" class="inline-message" role="status"></p>
+          </div>
+        </details>
+
+        <details class="operation-card">
+          <summary><span class="operation-icon" aria-hidden="true">04</span><span><strong data-i18n="evidenceProtection">Protecția dovezilor</strong><small data-i18n="evidenceHelp">HMAC inclus, Ed25519 și AES-256-GCM când suportul criptografic este disponibil.</small></span></summary>
+          <div class="operation-body">
+            <div id="signing-status" class="status-box"></div>
+            <div class="button-row"><button id="generate-signing-key" class="secondary-button" type="button" data-i18n="generateKey">Generează identitatea de semnare</button><label class="checkbox-line"><input id="signing-enabled" type="checkbox"><span data-i18n="signManifests">Semnează manifestele automat</span></label></div>
+            <p class="privacy-copy" data-i18n="keyPrivacy">Cheia privată rămâne local, cu permisiuni 0600, și nu este inclusă în rapoarte sau arhive.</p>
+            <p id="signing-message" class="inline-message" role="status"></p>
+          </div>
+        </details>
+      </div>
     </section>
 
     <section class="readiness-section" aria-labelledby="readiness-title">
       <div class="section-heading">
-        <div><p class="eyebrow">PREFLIGHT</p><h2 id="readiness-title">Collection readiness</h2></div>
-        <button id="refresh-readiness" class="text-button" type="button">Recheck</button>
+        <div><p class="eyebrow">PREFLIGHT</p><h2 id="readiness-title" data-i18n="readinessTitle">Pregătirea colectării</h2></div>
+        <button id="refresh-readiness" class="text-button" type="button" data-i18n="recheck">Reverifică</button>
       </div>
-      <div id="readiness-summary" class="readiness-summary" role="status">Checking local access…</div>
-      <div id="readiness-checks" class="readiness-grid"><p class="muted">Running read-only diagnostics…</p></div>
+      <div id="readiness-summary" class="readiness-summary" role="status" data-i18n="checkingAccess">Verific accesul local…</div>
+      <div id="readiness-checks" class="readiness-grid"><p class="muted" data-i18n="runningDiagnostics">Rulez diagnostice read-only…</p></div>
     </section>
 
     <section class="workspace-grid">
       <aside class="control-panel" aria-labelledby="controls-title">
         <div class="section-heading">
-          <div><p class="eyebrow">01 / SCOPE</p><h2 id="controls-title">Audit sections</h2></div>
-          <div class="scope-actions"><button id="select-all" class="text-button" type="button">All</button><button id="clear-selection" class="text-button" type="button">Clear</button></div>
+          <div><p class="eyebrow">01 / SCOPE</p><h2 id="controls-title" data-i18n="auditSections">Secțiuni de audit</h2></div>
+          <div class="scope-actions"><button id="select-all" class="text-button" type="button" data-i18n="all">Toate</button><button id="clear-selection" class="text-button" type="button" data-i18n="clear">Golește</button></div>
         </div>
-        <p class="scope-label">Scan profiles</p>
+        <p class="scope-label" data-i18n="scanProfiles">Profiluri de scanare</p>
         <div id="scan-profiles" class="profile-grid" aria-label="Scan profiles"><p class="muted">Loading profiles…</p></div>
-        <p class="scope-label sections-label">Individual sections</p>
+        <p class="scope-label sections-label" data-i18n="individualSections">Secțiuni individuale</p>
         <div id="collectors" class="collector-list" aria-live="polite"><p class="muted">Loading audit sections…</p></div>
 
-        <div class="section-heading compact"><div><p class="eyebrow">02 / EXPORTS</p><h2>Report formats</h2></div></div>
+        <div class="section-heading compact"><div><p class="eyebrow">02 / EXPORTS</p><h2 data-i18n="reportFormats">Formate de raport</h2></div></div>
         <div id="formats" class="format-list"></div>
 
         <div class="case-fields">
-          <label class="field-label" for="case-reference">Case reference <span>optional</span></label>
-          <input id="case-reference" class="field" type="text" maxlength="200" placeholder="Incident or case ID">
-          <label class="field-label" for="analyst">Analyst <span>optional</span></label>
-          <input id="analyst" class="field" type="text" maxlength="200" placeholder="Name or team">
+          <label class="field-label" for="scan-case-select" data-i18n="attachCase">Atașează un caz salvat</label>
+          <select id="scan-case-select" class="field"><option value="">Fără caz salvat</option></select>
+          <label class="field-label" for="case-reference"><span data-i18n="caseReferenceOptional">Referință caz</span> <span data-i18n="optionalLabel">opțional</span></label>
+          <input id="case-reference" class="field" type="text" maxlength="200" placeholder="ID incident sau caz" data-i18n-placeholder="casePlaceholder">
+          <label class="field-label" for="analyst"><span data-i18n="analystOptional">Analist</span> <span data-i18n="optionalLabel">opțional</span></label>
+          <input id="analyst" class="field" type="text" maxlength="200" placeholder="Nume sau echipă" data-i18n-placeholder="analystPlaceholder">
         </div>
-        <label class="field-label" for="minimum">Minimum severity shown</label>
+        <label class="field-label" for="minimum" data-i18n="minimumSeverity">Severitatea minimă afișată</label>
         <select id="minimum" class="field">
-          <option value="informational">All findings</option>
-          <option value="low">Low and above</option>
-          <option value="medium">Medium and above</option>
-          <option value="high">High and above</option>
-          <option value="critical">Critical only</option>
+          <option value="informational" data-i18n="severityAll">Toate constatările</option>
+          <option value="low" data-i18n="severityLow">Low și mai sus</option>
+          <option value="medium" data-i18n="severityMedium">Medium și mai sus</option>
+          <option value="high" data-i18n="severityHigh">High și mai sus</option>
+          <option value="critical" data-i18n="severityCritical">Doar Critical</option>
         </select>
-        <button id="run-selected" class="primary-button" type="button">Run selected audit</button>
-        <button id="cancel-scan" class="cancel-button hidden" type="button">Cancel running scan</button>
+        <div id="bundle-password-wrap" class="hidden">
+          <label class="field-label" for="bundle-password" data-i18n="bundlePassword">Parolă arhivă criptată · minimum 12 caractere</label>
+          <input id="bundle-password" class="field" type="password" minlength="12" maxlength="256" autocomplete="new-password">
+        </div>
+        <button id="run-selected" class="primary-button" type="button" data-i18n="runSelected">Rulează auditul selectat</button>
+        <button id="cancel-scan" class="cancel-button hidden" type="button" data-i18n="cancelScan">Anulează scanarea</button>
         <p id="action-message" class="action-message" role="status"></p>
       </aside>
 
       <section class="results-panel" aria-labelledby="results-title">
         <div class="section-heading">
-          <div><p class="eyebrow">03 / RESULTS</p><h2 id="results-title">Scan results</h2></div>
-          <span id="scan-state" class="state-pill">Ready</span>
+          <div><p class="eyebrow">03 / RESULTS</p><h2 id="results-title" data-i18n="scanResults">Rezultatele scanării</h2></div>
+          <span id="scan-state" class="state-pill" data-i18n="ready">Pregătit</span>
         </div>
-        <div id="progress" class="progress-box empty"><strong>Ready when you are.</strong><span>Select a section and start an audit.</span></div>
+        <div id="progress" class="progress-box empty"><strong data-i18n="readyTitle">Totul este pregătit.</strong><span data-i18n="readyHelp">Selectează o secțiune și pornește un audit.</span></div>
         <div id="case-banner" class="case-banner hidden"></div>
         <div id="summary" class="summary-grid hidden"></div>
-        <section id="comparison-panel" class="comparison-panel hidden" aria-labelledby="comparison-title"><div class="comparison-heading"><div><span class="eyebrow">BASELINE DIFF</span><h3 id="comparison-title">Scan comparison</h3></div><button id="close-comparison" class="text-button" type="button">Close</button></div><div id="comparison-summary" class="comparison-summary"></div><div id="comparison-results" class="comparison-results"></div></section>
+        <section id="comparison-panel" class="comparison-panel hidden" aria-labelledby="comparison-title"><div class="comparison-heading"><div><span class="eyebrow">BASELINE DIFF</span><h3 id="comparison-title" data-i18n="scanComparison">Compararea scanărilor</h3></div><button id="close-comparison" class="text-button" type="button" data-i18n="close">Închide</button></div><div id="comparison-summary" class="comparison-summary"></div><div id="comparison-results" class="comparison-results"></div></section>
         <div id="report-links" class="report-links hidden"></div>
         <details id="timeline-panel" class="timeline-panel hidden"><summary>Timeline · <span id="timeline-count">0</span> events</summary><div id="timeline" class="timeline-list"></div></details>
         <div id="findings-toolbar" class="findings-toolbar hidden">
-          <label><span>Search findings</span><input id="finding-search" class="field" type="search" placeholder="Title, ID, evidence…"></label>
-          <label><span>Status</span><select id="finding-status-filter" class="field"><option value="">All statuses</option></select></label>
-          <label><span>Category</span><select id="finding-category-filter" class="field"><option value="">All categories</option></select></label>
-          <div class="finding-page-controls"><span id="finding-range">0 findings</span><button id="findings-prev" class="text-button" type="button">Previous</button><button id="findings-next" class="text-button" type="button">Next</button></div>
+          <label><span data-i18n="searchFindings">Caută în constatări</span><input id="finding-search" class="field" type="search" placeholder="Titlu, ID, dovadă…" data-i18n-placeholder="searchFindingsPlaceholder"></label>
+          <label><span data-i18n="status">Stare</span><select id="finding-status-filter" class="field"><option value="" data-i18n="allStatuses">Toate stările</option></select></label>
+          <label><span data-i18n="category">Categorie</span><select id="finding-category-filter" class="field"><option value="" data-i18n="allCategories">Toate categoriile</option></select></label>
+          <div class="finding-page-controls"><span id="finding-range">0</span><button id="findings-prev" class="text-button" type="button" data-i18n="previous">Anterior</button><button id="findings-next" class="text-button" type="button" data-i18n="next">Următor</button></div>
         </div>
-        <div id="findings" class="findings-list"><div class="empty-state"><span class="empty-icon">◌</span><h3>No scan selected</h3><p>Your findings will appear here with evidence, commands and recommendations.</p></div></div>
+        <div id="findings" class="findings-list"><div class="empty-state"><span class="empty-icon">◌</span><h3 data-i18n="noScan">Nicio scanare selectată</h3><p data-i18n="noScanHelp">Constatările vor apărea aici cu dovezi, comenzi și recomandări.</p></div></div>
       </section>
     </section>
 
     <section class="history-section" aria-labelledby="history-title">
-      <div class="section-heading"><div><p class="eyebrow">04 / HISTORY</p><h2 id="history-title">Previous scans</h2></div><button id="refresh-history" class="text-button" type="button">Refresh</button></div>
-      <div class="history-toolbar"><label for="history-search">Find a scan</label><input id="history-search" class="field" type="search" placeholder="Case, analyst, collector or scan ID"><button id="clear-history-search" class="text-button" type="button">Clear</button><span id="history-count"></span></div>
+      <div class="section-heading"><div><p class="eyebrow">04 / HISTORY</p><h2 id="history-title" data-i18n="previousScans">Scanări anterioare</h2></div><button id="refresh-history" class="text-button" type="button" data-i18n="refresh">Actualizează</button></div>
+      <div class="history-toolbar"><label for="history-search" data-i18n="findScan">Caută o scanare</label><input id="history-search" class="field" type="search" placeholder="Caz, analist, colector sau ID scanare" data-i18n-placeholder="findScanPlaceholder"><button id="clear-history-search" class="text-button" type="button" data-i18n="clear">Golește</button><span id="history-count"></span></div>
       <div id="history" class="history-list"><p class="muted">Loading scan history…</p></div>
     </section>
   </main>

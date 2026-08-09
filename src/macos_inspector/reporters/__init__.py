@@ -8,12 +8,16 @@ from .sarif_reporter import write_sarif
 from .manifest_reporter import write_manifest
 from .pdf_reporter import write_pdf
 from .bundle_reporter import write_bundle
+from .encrypted_bundle import encryption_available, write_encrypted_bundle
 
-REPORTERS = {"json": write_json, "markdown": write_markdown, "csv": write_csv, "html": write_html, "sarif": write_sarif, "manifest": write_manifest, "pdf": write_pdf, "bundle": write_bundle}
+REPORTERS = {"json": write_json, "markdown": write_markdown, "csv": write_csv, "html": write_html, "sarif": write_sarif, "manifest": write_manifest, "pdf": write_pdf, "bundle": write_bundle, "encrypted-bundle": write_encrypted_bundle}
 
 
 def report_format_capabilities() -> dict[str, dict[str, object]]:
-    return {name: {"available": True, "reason": ""} for name in REPORTERS}
+    capabilities = {name: {"available": True, "reason": ""} for name in REPORTERS}
+    if not encryption_available():
+        capabilities["encrypted-bundle"] = {"available": False, "reason": "Encrypted case bundles require the optional signing dependency."}
+    return capabilities
 
 
 def unavailable_report_formats(formats: list[str]) -> dict[str, str]:

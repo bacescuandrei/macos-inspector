@@ -29,6 +29,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--list-collectors", action="store_true")
     p.add_argument("--verify-manifest", type=Path, help="Verify a manifest and its report digests")
     p.add_argument("--public-key", type=Path, help="Trusted PEM public key for manifest verification")
+    p.add_argument("--decrypt-bundle", type=Path, help="Decrypt an AES-256-GCM case bundle")
+    p.add_argument("--decrypt-output", type=Path, help="Destination ZIP for --decrypt-bundle")
     p.add_argument("--web", action="store_true", help="Start the local web dashboard")
     p.add_argument("--no-open-browser", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--host", default="127.0.0.1", help=argparse.SUPPRESS)
@@ -38,6 +40,18 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.decrypt_bundle:
+        from macos_inspector.reporters.encrypted_bundle import decrypt_file
+        password = os.environ.get("MACOS_INSPECTOR_BUNDLE_PASSWORD", "")
+        if not password:
+            parser().error("set MACOS_INSPECTOR_BUNDLE_PASSWORD to decrypt a case bundle")
+        destination = args.decrypt_output or args.decrypt_bundle.with_suffix("").with_suffix("")
+        try:
+            decrypt_file(args.decrypt_bundle, destination, password)
+        except (OSError, RuntimeError, ValueError) as exc:
+            parser().error(str(exc))
+        print(destination)
+        return 0
     if args.verify_manifest:
         from macos_inspector.reporters.manifest_reporter import verify_manifest
         valid, errors = verify_manifest(
@@ -83,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     if len(args.case_reference) > 200 or len(args.analyst) > 200:
         parser().error("case reference and analyst must be at most 200 characters")
     result = run_scan(selected, minimum, case_reference=args.case_reference, analyst=args.analyst)
-    for path in write_reports(result, formats, args.output):
+    for path in write_reports(result, formats, args.output, bundle_password=os.environ.get("MACOS_INSPECTOR_BUNDLE_PASSWORD")):
         print(path)
     if result.metadata.collection_errors:
         for error in result.metadata.collection_errors:

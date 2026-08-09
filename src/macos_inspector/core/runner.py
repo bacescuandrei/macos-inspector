@@ -35,8 +35,10 @@ class CommandRunner:
         "dscacheutil": "/usr/bin/dscacheutil",
         "fdesetup": "/usr/bin/fdesetup",
         "launchctl": "/bin/launchctl",
+        "lsof": "/usr/sbin/lsof",
         "plutil": "/usr/bin/plutil",
         "profiles": "/usr/bin/profiles",
+        "ps": "/bin/ps",
         "scutil": "/usr/sbin/scutil",
         "security": "/usr/bin/security",
         "sfltool": "/usr/bin/sfltool",
@@ -45,8 +47,10 @@ class CommandRunner:
         "spctl": "/usr/sbin/spctl",
         "system_profiler": "/usr/sbin/system_profiler",
         "systemextensionsctl": "/usr/bin/systemextensionsctl",
+        "sw_vers": "/usr/bin/sw_vers",
         "uname": "/usr/bin/uname",
         "xattr": "/usr/bin/xattr",
+        "yara": next((path for path in ("/opt/homebrew/bin/yara", "/usr/local/bin/yara", "/usr/bin/yara") if Path(path).is_file()), "/opt/homebrew/bin/yara"),
     }
 
     def __init__(self, timeout: int = 15, cancel_event: threading.Event | None = None) -> None:

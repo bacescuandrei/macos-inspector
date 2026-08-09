@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import json
 from typing import Callable
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 from .base import Collector
-from macos_inspector import __version__
 from macos_inspector.core.models import Evidence, Finding, Severity
+from macos_inspector.core.intelligence import IntelligenceResource, fetch_cached_json
 
 
 CISA_KEV_FEED = "https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json"
@@ -17,27 +15,17 @@ MAX_VULNERABILITIES = 20_000
 ALLOWED_FEED_HOSTS = {"raw.githubusercontent.com"}
 
 
+def fetch_cisa_kev_resource(force: bool = False) -> IntelligenceResource:
+    """Fetch or reuse the common public catalog without sending host or case data."""
+    return fetch_cached_json(
+        "cisa-kev", "CISA", CISA_KEV_FEED, ALLOWED_FEED_HOSTS, validate_cisa_kev, force=force,
+    )
+
+
 def fetch_cisa_kev(url: str = CISA_KEV_FEED) -> dict:
-    """Fetch the common public catalog without sending host or case data."""
-    request = Request(url, headers={
-        "Accept": "application/json",
-        "User-Agent": f"macOS-Inspector/{__version__} (read-only OSINT enrichment)",
-    })
-    with urlopen(request, timeout=20) as response:
-        resolved = urlparse(response.geturl())
-        if resolved.scheme != "https" or resolved.hostname not in ALLOWED_FEED_HOSTS:
-            raise ValueError("The OSINT feed redirected to an untrusted host.")
-        content_length = response.headers.get("Content-Length")
-        if content_length and int(content_length) > MAX_FEED_BYTES:
-            raise ValueError("The OSINT feed exceeds the size limit.")
-        body = response.read(MAX_FEED_BYTES + 1)
-    if len(body) > MAX_FEED_BYTES:
-        raise ValueError("The OSINT feed exceeds the size limit.")
-    try:
-        payload = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("The OSINT feed did not contain valid UTF-8 JSON.") from exc
-    return validate_cisa_kev(payload)
+    if url != CISA_KEV_FEED:
+        raise ValueError("Only the allowlisted CISA KEV feed is supported.")
+    return fetch_cisa_kev_resource().payload  # type: ignore[return-value]
 
 
 def validate_cisa_kev(payload: object) -> dict:

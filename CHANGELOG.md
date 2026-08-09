@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.0 - 2026-08-09
+
+- Added exact macOS version/build exposure correlation across Apple Security Releases, CISA KEV, FIRST EPSS, and NIST NVD without claiming evidence of compromise.
+- Added validated, provenance-recorded OSINT caching with configurable TTL, stale last-known-good fallback, provider controls, and cache clearing.
+- Added explicit ThreatFox lookup; it is disabled by default and submits only the analyst-entered indicator after confirmation.
+- Added live incident triage for process trees, listeners, established connections, suspicious execution paths, and process/network correlation.
+- Added dashboard-managed IOC packs and optional local YARA rules with bounded explicit targets.
+- Added private local case records, saved-case attachment, archived state, analyst identity, and notes.
+- Added automatic Ed25519 or built-in HMAC-SHA256 signing identities and dashboard signature verification.
+- Added password-protected AES-256-GCM case bundles using Scrypt and a CLI decrypt workflow; passwords are never journaled or persisted.
+- Added Romanian/English UI localization, visible keyboard focus, reduced-motion support, and responsive layouts verified at 1280, 1024, 768, 390, and 320 pixels without text escaping its card.
+- Added the Vulnerability Intelligence and Threat Hunting profiles, bringing the project to 15 collectors and nine report formats.
+- Added cache, settings, case, exposure, live triage, YARA, signing, and encryption tests; the complete suite now contains 52 tests.
+
 ## 1.1.0 - 2026-08-09
 
 - Added an explicit Online OSINT profile backed by CISA's free Known Exploited Vulnerabilities catalog and official GitHub mirror.

@@ -13,6 +13,7 @@ from .application_trust import DEFAULT_APPLICATION_ROOTS, _bundle_metadata, disc
 from .base import Collector
 from .persistence import LAUNCH_PATHS
 from macos_inspector.core.models import Evidence, Finding, Severity
+from macos_inspector.core.storage import application_data_dir
 
 
 MAX_HASH_BYTES = 2 * 1024 * 1024 * 1024
@@ -140,7 +141,7 @@ class IOCCollector(Collector):
         super().__init__(runner)
         self.directories = (
             Path.cwd() / "ioc-packs",
-            Path.home() / ".config/macos-inspector/ioc-packs",
+            application_data_dir() / "ioc-packs",
         ) if directories is None else directories
         self._bundle_ids: dict[str, list[str]] | None = None
         self._launchd_labels: dict[str, list[str]] | None = None

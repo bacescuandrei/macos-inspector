@@ -72,25 +72,26 @@ def run_scan(
     )
 
 
-def write_reports(result: ScanResult, formats: list[str], output_directory) -> list:
+def write_reports(result: ScanResult, formats: list[str], output_directory, bundle_password: str | None = None) -> list:
     from pathlib import Path
     from macos_inspector.reporters.bundle_reporter import write_bundle
     from macos_inspector.reporters.manifest_reporter import write_manifest
+    from macos_inspector.reporters.encrypted_bundle import encrypt_file
     from macos_inspector.reporters import require_report_formats
 
     require_report_formats(formats)
     output = Path(output_directory)
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     output.chmod(0o700)
-    extension = {"markdown": "md", "bundle": "zip"}
+    extension = {"markdown": "md", "bundle": "zip", "encrypted-bundle": "zip.enc"}
     paths = []
     for report_format in formats:
-        if report_format in {"manifest", "bundle"}:
+        if report_format in {"manifest", "bundle", "encrypted-bundle"}:
             continue
         path = output / f"macos-inspector-{result.metadata.scan_id}.{extension.get(report_format, report_format)}"
         REPORTERS[report_format](result, path)
         paths.append(path)
-    if "manifest" in formats or "bundle" in formats:
+    if "manifest" in formats or "bundle" in formats or "encrypted-bundle" in formats:
         path = output / f"macos-inspector-{result.metadata.scan_id}.manifest"
         write_manifest(result, path, paths)
         paths.append(path)
@@ -98,4 +99,15 @@ def write_reports(result: ScanResult, formats: list[str], output_directory) -> l
         path = output / f"macos-inspector-{result.metadata.scan_id}.{extension['bundle']}"
         write_bundle(result, path)
         paths.append(path)
+    if "encrypted-bundle" in formats:
+        if not bundle_password:
+            raise ValueError("A password is required for the encrypted case bundle.")
+        temporary_bundle = output / f".macos-inspector-{result.metadata.scan_id}.zip"
+        encrypted = output / f"macos-inspector-{result.metadata.scan_id}.zip.enc"
+        try:
+            write_bundle(result, temporary_bundle)
+            encrypt_file(temporary_bundle, encrypted, bundle_password)
+            paths.append(encrypted)
+        finally:
+            temporary_bundle.unlink(missing_ok=True)
     return paths

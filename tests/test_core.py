@@ -44,6 +44,11 @@ from macos_inspector.collectors.security import SecurityControlsCollector
 from macos_inspector.collectors.management_profiles import ManagementProfilesCollector, parse_configuration_profile_status, parse_enrollment_status
 from macos_inspector.collectors.accounts_access import AccountsAccessCollector, account_anomalies, parse_group_members, parse_user_records, regular_accounts
 from macos_inspector.collectors.osint_intelligence import CISA_KEV_FEED, OSINTIntelligenceCollector, apple_kev_entries, validate_cisa_kev
+from macos_inspector.collectors.vulnerability_exposure import VulnerabilityExposureCollector, macos_kev_entries, nvd_macos_range, parse_sw_vers
+from macos_inspector.collectors.live_triage import LiveTriageCollector, parse_lsof_fields, parse_processes, suspicious_processes
+from macos_inspector.collectors.yara_rules import discover_yara_rules, parse_yara_matches
+from macos_inspector.core.intelligence import IntelligenceResource, fetch_cached_json, parse_apple_security_releases, validate_epss, validate_nvd
+from macos_inspector.core.storage import CaseStore, SettingsStore
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.runner import CommandResult, CommandRunner, ScanCancelled
@@ -54,6 +59,7 @@ from macos_inspector.core.timeline import build_timeline
 from macos_inspector.reporters import REPORTERS, report_format_capabilities, require_report_formats
 from macos_inspector.reporters.manifest_reporter import verify_manifest, write_manifest
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
+from macos_inspector.reporters.encrypted_bundle import decrypt_file, encryption_available
 from macos_inspector.web import DashboardState, SCAN_PROFILES, ScanJob
 from scripts.build_release import LAUNCHER, build_release
 from macos_inspector.cli import parser as cli_parser
@@ -64,6 +70,118 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_settings_cases_and_secrets_remain_local(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = SettingsStore(root)
+            public = settings.update({
+                "language": "en", "cache_hours": 12,
+                "providers": {"nvd": {"enabled": True, "api_key": "nvd-secret"}, "threatfox": {"enabled": True, "auth_key": "fox-secret"}},
+                "yara": {"enabled": True, "targets": ["~/Downloads"]},
+            })
+            self.assertEqual(public["language"], "en")
+            self.assertTrue(public["providers"]["nvd"]["api_key_configured"])
+            self.assertNotIn("nvd-secret", json.dumps(public))
+            self.assertEqual(settings.path.stat().st_mode & 0o777, 0o600)
+
+            cases = CaseStore(root)
+            saved = cases.save({"reference": "IR-12", "title": "Suspicious launch item", "analyst": "DFIR", "notes": "Preserve first.", "archived": False})
+            self.assertEqual(cases.list()[0]["id"], saved["id"])
+            self.assertEqual(cases.path.stat().st_mode & 0o777, 0o600)
+
+    def test_intelligence_cache_uses_validated_last_known_good_data(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"MACOS_INSPECTOR_DATA_DIR": directory}, clear=False):
+            validator = lambda payload: payload if isinstance(payload, dict) and payload.get("ok") is True else (_ for _ in ()).throw(ValueError("invalid"))
+            with patch("macos_inspector.core.intelligence._request_bytes", return_value=b'{"ok":true,"value":7}'):
+                fresh = fetch_cached_json("fixture", "Fixture", "https://example.test/feed", {"example.test"}, validator, force=True, cache_hours=1)
+            self.assertEqual(fresh.cache_status, "refreshed")
+            with patch("macos_inspector.core.intelligence._request_bytes", side_effect=OSError("offline")):
+                fallback = fetch_cached_json("fixture", "Fixture", "https://example.test/feed", {"example.test"}, validator, force=True, cache_hours=1)
+            self.assertEqual(fallback.payload["value"], 7)
+            self.assertEqual(fallback.cache_status, "stale-fallback")
+            self.assertEqual((Path(directory) / "osint-cache" / "fixture.json").stat().st_mode & 0o777, 0o600)
+
+    def test_dashboard_generates_local_signing_identity_without_exposing_secret(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            result = state.generate_signing_key()
+            self.assertIn(result["algorithm"], {"HMAC-SHA256", "Ed25519"})
+            public = state.settings.public()
+            self.assertTrue(public["signing"]["key_configured"])
+            self.assertNotIn("key_path", public["signing"])
+            key_path = Path(state.settings.load()["signing"]["key_path"])
+            self.assertEqual(key_path.stat().st_mode & 0o777, 0o600)
+            with self.assertRaisesRegex(RuntimeError, "already configured"):
+                state.generate_signing_key()
+            self.assertTrue(state.generate_signing_key(replace=True)["configured"])
+
+    def test_vulnerability_exposure_correlates_without_claiming_compromise(self):
+        payload = json.loads((Path(__file__).parent / "fixtures" / "osint" / "cisa_kev.json").read_text())
+        self.assertEqual(len(macos_kev_entries(payload)), 2)
+        cve = {"configurations": [{"nodes": [{"cpeMatch": [{
+            "vulnerable": True, "criteria": "cpe:2.3:o:apple:macos:*:*:*:*:*:*:*:*", "versionEndExcluding": "26.6"
+        }]}]}]}
+        self.assertEqual(nvd_macos_range(cve, "26.5.2")[0], True)
+        self.assertEqual(nvd_macos_range(cve, "26.6")[0], False)
+        self.assertEqual(parse_sw_vers("ProductName:\tmacOS\nProductVersion:\t26.5.2\nBuildVersion:\t25F84")["build_version"], "25F84")
+
+        def resource(value, provider):
+            return IntelligenceResource(value, provider, "https://example.test", "2026-08-09T00:00:00+00:00", "a" * 64, "fixture", False)
+
+        epss = {"data": [{"cve": "CVE-2025-54321", "epss": "0.91", "percentile": "0.99"}]}
+        nvd = {"vulnerabilities": [{"cve": {"id": "CVE-2025-54321", **cve, "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 9.8}}]}}}]}
+        apple = {"releases": [{"name": "macOS Tahoe 26.6", "version": "26.6"}]}
+
+        class FakeRunner:
+            def run(self, argv):
+                return CommandResult(tuple(argv), 0, "ProductName:\tmacOS\nProductVersion:\t26.5.2\nBuildVersion:\t25F84", "")
+
+        findings = {item.finding_id: item for item in VulnerabilityExposureCollector(
+            FakeRunner(), lambda: resource(payload, "CISA"), lambda ids: resource(epss, "FIRST EPSS"),
+            lambda ids: resource(nvd, "NIST NVD"), lambda: resource(apple, "Apple"), settings=SettingsStore.DEFAULTS,
+        ).collect()}
+        self.assertEqual(findings["EXPOSURE-MACOS-VERSION"].status, "Review")
+        correlation = findings["EXPOSURE-APPLE-KEV-CORRELATION"]
+        self.assertEqual(correlation.status, "Review")
+        self.assertIn("not proof", correlation.observed_result)
+        self.assertFalse(correlation.evidence[0].value["host_vulnerability_inferred"])
+
+    def test_intelligence_validators_and_apple_release_parser(self):
+        epss = validate_epss({"data": [{"cve": "CVE-2026-12345", "epss": "0.5", "percentile": "0.8"}]})
+        self.assertEqual(epss["data"][0]["cve"], "CVE-2026-12345")
+        nvd = validate_nvd({"vulnerabilities": [{"cve": {"id": "CVE-2026-12345"}}]})
+        self.assertEqual(nvd["vulnerabilities"][0]["cve"]["id"], "CVE-2026-12345")
+        releases = parse_apple_security_releases("<html><body><h2>macOS Tahoe 26.6</h2><p>macOS Sequoia 15.7.8</p></body></html>")
+        self.assertEqual([item["version"] for item in releases["releases"]], ["26.6", "15.7.8"])
+
+    def test_live_triage_parsers_and_correlation(self):
+        processes = parse_processes("1 0 root /sbin/launchd\n42 1 alice /private/tmp/agent\n99 42 alice /Applications/Safe.app/Contents/MacOS/Safe")
+        self.assertEqual(len(processes), 3)
+        suspicious = suspicious_processes(processes)
+        self.assertEqual(suspicious[0]["pid"], 42)
+        sockets = parse_lsof_fields("p42\ncagent\nn*:8080\nTST=LISTEN\nn1.2.3.4:443\nTST=ESTABLISHED\n")
+        self.assertEqual([item["state"] for item in sockets], ["LISTEN", "ESTABLISHED"])
+
+        class FakeRunner:
+            def run(self, argv):
+                if argv[0] == "ps":
+                    return CommandResult(tuple(argv), 0, "1 0 root /sbin/launchd\n42 1 alice /private/tmp/agent", "")
+                return CommandResult(tuple(argv), 0, "p42\ncagent\nn*:8080\nTST=LISTEN", "")
+
+        findings = {item.finding_id: item for item in LiveTriageCollector(FakeRunner()).collect()}
+        self.assertEqual(findings["LIVE-PROCESS-TREE"].status, "Review")
+        self.assertEqual(findings["LIVE-NETWORK-PROCESSES"].severity, Severity.HIGH)
+
+    def test_managed_yara_rules_are_bounded_and_parsed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "valid.yar").write_text('rule Example { strings: $a = "fixture" condition: $a }')
+            (root / "invalid.yara").write_text("not a rule")
+            rules, errors = discover_yara_rules(root)
+            self.assertEqual([path.name for path in rules], ["valid.yar"])
+            self.assertTrue(errors)
+            self.assertEqual(parse_yara_matches("Example /tmp/file\n"), [{"rule": "Example", "path": "/tmp/file"}])
+
     def test_free_osint_feed_is_validated_and_does_not_infer_host_exposure(self):
         payload = json.loads((Path(__file__).parent / "fixtures" / "osint" / "cisa_kev.json").read_text())
         validated = validate_cisa_kev(payload)
@@ -201,8 +319,9 @@ class CoreTests(unittest.TestCase):
         local_collectors = {identifier for identifier, collector in COLLECTORS.items() if not collector.external_network}
         self.assertEqual(set(full["collectors"]), local_collectors)
         self.assertNotIn("osint-intelligence", full["collectors"])
+        self.assertNotIn("vulnerability-exposure", full["collectors"])
         osint = next(profile for profile in SCAN_PROFILES if profile["id"] == "online-osint")
-        self.assertEqual(osint["collectors"], ("osint-intelligence",))
+        self.assertEqual(osint["collectors"], ("osint-intelligence", "vulnerability-exposure"))
         self.assertEqual(tuple(cli_parser().parse_args([]).collectors.split(",")), LOCAL_COLLECTORS)
         self.assertNotIn("osint-intelligence", cli_parser().parse_args([]).collectors)
         quick = next(profile for profile in SCAN_PROFILES if profile["id"] == "quick")
@@ -807,9 +926,28 @@ origin=Developer ID Application: Example (TEAM123)""")
         result = ScanResult(metadata, (finding(),), 82, {"Persistence": 82})
         with tempfile.TemporaryDirectory() as directory:
             for name, reporter in REPORTERS.items():
+                if name == "encrypted-bundle" and not encryption_available():
+                    continue
                 path = Path(directory) / f"report.{name}"
-                reporter(result, path)
+                with patch.dict("os.environ", {"MACOS_INSPECTOR_BUNDLE_PASSWORD": "correct horse battery staple"}, clear=False):
+                    reporter(result, path)
                 self.assertGreater(path.stat().st_size, 10)
+
+    def test_encrypted_case_bundle_detects_wrong_password_and_tampering(self):
+        if not encryption_available():
+            self.skipTest("cryptography is not installed")
+        metadata = ScanMetadata("1.2", "encrypted", "start", "end", "host", "platform", "user", ("test",), case_reference="IR-ENC")
+        result = ScanResult(metadata, (finding(),), 82, {"Persistence": 82})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = write_reports(result, ["json", "encrypted-bundle"], root, bundle_password="correct horse battery staple")
+            encrypted = next(path for path in paths if path.name.endswith(".zip.enc"))
+            decrypted = root / "decrypted.zip"
+            decrypt_file(encrypted, decrypted, "correct horse battery staple")
+            with zipfile.ZipFile(decrypted) as archive:
+                self.assertIn("bundle-index.json", archive.namelist())
+            with self.assertRaisesRegex(ValueError, "incorrect|modified"):
+                decrypt_file(encrypted, root / "wrong.zip", "incorrect password value")
 
     def test_sarif_contains_only_actionable_findings(self):
         metadata = ScanMetadata("0.1", "scan", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:01+00:00", "host", "platform", "user", ("test",))
