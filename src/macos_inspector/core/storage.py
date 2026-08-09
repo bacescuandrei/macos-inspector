@@ -39,7 +39,6 @@ def _read_object(path: Path) -> dict[str, Any]:
 class SettingsStore:
     DEFAULTS: dict[str, Any] = {
         "schema_version": 1,
-        "language": "ro",
         "cache_hours": 24,
         "providers": {
             "cisa": {"enabled": True},
@@ -64,7 +63,6 @@ class SettingsStore:
     def load(self) -> dict[str, Any]:
         raw = _read_object(self.path)
         defaults = json.loads(json.dumps(self.DEFAULTS))
-        defaults["language"] = raw.get("language") if raw.get("language") in {"ro", "en"} else defaults["language"]
         cache_hours = raw.get("cache_hours", defaults["cache_hours"])
         defaults["cache_hours"] = max(1, min(168, int(cache_hours))) if isinstance(cache_hours, int) else 24
         for name, provider in defaults["providers"].items():
@@ -102,10 +100,6 @@ class SettingsStore:
         if not isinstance(supplied, dict):
             raise ValueError("Settings must be a JSON object.")
         current = self.load()
-        if "language" in supplied:
-            if supplied["language"] not in {"ro", "en"}:
-                raise ValueError("Language must be ro or en.")
-            current["language"] = supplied["language"]
         if "cache_hours" in supplied:
             value = supplied["cache_hours"]
             if not isinstance(value, int) or not 1 <= value <= 168:

@@ -75,11 +75,11 @@ class CoreTests(unittest.TestCase):
             root = Path(directory)
             settings = SettingsStore(root)
             public = settings.update({
-                "language": "en", "cache_hours": 12,
+                "cache_hours": 12,
                 "providers": {"nvd": {"enabled": True, "api_key": "nvd-secret"}, "threatfox": {"enabled": True, "auth_key": "fox-secret"}},
                 "yara": {"enabled": True, "targets": ["~/Downloads"]},
             })
-            self.assertEqual(public["language"], "en")
+            self.assertNotIn("language", public)
             self.assertTrue(public["providers"]["nvd"]["api_key_configured"])
             self.assertNotIn("nvd-secret", json.dumps(public))
             self.assertEqual(settings.path.stat().st_mode & 0o777, 0o600)
@@ -125,6 +125,9 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('src="/app.js"', index)
         self.assertIn('id="local-launcher-help"', index)
         self.assertIn("window.location.protocol === 'file:'", script)
+        self.assertNotIn('id="language-select"', index)
+        self.assertNotIn('value="ro"', index)
+        self.assertNotRegex(index + script, r"[ăâîșțĂÂÎȘȚ]")
 
     def test_vulnerability_exposure_correlates_without_claiming_compromise(self):
         payload = json.loads((Path(__file__).parent / "fixtures" / "osint" / "cisa_kev.json").read_text())

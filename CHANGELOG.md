@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.2 - 2026-08-09
+
+- Removed the Romanian locale and language selector; the security dashboard and direct-file launch page are now English-only.
+- Removed the persisted language preference from local settings while safely ignoring older stored values.
+
 ## 1.2.1 - 2026-08-09
 
 - Fixed the dashboard source opened through `file://` loading without CSS or JavaScript because its asset links were root-relative.

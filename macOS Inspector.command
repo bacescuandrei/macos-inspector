@@ -54,10 +54,10 @@ trap cleanup EXIT
 trap handle_signal INT TERM HUP
 
 case "$PORT" in
-  ''|*[!0-9]*) alert_error "Portul dashboardului trebuie să fie un număr între 1 și 65535."; exit 1 ;;
+  ''|*[!0-9]*) alert_error "The dashboard port must be a number between 1 and 65535."; exit 1 ;;
 esac
 if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
-  alert_error "Portul dashboardului trebuie să fie un număr între 1 și 65535."
+  alert_error "The dashboard port must be a number between 1 and 65535."
   exit 1
 fi
 
@@ -75,12 +75,12 @@ elif [ -x "${ROOT}/venv/bin/python3" ]; then
 elif command -v python3 >/dev/null 2>&1; then
   PYTHON="$(command -v python3)"
 else
-  alert_error "Python 3.10 sau mai nou nu a fost găsit. Instalează Python 3 și deschide din nou fișierul macOS Inspector.command."
+  alert_error "Python 3.10 or newer was not found. Install Python 3, then open macOS Inspector.command again."
   exit 1
 fi
 
 if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-  alert_error "macOS Inspector necesită Python 3.10 sau mai nou."
+  alert_error "macOS Inspector requires Python 3.10 or newer."
   exit 1
 fi
 
@@ -104,8 +104,8 @@ attempt=0
 while [ "$attempt" -lt 80 ]; do
   if dashboard_ready; then
     open_dashboard
-    print -- "macOS Inspector rulează la ${URL}"
-    print -- "Păstrează această fereastră deschisă. Închiderea ei oprește dashboardul local."
+    print -- "macOS Inspector is running at ${URL}"
+    print -- "Keep this window open. Closing it stops the local dashboard."
     if wait "$SERVER_PID"; then
       server_status=0
     else
@@ -114,7 +114,7 @@ while [ "$attempt" -lt 80 ]; do
     SERVER_PID=""
     /bin/rm -f "$PID_FILE"
     if [ "$server_status" -ne 0 ]; then
-      alert_error "Dashboardul s-a oprit neașteptat. Detalii: ${LOG_FILE}"
+      alert_error "The dashboard stopped unexpectedly. Details: ${LOG_FILE}"
     fi
     exit "$server_status"
   fi
@@ -125,5 +125,5 @@ while [ "$attempt" -lt 80 ]; do
   attempt=$((attempt + 1))
 done
 
-alert_error "Dashboardul nu a putut porni. Detalii: ${LOG_FILE}"
+alert_error "The dashboard could not start. Details: ${LOG_FILE}"
 exit 1

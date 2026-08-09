@@ -1,28 +1,17 @@
-const state = { config: null, settings: null, cases: [], activeCaseId: '', language: 'ro', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [] };
+const state = { config: null, settings: null, cases: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [] };
 
-const I18N = {
-  ro: {
-    manage:'Administrare', introTitle:'Colectează dovezi fără comenzi în Terminal', introText:'Alege secțiunile, rulează scanarea read-only și analizează constatările și rapoartele într-un singur loc.', safety:'Local-first · OSINT online doar cu acord · fără remediere', operationsTitle:'Cazuri, surse și reguli', localSettings:'Configurări locale · permisiuni private', casesTitle:'Management cazuri', casesHelp:'Organizează scanările, analistul și notele investigației.', activeCase:'Caz activ', caseReference:'Referință', caseTitle:'Titlu caz', analyst:'Analist', archived:'Arhivat', caseNotes:'Note locale', saveCase:'Salvează cazul', osintHelp:'Activează providerii și verifică proveniența copiilor locale.', cacheHours:'Cache (ore)', saveSettings:'Salvează configurarea', clearCache:'Golește cache-ul', rulesHelp:'Importă pachete versionate și scanează doar ținte explicite.', chooseFile:'Alege fișier', enableYara:'Activează scanarea YARA', yaraOptional:'Necesită executabilul yara într-o cale de încredere.', yaraTargets:'Ținte YARA explicite · o cale pe linie', saveYara:'Salvează țintele YARA', evidenceProtection:'Protecția dovezilor', evidenceHelp:'HMAC inclus, Ed25519 și AES-256-GCM când suportul criptografic este disponibil.', generateKey:'Generează identitatea de semnare', signManifests:'Semnează manifestele automat', keyPrivacy:'Secretul sau cheia privată rămâne local, cu permisiuni 0600, și nu este inclusă în rapoarte sau arhive.', attachCase:'Atașează un caz salvat', bundlePassword:'Parolă arhivă criptată · minimum 12 caractere', noSavedCase:'Fără caz salvat', configured:'configurată', notConfigured:'neconfigurată',
-    publicNoKey:'Sursă publică · fără cheie', optionalKey:'API public · cheie opțională', optionalFreeKey:'Opțional · Auth-Key gratuit', optional:'opțional', explicitLookup:'Căutare IOC explicită în ThreatFox', lookup:'Caută', threatfoxPrivacy:'Doar indicatorul introdus mai sus este trimis la ThreatFox după apăsarea butonului. Nu se transmite nimic automat.', iocPacks:'Pachete IOC', yaraRules:'Reguli YARA', readinessTitle:'Pregătirea colectării', recheck:'Reverifică', checkingAccess:'Verific accesul local…', runningDiagnostics:'Rulez diagnostice read-only…', auditSections:'Secțiuni de audit', all:'Toate', clear:'Golește', scanProfiles:'Profiluri de scanare', individualSections:'Secțiuni individuale', reportFormats:'Formate de raport', caseReferenceOptional:'Referință caz', analystOptional:'Analist', optionalLabel:'opțional', casePlaceholder:'ID incident sau caz', analystPlaceholder:'Nume sau echipă', minimumSeverity:'Severitatea minimă afișată', severityAll:'Toate constatările', severityLow:'Low și mai sus', severityMedium:'Medium și mai sus', severityHigh:'High și mai sus', severityCritical:'Doar Critical', runSelected:'Rulează auditul selectat', cancelScan:'Anulează scanarea', scanResults:'Rezultatele scanării', ready:'Pregătit', readyTitle:'Totul este pregătit.', readyHelp:'Selectează o secțiune și pornește un audit.', scanComparison:'Compararea scanărilor', close:'Închide', searchFindings:'Caută în constatări', searchFindingsPlaceholder:'Titlu, ID, dovadă…', status:'Stare', allStatuses:'Toate stările', category:'Categorie', allCategories:'Toate categoriile', previous:'Anterior', next:'Următor', noScan:'Nicio scanare selectată', noScanHelp:'Constatările vor apărea aici cu dovezi, comenzi și recomandări.', previousScans:'Scanări anterioare', refresh:'Actualizează', findScan:'Caută o scanare', findScanPlaceholder:'Caz, analist, colector sau ID scanare', interfaceLanguage:'Limba interfeței', onlineOptIn:'Online cu acord', run:'Rulează', sections:'secțiuni', unavailable:'Indisponibil'
-  },
-  en: {
+const COPY = {
     manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, then inspect findings and reports in one place.', safety:'Local-first · online OSINT is opt-in · no remediation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings · private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets · one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password · minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
     publicNoKey:'Public source · no key', optionalKey:'Public API · optional key', optionalFreeKey:'Optional · free Auth-Key', optional:'optional', explicitLookup:'Explicit ThreatFox IOC lookup', lookup:'Lookup', threatfoxPrivacy:'Only the indicator entered above is sent to ThreatFox after you press Lookup. Nothing is submitted automatically.', iocPacks:'IOC packs', yaraRules:'YARA rules', readinessTitle:'Collection readiness', recheck:'Recheck', checkingAccess:'Checking local access…', runningDiagnostics:'Running read-only diagnostics…', auditSections:'Audit sections', all:'All', clear:'Clear', scanProfiles:'Scan profiles', individualSections:'Individual sections', reportFormats:'Report formats', caseReferenceOptional:'Case reference', analystOptional:'Analyst', optionalLabel:'optional', casePlaceholder:'Incident or case ID', analystPlaceholder:'Name or team', minimumSeverity:'Minimum severity shown', severityAll:'All findings', severityLow:'Low and above', severityMedium:'Medium and above', severityHigh:'High and above', severityCritical:'Critical only', runSelected:'Run selected audit', cancelScan:'Cancel running scan', scanResults:'Scan results', ready:'Ready', readyTitle:'Ready when you are.', readyHelp:'Select a section and start an audit.', scanComparison:'Scan comparison', close:'Close', searchFindings:'Search findings', searchFindingsPlaceholder:'Title, ID, evidence…', status:'Status', allStatuses:'All statuses', category:'Category', allCategories:'All categories', previous:'Previous', next:'Next', noScan:'No scan selected', noScanHelp:'Your findings will appear here with evidence, commands and recommendations.', previousScans:'Previous scans', refresh:'Refresh', findScan:'Find a scan', findScanPlaceholder:'Case, analyst, collector or scan ID', interfaceLanguage:'Interface language', onlineOptIn:'Online opt-in', run:'Run', sections:'sections', unavailable:'Unavailable'
-  }
 };
-
-const COLLECTOR_TITLES_RO = { 'accounts-access':'Conturi și acces administrativ', 'application-trust':'Încrederea aplicațiilor', 'background-items':'Elemente de login și fundal', 'browser-artifacts':'Artefacte din browsere', ioc:'Pachete IOC', 'live-triage':'Triaj live al incidentului', persistence:'Mecanisme de persistență', privacy:'Permisiuni TCC și confidențialitate', network:'Rețea și certificate', 'osint-intelligence':'Inteligență OSINT gratuită', 'vulnerability-exposure':'Expunere la vulnerabilități', 'yara-rules':'Reguli YARA administrate', 'management-profiles':'Management și profiluri de configurare', 'system-extensions':'Extensii de sistem', security:'Controale de securitate' };
-const PROFILE_COPY_RO = { quick:['Triaj rapid','Conturi, procese live, persistență, întărire, management, rețea, extensii și verificări IOC.'], 'application-trust':['Application Trust','Analiză detaliată de încredere, semnătură și integritate pentru aplicațiile instalate.'], 'privacy-browser':['Confidențialitate și browsere','Permisiuni TCC plus istoric și descărcări din browserele acceptate.'], 'online-osint':['Inteligență despre vulnerabilități','Corelare opțională Apple, CISA KEV, FIRST EPSS și NIST NVD, cu cache last-known-good.'], 'threat-hunting':['Threat Hunting','Triaj live de procese și rețea plus IOC și reguli YARA opționale.'], full:['Colectare locală completă','Toate secțiunile locale, inclusiv analiza aplicațiilor; exclude OSINT online.'] };
 
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
-const t = (key) => I18N[state.language]?.[key] || I18N.en[key] || key;
+const t = (key) => COPY[key] || key;
 const writeOptions = (method, body) => ({method, headers:{'Content-Type':'application/json', 'X-MacOS-Inspector':'1'}, body:JSON.stringify(body)});
 
-function applyLanguage(language) {
-  state.language = language === 'en' ? 'en' : 'ro';
-  document.documentElement.lang = state.language;
-  $('#language-select').value = state.language;
+function applyEnglishCopy() {
+  document.documentElement.lang = 'en';
   document.querySelectorAll('[data-i18n]').forEach((element) => { const value = t(element.dataset.i18n); if (value) element.textContent = value; });
   document.querySelectorAll('[data-i18n-placeholder]').forEach((element) => { element.placeholder = t(element.dataset.i18nPlaceholder); });
   document.querySelectorAll('[data-i18n-aria]').forEach((element) => { element.setAttribute('aria-label', t(element.dataset.i18nAria)); });
@@ -89,7 +78,7 @@ function renderCollectors(preserve = false) {
   $('#collectors').innerHTML = state.config.collectors.map((collector) => `
     <div class="collector-card${collector.external_network ? ' external' : ''}">
       <input type="checkbox" id="collector-${escapeHtml(collector.id)}" data-collector="${escapeHtml(collector.id)}">
-      <label for="collector-${escapeHtml(collector.id)}"><span class="collector-title">${escapeHtml(state.language === 'ro' ? (COLLECTOR_TITLES_RO[collector.id] || collector.title) : collector.title)}${collector.external_network ? `<em class="online-badge">${escapeHtml(t('onlineOptIn'))}</em>` : ''}</span><span class="collector-id">${escapeHtml(collector.id)}</span>${collector.privacy_note ? `<small class="collector-note">${escapeHtml(collector.privacy_note)}</small>` : ''}</label>
+      <label for="collector-${escapeHtml(collector.id)}"><span class="collector-title">${escapeHtml(collector.title)}${collector.external_network ? `<em class="online-badge">${escapeHtml(t('onlineOptIn'))}</em>` : ''}</span><span class="collector-id">${escapeHtml(collector.id)}</span>${collector.privacy_note ? `<small class="collector-note">${escapeHtml(collector.privacy_note)}</small>` : ''}</label>
       <button type="button" class="mini-button" data-run-one="${escapeHtml(collector.id)}">${escapeHtml(t('run'))}</button>
     </div>`).join('');
   document.querySelectorAll('[data-run-one]').forEach((button) => button.addEventListener('click', () => startScan([button.dataset.runOne])));
@@ -101,7 +90,7 @@ function renderCollectors(preserve = false) {
 
 function renderProfiles(preserve = false) {
   const profiles = state.config.profiles || [];
-  $('#scan-profiles').innerHTML = profiles.map((profile) => { const copy = state.language === 'ro' ? PROFILE_COPY_RO[profile.id] : null; const title = copy?.[0] || profile.title, description = copy?.[1] || profile.description; return `<button type="button" class="profile-card" data-profile="${escapeHtml(profile.id)}" title="${escapeHtml(description)}"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(description)}</small><span>${escapeHtml(profile.collectors.length)} ${escapeHtml(t('sections'))}</span></button>`; }).join('');
+  $('#scan-profiles').innerHTML = profiles.map((profile) => `<button type="button" class="profile-card" data-profile="${escapeHtml(profile.id)}" title="${escapeHtml(profile.description)}"><strong>${escapeHtml(profile.title)}</strong><small>${escapeHtml(profile.description)}</small><span>${escapeHtml(profile.collectors.length)} ${escapeHtml(t('sections'))}</span></button>`).join('');
   document.querySelectorAll('[data-profile]').forEach((button) => button.addEventListener('click', () => selectProfile(button.dataset.profile, true)));
   if (preserve) syncActiveProfile();
   else {
@@ -135,9 +124,7 @@ function selectProfile(profileId, announce = true) {
 
 function renderFormats(preserve = false) {
   const selectedBefore = preserve ? new Set(selectedValues('format')) : new Set();
-  const labels = state.language === 'ro'
-    ? { html: 'HTML interactiv', json: 'JSON', markdown: 'Markdown', csv: 'CSV', sarif: 'SARIF', manifest: 'Manifest de dovezi', pdf: 'PDF', bundle: 'Arhivă ZIP de caz', 'encrypted-bundle': 'Arhivă de caz criptată' }
-    : { html: 'Interactive HTML', json: 'JSON', markdown: 'Markdown', csv: 'CSV', sarif: 'SARIF', manifest: 'Evidence manifest', pdf: 'PDF', bundle: 'Case bundle ZIP', 'encrypted-bundle': 'Encrypted case bundle' };
+  const labels = { html: 'Interactive HTML', json: 'JSON', markdown: 'Markdown', csv: 'CSV', sarif: 'SARIF', manifest: 'Evidence manifest', pdf: 'PDF', bundle: 'Case bundle ZIP', 'encrypted-bundle': 'Encrypted case bundle' };
   const capabilities = state.config.format_capabilities || {};
   $('#formats').innerHTML = state.config.formats.map((format) => {
     const capability = capabilities[format] || {available: true, reason: ''};
@@ -427,7 +414,7 @@ async function loadOperationsData() {
     ]);
     state.settings = settings;
     state.cases = cases.cases || [];
-    applyLanguage(settings.language || state.language);
+    applyEnglishCopy();
     renderCases();
     renderSettings();
     renderManagedFiles(packs.packs || [], rules.rules || []);
@@ -703,7 +690,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (window.location.protocol === 'file:' || new URLSearchParams(window.location.search).has('source-preview')) {
     document.body.classList.add('file-mode');
     $('#local-launcher-help').classList.remove('hidden');
-    applyLanguage('ro');
+    applyEnglishCopy();
     return;
   }
   $('#select-all').addEventListener('click', () => {
@@ -717,10 +704,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     setMessage('Audit scope cleared. Select a profile or individual sections.');
   });
   $('#run-selected').addEventListener('click', () => startScan());
-  $('#language-select').addEventListener('change', async () => {
-    applyLanguage($('#language-select').value);
-    try { state.settings = await api('/api/settings', writeOptions('POST', {language:state.language})); } catch (error) { setMessage(error.message, true); }
-  });
   $('#case-select').addEventListener('change', () => loadCaseIntoEditor($('#case-select').value));
   $('#scan-case-select').addEventListener('change', () => attachCaseToScan($('#scan-case-select').value));
   $('#save-case').addEventListener('click', saveCase);
@@ -744,7 +727,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#findings-prev').addEventListener('click', () => { if (state.findingPage > 1) { state.findingPage -= 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   $('#findings-next').addEventListener('click', () => { if (state.findingPage * state.findingPageSize < state.filteredFindings.length) { state.findingPage += 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   setConnection('checking');
-  applyLanguage('ro');
+  applyEnglishCopy();
   const health = await checkHealth();
   if (!health) setMessage('Dashboard server unavailable. Retrying automatically…', true);
   state.healthPoll = setInterval(checkHealth, 4000);
