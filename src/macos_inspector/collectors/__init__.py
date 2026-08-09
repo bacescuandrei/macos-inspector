@@ -6,6 +6,7 @@ from .ioc import IOCCollector
 from .persistence import PersistenceCollector
 from .privacy import PrivacyCollector
 from .network import NetworkCollector
+from .osint_intelligence import OSINTIntelligenceCollector
 from .management_profiles import ManagementProfilesCollector
 from .system_extensions import SystemExtensionsCollector
 from .security import SecurityControlsCollector
@@ -19,7 +20,13 @@ COLLECTORS = {
     PersistenceCollector.collector_id: PersistenceCollector,
     PrivacyCollector.collector_id: PrivacyCollector,
     NetworkCollector.collector_id: NetworkCollector,
+    OSINTIntelligenceCollector.collector_id: OSINTIntelligenceCollector,
     ManagementProfilesCollector.collector_id: ManagementProfilesCollector,
     SystemExtensionsCollector.collector_id: SystemExtensionsCollector,
     SecurityControlsCollector.collector_id: SecurityControlsCollector,
 }
+
+LOCAL_COLLECTORS = tuple(
+    collector_id for collector_id, collector in COLLECTORS.items()
+    if not collector.external_network
+)

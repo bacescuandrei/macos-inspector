@@ -2,7 +2,7 @@
 
 macOS Inspector is a dependency-free, read-only macOS security auditing and DFIR framework. It collects verifiable evidence, produces normalized findings, calculates transparent security scores, and exports professional reports.
 
-> Status: version 1.0 is feature-complete for the documented scope. The release audits visible regular accounts, administrative membership and targeted identity anomalies; launchd, cron and shell-profile persistence; application trust (main-executable and Info.plist SHA-256, ownership and permission risks, concurrent modification and bundle path-redirection detection, signature identity, Gatekeeper/notarization, hardened runtime, security-sensitive entitlements, quarantine and download-source metadata); TCC/privacy permissions; Login Items/ServiceManagement state; configuration-profile and MDM enrollment status; local network and sanitized proxy configuration; certificates; system extensions; browser artifacts; local IOC packs; and focused macOS security controls including SIP, FileVault, Gatekeeper, firewall, stealth mode, automatic update checking, and Remote Login. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
+> Status: version 1.1 is feature-complete for the documented scope. The release audits visible regular accounts, administrative membership and targeted identity anomalies; launchd, cron and shell-profile persistence; application trust (main-executable and Info.plist SHA-256, ownership and permission risks, concurrent modification and bundle path-redirection detection, signature identity, Gatekeeper/notarization, hardened runtime, security-sensitive entitlements, quarantine and download-source metadata); TCC/privacy permissions; Login Items/ServiceManagement state; configuration-profile and MDM enrollment status; local network and sanitized proxy configuration; certificates; system extensions; browser artifacts; local IOC packs; focused macOS security controls including SIP, FileVault, Gatekeeper, firewall, stealth mode, automatic update checking, and Remote Login; plus explicit, online OSINT enrichment from the free CISA Known Exploited Vulnerabilities catalog. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
 
 ## Safety contract
 
@@ -11,6 +11,8 @@ macOS Inspector is a dependency-free, read-only macOS security auditing and DFIR
 - The tool never invokes `sudo` and does not request Full Disk Access.
 - Permission failures are reported as collection notes instead of bypassed.
 - Reports record the commands used and the evidence supporting each finding.
+- Local profiles and the default CLI collection never access an OSINT service.
+- Online OSINT is opt-in and downloads only a common public CISA feed. It sends no hash, file, hostname, user, case, or collected evidence to the provider.
 
 Some macOS commands may update their own access metadata or unified logs simply by executing. Run from trusted media and validate the workflow against your evidence-handling policy before use in a legal investigation.
 
@@ -43,7 +45,13 @@ For the local dashboard, start the read-only web interface once:
 python3 -m macos_inspector --web
 ```
 
-It binds to `127.0.0.1:8765` by default. The dashboard offers Quick triage, Application Trust, Privacy & browsers, and Full collection profiles, plus a separate Run button for every audit section. Quick triage is selected by default so routine checks do not unexpectedly start the longer application inventory. The page also provides progress and scan history, finding details with evidence and commands, and links to every report export. Long collectors such as Application Trust report the current application, item count, progress bar, and estimated remaining time. All report formats, including the dependency-free PDF, are selected by default and can be unchecked individually. The dashboard rejects invalid formats before evidence collection begins and never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
+It binds to `127.0.0.1:8765` by default. The dashboard offers Quick triage, Application Trust, Privacy & browsers, Full local collection, and Online OSINT profiles, plus a separate Run button for every audit section. Quick triage is selected by default so routine checks do not unexpectedly start the longer application inventory. Full local collection deliberately excludes network enrichment. Choosing the OSINT collector displays its privacy boundary and requires confirmation before the scan starts. The page also provides progress and scan history, finding details with evidence and commands, and links to every report export. Long collectors such as Application Trust report the current application, item count, progress bar, and estimated remaining time. All report formats, including the dependency-free PDF, are selected by default and can be unchecked individually. The dashboard rejects invalid formats before evidence collection begins and never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
+
+## Free OSINT enrichment
+
+The **Free OSINT threat intelligence** section retrieves CISA's public Known Exploited Vulnerabilities catalog from its [official GitHub mirror](https://github.com/cisagov/kev-data). It validates the feed schema and size, records catalog provenance, and extracts Apple-related entries. Results provide external prioritization context only: the presence of an Apple CVE in KEV is never reported as proof that the inspected Mac is affected. Confirm product and operating-system versions against Apple advisories before assigning host impact.
+
+This collector requires no account or API key. Its HTTPS request contains only normal feed-request headers and the macOS Inspector version; it does not upload local indicators or evidence. If the feed is unavailable or malformed, the reports record the enrichment as **Unknown** while local scan results remain usable.
 
 The **Collection readiness** preflight shows macOS and Python compatibility, trusted command availability, report-storage access, visible application coverage, read-only TCC and browser-database access, built-in PDF support, and optional asymmetric signing support. It reports limitations and recommended actions without requesting privileges or exposing evidence paths and content through the health endpoint.
 
@@ -107,8 +115,8 @@ src/macos_inspector/
 
 Collector modules return `Finding` objects. They do not write reports and reporters do not collect data. This separation makes checks testable and helps keep forensic behavior reviewable.
 
-## Post-1.0 maintenance
+## Maintenance
 
-The documented 1.0 scope has no required unfinished modules. Future releases may add forensic fixtures, new collectors, and compatibility updates as macOS evolves; those are scope expansions rather than missing 1.0 functionality.
+The documented 1.1 scope has no required unfinished modules. Future releases may add forensic fixtures, opt-in intelligence providers, new collectors, and compatibility updates as macOS evolves; those are scope expansions rather than missing functionality.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the collector contract.

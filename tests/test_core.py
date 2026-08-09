@@ -39,10 +39,11 @@ from macos_inspector.collectors.privacy import PrivacyCollector
 from macos_inspector.collectors.network import NetworkCollector, enabled_proxy_types, parse_certificate_hashes, parse_proxy_configuration
 from macos_inspector.collectors.system_extensions import parse_system_extensions
 from macos_inspector.collectors.ioc import IOCCollector
-from macos_inspector.collectors import COLLECTORS
+from macos_inspector.collectors import COLLECTORS, LOCAL_COLLECTORS
 from macos_inspector.collectors.security import SecurityControlsCollector
 from macos_inspector.collectors.management_profiles import ManagementProfilesCollector, parse_configuration_profile_status, parse_enrollment_status
 from macos_inspector.collectors.accounts_access import AccountsAccessCollector, account_anomalies, parse_group_members, parse_user_records, regular_accounts
+from macos_inspector.collectors.osint_intelligence import CISA_KEV_FEED, OSINTIntelligenceCollector, apple_kev_entries, validate_cisa_kev
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.runner import CommandResult, CommandRunner, ScanCancelled
@@ -55,6 +56,7 @@ from macos_inspector.reporters.manifest_reporter import verify_manifest, write_m
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
 from macos_inspector.web import DashboardState, SCAN_PROFILES, ScanJob
 from scripts.build_release import LAUNCHER, build_release
+from macos_inspector.cli import parser as cli_parser
 
 
 def finding(severity=Severity.HIGH, status="Fail"):
@@ -62,6 +64,25 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_free_osint_feed_is_validated_and_does_not_infer_host_exposure(self):
+        payload = json.loads((Path(__file__).parent / "fixtures" / "osint" / "cisa_kev.json").read_text())
+        validated = validate_cisa_kev(payload)
+        entries = apple_kev_entries(validated)
+        self.assertEqual([entry["cve_id"] for entry in entries], ["CVE-2026-12345", "CVE-2025-54321"])
+        self.assertNotIn("?", CISA_KEV_FEED)
+
+        findings = {finding.finding_id: finding for finding in OSINTIntelligenceCollector(None, lambda: payload).collect()}
+        self.assertEqual(findings["OSINT-CISA-KEV-CATALOG"].status, "Observed")
+        self.assertEqual(findings["OSINT-CISA-KEV-APPLE"].status, "Observed")
+        self.assertIn("does not establish host exposure", findings["OSINT-CISA-KEV-APPLE"].observed_result)
+        evidence = findings["OSINT-CISA-KEV-APPLE"].evidence[0].value
+        self.assertFalse(evidence["host_vulnerability_inferred"])
+        self.assertFalse(evidence["host_data_transmitted"])
+
+        malformed = dict(payload, count=999)
+        with self.assertRaisesRegex(ValueError, "count"):
+            validate_cisa_kev(malformed)
+
     def test_account_inventory_is_sanitized_and_anomalies_are_classified(self):
         fixtures = Path(__file__).parent / "fixtures" / "accounts"
         standard_users = (fixtures / "users_standard.txt").read_text()
@@ -168,7 +189,7 @@ class CoreTests(unittest.TestCase):
         disabled = {finding.finding_id: finding for finding in SecurityControlsCollector(FakeRunner()).collect()}
         self.assertEqual((disabled["CONTROL-AUTOMATIC-UPDATES"].severity, disabled["CONTROL-AUTOMATIC-UPDATES"].status), (Severity.MEDIUM, "Fail"))
 
-    def test_dashboard_scan_profiles_are_valid_and_full_profile_covers_all_collectors(self):
+    def test_dashboard_scan_profiles_keep_online_osint_explicit(self):
         profile_ids = [profile["id"] for profile in SCAN_PROFILES]
         self.assertEqual(len(profile_ids), len(set(profile_ids)))
         self.assertEqual(sum(bool(profile["default"]) for profile in SCAN_PROFILES), 1)
@@ -177,7 +198,13 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(len(profile["collectors"]), len(set(profile["collectors"])))
             self.assertFalse(set(profile["collectors"]) - set(COLLECTORS))
         full = next(profile for profile in SCAN_PROFILES if profile["id"] == "full")
-        self.assertEqual(set(full["collectors"]), set(COLLECTORS))
+        local_collectors = {identifier for identifier, collector in COLLECTORS.items() if not collector.external_network}
+        self.assertEqual(set(full["collectors"]), local_collectors)
+        self.assertNotIn("osint-intelligence", full["collectors"])
+        osint = next(profile for profile in SCAN_PROFILES if profile["id"] == "online-osint")
+        self.assertEqual(osint["collectors"], ("osint-intelligence",))
+        self.assertEqual(tuple(cli_parser().parse_args([]).collectors.split(",")), LOCAL_COLLECTORS)
+        self.assertNotIn("osint-intelligence", cli_parser().parse_args([]).collectors)
         quick = next(profile for profile in SCAN_PROFILES if profile["id"] == "quick")
         self.assertNotIn("application-trust", quick["collectors"])
 

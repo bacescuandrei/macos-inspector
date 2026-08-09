@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from macos_inspector import __version__
-from macos_inspector.collectors import COLLECTORS
+from macos_inspector.collectors import COLLECTORS, LOCAL_COLLECTORS
 from macos_inspector.core.models import Severity
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.reporters import REPORTERS, unavailable_report_formats
@@ -21,7 +21,7 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="macos-inspector", description="Read-only macOS security and DFIR assessment")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument("--output", type=Path, default=Path("macos-inspector-reports"))
-    p.add_argument("--collectors", default=",".join(COLLECTORS))
+    p.add_argument("--collectors", default=",".join(LOCAL_COLLECTORS))
     p.add_argument("--formats", default="html,json,markdown,csv,sarif,manifest,pdf,bundle")
     p.add_argument("--min-severity", default="informational")
     p.add_argument("--case-reference", default="", help="Optional case or incident reference")

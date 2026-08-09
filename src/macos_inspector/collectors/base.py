@@ -10,6 +10,9 @@ from macos_inspector.core.runner import CommandRunner
 class Collector(ABC):
     collector_id: str
     title: str
+    description: str = ""
+    external_network: bool = False
+    privacy_note: str = ""
 
     def __init__(self, runner: CommandRunner) -> None:
         self.runner = runner

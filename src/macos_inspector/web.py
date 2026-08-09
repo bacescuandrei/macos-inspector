@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from macos_inspector import __version__
-from macos_inspector.collectors import COLLECTORS
+from macos_inspector.collectors import COLLECTORS, LOCAL_COLLECTORS
 from macos_inspector.core.models import Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.readiness import collect_readiness
@@ -51,10 +51,17 @@ SCAN_PROFILES = (
         "default": False,
     },
     {
+        "id": "online-osint",
+        "title": "Online OSINT",
+        "description": "Opt-in retrieval of free public threat intelligence without sending host or case data.",
+        "collectors": ("osint-intelligence",),
+        "default": False,
+    },
+    {
         "id": "full",
-        "title": "Full collection",
-        "description": "Every available audit section, including longer application analysis.",
-        "collectors": tuple(COLLECTORS),
+        "title": "Full local collection",
+        "description": "Every local audit section, including longer application analysis; excludes online OSINT.",
+        "collectors": LOCAL_COLLECTORS,
         "default": False,
     },
 )
@@ -368,7 +375,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_asset("styles.css")
         elif path == "/api/config":
             self._send_json({
-                "collectors": [{"id": key, "title": value.title} for key, value in COLLECTORS.items()],
+                "collectors": [{
+                    "id": key, "title": value.title, "description": value.description,
+                    "external_network": value.external_network, "privacy_note": value.privacy_note,
+                } for key, value in COLLECTORS.items()],
                 "profiles": SCAN_PROFILES,
                 "formats": list(REPORTERS), "format_capabilities": report_format_capabilities(),
                 "severities": [severity.label() for severity in Severity],

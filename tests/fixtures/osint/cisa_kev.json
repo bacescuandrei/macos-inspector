@@ -1,0 +1,44 @@
+{
+  "title": "CISA Catalog of Known Exploited Vulnerabilities",
+  "catalogVersion": "2026.08.08",
+  "dateReleased": "2026-08-08T12:00:00.000Z",
+  "count": 3,
+  "vulnerabilities": [
+    {
+      "cveID": "CVE-2026-12345",
+      "vendorProject": "Apple",
+      "product": "Multiple Products",
+      "vulnerabilityName": "Apple Example Vulnerability",
+      "dateAdded": "2026-08-08",
+      "shortDescription": "Fixture description.",
+      "requiredAction": "Apply updates per vendor instructions.",
+      "dueDate": "2026-08-29",
+      "knownRansomwareCampaignUse": "Unknown",
+      "notes": ""
+    },
+    {
+      "cveID": "CVE-2025-54321",
+      "vendorProject": "Apple",
+      "product": "macOS",
+      "vulnerabilityName": "Apple Older Example Vulnerability",
+      "dateAdded": "2025-12-01",
+      "shortDescription": "Older fixture description.",
+      "requiredAction": "Apply updates per vendor instructions.",
+      "dueDate": "2025-12-22",
+      "knownRansomwareCampaignUse": "Known",
+      "notes": ""
+    },
+    {
+      "cveID": "CVE-2026-99999",
+      "vendorProject": "Example Vendor",
+      "product": "Example Product",
+      "vulnerabilityName": "Non-Apple Example Vulnerability",
+      "dateAdded": "2026-08-07",
+      "shortDescription": "Non-Apple fixture description.",
+      "requiredAction": "Apply updates.",
+      "dueDate": "2026-08-28",
+      "knownRansomwareCampaignUse": "Unknown",
+      "notes": ""
+    }
+  ]
+}

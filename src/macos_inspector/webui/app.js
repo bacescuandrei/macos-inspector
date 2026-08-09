@@ -55,9 +55,9 @@ function finishActiveJob(jobId) {
 
 function renderCollectors() {
   $('#collectors').innerHTML = state.config.collectors.map((collector) => `
-    <div class="collector-card">
+    <div class="collector-card${collector.external_network ? ' external' : ''}">
       <input type="checkbox" id="collector-${escapeHtml(collector.id)}" data-collector="${escapeHtml(collector.id)}">
-      <label for="collector-${escapeHtml(collector.id)}"><span class="collector-title">${escapeHtml(collector.title)}</span><span class="collector-id">${escapeHtml(collector.id)}</span></label>
+      <label for="collector-${escapeHtml(collector.id)}"><span class="collector-title">${escapeHtml(collector.title)}${collector.external_network ? '<em class="online-badge">Online opt-in</em>' : ''}</span><span class="collector-id">${escapeHtml(collector.id)}</span>${collector.privacy_note ? `<small class="collector-note">${escapeHtml(collector.privacy_note)}</small>` : ''}</label>
       <button type="button" class="mini-button" data-run-one="${escapeHtml(collector.id)}">Run</button>
     </div>`).join('');
   document.querySelectorAll('[data-run-one]').forEach((button) => button.addEventListener('click', () => startScan([button.dataset.runOne])));
@@ -135,6 +135,8 @@ async function startScan(collectorOverride = null) {
   const formats = selectedValues('format');
   if (!collectors.length) return setMessage('Select at least one audit section.', true);
   if (!formats.length) return setMessage('Select at least one report format.', true);
+  const onlineCollectors = (state.config.collectors || []).filter((collector) => collectors.includes(collector.id) && collector.external_network);
+  if (onlineCollectors.length && !window.confirm(`This scan will access the internet for: ${onlineCollectors.map((collector) => collector.title).join(', ')}. No host, case, hash, or file data is sent. Continue?`)) return;
   state.starting = true;
   updateRunAvailability();
   $('#cancel-scan').classList.remove('hidden');
