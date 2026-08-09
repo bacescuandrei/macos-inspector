@@ -1,3 +1,3 @@
 """Read-only macOS security auditing framework."""
 
-__version__ = "1.2.2"
+__version__ = "1.2.3"

@@ -9,8 +9,11 @@ from macos_inspector.core.models import Evidence, Finding, Severity
 
 
 STATE_RE = re.compile(
-    r"^\s*(?P<state>enabled(?:\s+active)?|active|activated|deactivated|terminated|uninstalling|waiting|replaced|failed)\s+"
-    r"(?:(?P<team>[A-Z0-9]{6,12})\s+)?(?P<bundle>[A-Za-z0-9][A-Za-z0-9._-]+)\s+\((?P<version>[^)]+)\)",
+    r"^\s*(?:(?P<enabled>\*)\s+(?P<active>\*)\s+)?"
+    r"(?:(?P<state>enabled(?:\s+active)?|active|activated|deactivated|terminated|uninstalling|waiting|replaced|failed)\s+)?"
+    r"(?:(?P<team>[A-Z0-9]{6,12})\s+)?"
+    r"(?P<bundle>[A-Za-z0-9][A-Za-z0-9._-]+)\s+\((?P<version>[^)]+)\)"
+    r"(?:.*?\[(?P<bracket_state>[^]]+)])?\s*$",
     re.IGNORECASE,
 )
 
@@ -26,10 +29,17 @@ class SystemExtension:
 def parse_system_extensions(output: str) -> list[SystemExtension]:
     extensions: list[SystemExtension] = []
     for line in output.splitlines():
+        if "teamID" in line and "bundleID" in line:
+            continue
         match = STATE_RE.search(line)
         if match:
+            state = match.group("bracket_state") or match.group("state")
+            if not state and match.group("enabled") and match.group("active"):
+                state = "enabled active"
+            if not state:
+                state = "observed"
             extensions.append(SystemExtension(
-                match.group("state").lower(), match.group("team"), match.group("bundle"), match.group("version").strip(),
+                state.lower(), match.group("team"), match.group("bundle"), match.group("version").strip(),
             ))
     return extensions
 
@@ -72,6 +82,5 @@ class SystemExtensionsCollector(Collector):
             observed_result=observed,
             recommendation="Validate non-Apple extensions against the approved software inventory and preserve evidence before removal or deactivation.",
             evidence=(Evidence("system_extensions", result.command, evidence),), commands_used=(result.command,),
-            mitre_attack=("T1547.014 - Active Setup",),
             references=("https://support.apple.com/guide/security/system-extensions-sec8e5f4e8f77/web",),
         )]

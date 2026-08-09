@@ -11,7 +11,7 @@ from macos_inspector.core.runner import CommandResult
 
 
 LABEL_RE = re.compile(r'"([^"]+)"\s*=>\s*(enabled|disabled)', re.IGNORECASE)
-APPLE_PREFIXES = ("com.apple.", "com.apple.")
+APPLE_PREFIXES = ("com.apple.",)
 
 
 def parse_disabled_services(output: str) -> list[tuple[str, str]]:
@@ -79,9 +79,14 @@ class BackgroundItemsCollector(Collector):
                 commands_used=(result.command,), mitre_attack=("T1543 - Create or Modify System Process",),
             )
         third_party = [entry for entry in entries if not entry[0].startswith(APPLE_PREFIXES)]
-        severity = Severity.MEDIUM if third_party else Severity.INFORMATIONAL
-        status = "Review" if third_party else "Observed"
-        observed = f"{len(entries)} service state(s) observed; {len(third_party)} non-Apple label(s) require review."
+        enabled_third_party = [entry for entry in third_party if entry[1] == "enabled"]
+        disabled_third_party = [entry for entry in third_party if entry[1] == "disabled"]
+        severity = Severity.MEDIUM if enabled_third_party else Severity.INFORMATIONAL
+        status = "Review" if enabled_third_party else "Observed"
+        observed = (
+            f"{len(entries)} service state(s) observed; {len(enabled_third_party)} enabled non-Apple label(s) require review"
+            f" and {len(disabled_third_party)} disabled non-Apple label(s) were retained as context."
+        )
         return Finding(
             finding_id=_finding_id("launchctl:" + scope), category="Background Items",
             title=f"ServiceManagement disabled map: {scope}", severity=severity, status=status,
@@ -91,7 +96,10 @@ class BackgroundItemsCollector(Collector):
             observed_result=observed,
             recommendation="Review non-Apple labels against installed software and preserve evidence before changing ServiceManagement state.",
             evidence=(Evidence("launchctl_services", result.command, {
-                "scope": scope, "entries": [{"label": label, "state": state} for label, state in entries],
+                "scope": scope,
+                "entries": [{"label": label, "state": state} for label, state in entries],
+                "review_candidates": [{"label": label, "state": state} for label, state in enabled_third_party],
+                "disabled_third_party_context": [{"label": label, "state": state} for label, state in disabled_third_party],
             }),), commands_used=(result.command,),
             mitre_attack=("T1543 - Create or Modify System Process",),
         )

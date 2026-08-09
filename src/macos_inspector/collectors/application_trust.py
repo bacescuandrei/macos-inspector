@@ -64,6 +64,8 @@ class FileIntegrityDetails:
 @dataclass(frozen=True)
 class BundlePathDetails:
     bundle_is_symlink: bool = False
+    resolved_bundle: str | None = None
+    bundle_symlink_is_system_managed: bool = False
     contents_is_symlink: bool = False
     macos_directory_is_symlink: bool = False
     info_plist_is_symlink: bool = False
@@ -318,13 +320,13 @@ def assess_file_integrity(details: FileIntegrityDetails) -> tuple[tuple[Severity
             assessments.append((
                 Severity.HIGH,
                 "Review",
-                "The main executable is world-writable and can be replaced by other local users.",
+                "The main executable is world-writable and its contents can be modified in place by any local user; replacement also depends on the parent directory permissions.",
             ))
         elif mode & 0o020:
             assessments.append((
                 Severity.MEDIUM,
                 "Review",
-                "The main executable is group-writable and its ownership context requires review.",
+                "The main executable is group-writable and its contents can be modified in place by members of the owning group.",
             ))
     if details.is_symlink:
         assessments.append((
@@ -341,7 +343,24 @@ def inspect_bundle_paths(bundle: Path, executable: Path | None) -> BundlePathDet
     macos_directory = contents / "MacOS"
     inside = None
     resolved_executable = None
+    resolved_bundle_text = None
+    bundle_symlink_is_system_managed = False
     resolution_error = None
+    try:
+        resolved_bundle_path = bundle.resolve(strict=True)
+        resolved_bundle_text = str(resolved_bundle_path)
+        if bundle.is_symlink():
+            link_stat = bundle.lstat()
+            bundle_symlink_is_system_managed = (
+                link_stat.st_uid == 0
+                and (stat.S_IMODE(link_stat.st_mode) & 0o022) == 0
+                and resolved_bundle_text.startswith((
+                    "/System/Cryptexes/",
+                    "/System/Volumes/Preboot/Cryptexes/",
+                ))
+            )
+    except OSError as exc:
+        resolution_error = f"{type(exc).__name__}: {exc}"
     if executable is not None:
         try:
             resolved_bundle = bundle.resolve(strict=True)
@@ -352,6 +371,8 @@ def inspect_bundle_paths(bundle: Path, executable: Path | None) -> BundlePathDet
             resolution_error = f"{type(exc).__name__}: {exc}"
     return BundlePathDetails(
         bundle_is_symlink=bundle.is_symlink(),
+        resolved_bundle=resolved_bundle_text,
+        bundle_symlink_is_system_managed=bundle_symlink_is_system_managed,
         contents_is_symlink=contents.is_symlink(),
         macos_directory_is_symlink=macos_directory.is_symlink(),
         info_plist_is_symlink=info_path.is_symlink(),
@@ -375,7 +396,7 @@ def assess_bundle_paths(details: BundlePathDetails) -> tuple[tuple[Severity, str
             "Review",
             "The declared main executable resolves outside the application bundle.",
         ))
-    if details.bundle_is_symlink:
+    if details.bundle_is_symlink and not details.bundle_symlink_is_system_managed:
         assessments.append((
             Severity.LOW,
             "Review",
@@ -417,13 +438,13 @@ def assess_metadata_integrity(details: FileIntegrityDetails) -> tuple[tuple[Seve
                 assessments.append((
                     Severity.HIGH,
                     "Review",
-                    "Info.plist is world-writable and can be altered by other local users.",
+                    "Info.plist is world-writable and its contents can be modified in place by any local user.",
                 ))
             elif mode & 0o020:
                 assessments.append((
                     Severity.MEDIUM,
                     "Review",
-                    "Info.plist is group-writable and its ownership context requires review.",
+                    "Info.plist is group-writable and its contents can be modified in place by members of the owning group.",
                 ))
         except ValueError:
             assessments.append((
@@ -469,10 +490,30 @@ def classify_trust(
     )):
         return Severity.INFORMATIONAL, "Unknown", "The local code-signing trust service could not complete verification."
     if signature_result.returncode != 0:
+        if assessment_result.returncode == 0 and any(token in combined for token in (
+            "resource fork, finder information, or similar detritus not allowed",
+            "disallowed xattr",
+        )):
+            return (
+                Severity.MEDIUM,
+                "Review",
+                "Strict signature verification found disallowed extended metadata, while Gatekeeper still accepted the application; reacquire or reinstall it before treating this as code tampering.",
+            )
+        if "sealed resource is missing or invalid" in combined or "file missing:" in combined:
+            return Severity.HIGH, "Fail", "The signed application bundle is incomplete: one or more sealed resources are missing or invalid."
         reason = "The application is unsigned." if unsigned else "The code signature is invalid or could not be verified."
         return Severity.HIGH, "Fail", reason
     if assessment_result.timed_out or assessment_result.returncode in {124, 126, 127} or "internal error" in assessment_output:
         return Severity.INFORMATIONAL, "Unknown", "Gatekeeper assessment was unavailable or returned an internal error."
+    if (
+        assessment_result.returncode != 0
+        and "does not seem to be an app" in assessment_output
+        and details
+        and details.identifier
+        and details.identifier.startswith("com.apple.")
+        and details.signature_type == "Apple"
+    ):
+        return Severity.INFORMATIONAL, "Pass", "The Apple system application's signature is valid; Gatekeeper reported that this protected component is not an independently assessable app."
     if assessment_result.returncode != 0 and "rejected" in assessment_output:
         return Severity.MEDIUM, "Fail", "Gatekeeper did not accept the application."
     if assessment_result.returncode != 0:
@@ -633,6 +674,8 @@ class ApplicationTrustCollector(Collector):
             }),
             Evidence("bundle_path_integrity", str(bundle), {
                 "bundle_is_symlink": bundle_paths.bundle_is_symlink,
+                "resolved_bundle": bundle_paths.resolved_bundle,
+                "bundle_symlink_is_system_managed": bundle_paths.bundle_symlink_is_system_managed,
                 "contents_is_symlink": bundle_paths.contents_is_symlink,
                 "macos_directory_is_symlink": bundle_paths.macos_directory_is_symlink,
                 "info_plist_is_symlink": bundle_paths.info_plist_is_symlink,

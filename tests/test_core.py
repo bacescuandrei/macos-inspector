@@ -15,6 +15,7 @@ from pathlib import Path
 
 from macos_inspector.collectors.application_trust import (
     ApplicationTrustCollector,
+    BundlePathDetails,
     FileIntegrityDetails,
     SignatureDetails,
     assess_bundle_paths,
@@ -32,7 +33,7 @@ from macos_inspector.collectors.application_trust import (
     parse_quarantine,
     parse_where_froms_hex,
 )
-from macos_inspector.collectors.background_items import parse_disabled_services
+from macos_inspector.collectors.background_items import BackgroundItemsCollector, parse_disabled_services
 from macos_inspector.collectors.browser_artifacts import BrowserArtifactsCollector
 from macos_inspector.collectors.persistence import _program_from_plist
 from macos_inspector.collectors.privacy import PrivacyCollector
@@ -45,7 +46,19 @@ from macos_inspector.collectors.management_profiles import ManagementProfilesCol
 from macos_inspector.collectors.accounts_access import AccountsAccessCollector, account_anomalies, parse_group_members, parse_user_records, regular_accounts
 from macos_inspector.collectors.osint_intelligence import CISA_KEV_FEED, OSINTIntelligenceCollector, apple_kev_entries, validate_cisa_kev
 from macos_inspector.collectors.vulnerability_exposure import VulnerabilityExposureCollector, macos_kev_entries, nvd_macos_range, parse_sw_vers
-from macos_inspector.collectors.live_triage import LiveTriageCollector, parse_lsof_fields, parse_processes, suspicious_processes
+from macos_inspector.collectors.live_triage import (
+    LiveTriageCollector,
+    deduplicate_connections,
+    network_risk_candidates,
+    parse_cwd_fields,
+    parse_lsof_fields,
+    parse_process_context,
+    parse_processes,
+    merge_process_context,
+    socket_exposure,
+    sanitize_command_line,
+    suspicious_processes,
+)
 from macos_inspector.collectors.yara_rules import discover_yara_rules, parse_yara_matches
 from macos_inspector.core.intelligence import IntelligenceResource, fetch_cached_json, parse_apple_security_releases, validate_epss, validate_nvd
 from macos_inspector.core.storage import CaseStore, SettingsStore
@@ -179,12 +192,57 @@ class CoreTests(unittest.TestCase):
         class FakeRunner:
             def run(self, argv):
                 if argv[0] == "ps":
+                    if "etime" in argv[2]:
+                        return CommandResult(tuple(argv), 0, "1 01:00 /sbin/launchd\n42 00:30 /private/tmp/agent", "")
                     return CommandResult(tuple(argv), 0, "1 0 root /sbin/launchd\n42 1 alice /private/tmp/agent", "")
                 return CommandResult(tuple(argv), 0, "p42\ncagent\nn*:8080\nTST=LISTEN", "")
 
         findings = {item.finding_id: item for item in LiveTriageCollector(FakeRunner()).collect()}
         self.assertEqual(findings["LIVE-PROCESS-TREE"].status, "Review")
+        self.assertEqual(findings["LIVE-PROCESS-TREE"].severity, Severity.MEDIUM)
         self.assertEqual(findings["LIVE-NETWORK-PROCESSES"].severity, Severity.HIGH)
+
+    def test_live_triage_prioritizes_exposure_and_suppresses_loopback_false_positive(self):
+        processes = merge_process_context(
+            parse_processes(
+                "55709 1 alice /Users/alice/.cache/runtime/python\n"
+                "38335 1 alice /opt/homebrew/bin/python3\n"
+            ),
+            parse_process_context(
+                "55709 00:25:20 /Users/alice/.cache/runtime/python -m inspector --web\n"
+                "38335 10-21:08:27 /opt/homebrew/bin/python3 -m http.server 4477\n"
+            ),
+        )
+        suspicious = suspicious_processes(processes)
+        sockets = deduplicate_connections(parse_lsof_fields(
+            "p55709\ncpython\nn127.0.0.1:8765\nTST=LISTEN\n"
+            "p38335\ncPython\nn*:4477\nTST=LISTEN\nn*:4477\nTST=LISTEN\n"
+        ))
+        self.assertEqual(len(sockets), 2)
+        self.assertEqual(sockets[1]["socket_count"], 2)
+        high, medium, local_only = network_risk_candidates(
+            sockets,
+            processes,
+            suspicious,
+            {38335: "/private/tmp/site-preview", 55709: "/Users/alice/project"},
+        )
+        self.assertEqual([item["pid"] for item in high], [38335])
+        self.assertFalse(medium)
+        self.assertEqual([item["pid"] for item in local_only], [55709])
+        self.assertEqual(next(item for item in suspicious if item["pid"] == 55709)["priority"], "low")
+        self.assertTrue(any("restricted to the local host" in reason for reason in local_only[0]["reasons"]))
+        self.assertEqual(socket_exposure("127.0.0.1:8765", "LISTEN"), "loopback")
+        self.assertEqual(socket_exposure("[::1]:8765", "LISTEN"), "loopback")
+        self.assertEqual(socket_exposure("*:4477", "LISTEN"), "wildcard")
+        self.assertEqual(parse_cwd_fields("p38335\nfcwd\nn/private/tmp/site-preview\n"), {38335: "/private/tmp/site-preview"})
+        command, redacted = sanitize_command_line(
+            "python service.py --token top-secret --api-key=second OPENAI_API_KEY=third --client-secret fourth"
+        )
+        self.assertTrue(redacted)
+        self.assertNotIn("top-secret", command)
+        self.assertNotIn("second", command)
+        self.assertNotIn("third", command)
+        self.assertNotIn("fourth", command)
 
     def test_managed_yara_rules_are_bounded_and_parsed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -398,6 +456,12 @@ class CoreTests(unittest.TestCase):
             path_assessments = assess_bundle_paths(paths)
             self.assertEqual(path_assessments[0][:2], (Severity.HIGH, "Review"))
             self.assertIn("outside", path_assessments[0][2])
+
+        self.assertFalse(assess_bundle_paths(BundlePathDetails(
+            bundle_is_symlink=True,
+            resolved_bundle="/System/Volumes/Preboot/Cryptexes/App/System/Applications/Safari.app",
+            bundle_symlink_is_system_managed=True,
+        )))
 
         metadata_assessments = assess_metadata_integrity(FileIntegrityDetails(
             sha256="c" * 64, permissions="0666",
@@ -700,6 +764,27 @@ origin=Developer ID Application: Example (TEAM123)""")
         entries = parse_disabled_services('"com.example.agent" => enabled\n"com.apple.demo" => disabled')
         self.assertEqual(entries, [("com.example.agent", "enabled"), ("com.apple.demo", "disabled")])
 
+    def test_background_items_prioritize_enabled_third_party_services(self):
+        class FakeRunner:
+            def run(self, argv):
+                command = tuple(argv)
+                if argv[0] == "sfltool":
+                    return CommandResult(command, 0, "collected", "")
+                output = (
+                    '"com.vendor.active" => enabled'
+                    if argv[-1].startswith("user/")
+                    else '"com.vendor.inactive" => disabled'
+                )
+                return CommandResult(command, 0, output, "")
+
+        findings = {item.title: item for item in BackgroundItemsCollector(FakeRunner()).collect()}
+        user = findings["ServiceManagement disabled map: user"]
+        system = findings["ServiceManagement disabled map: system"]
+        self.assertEqual((user.severity, user.status), (Severity.MEDIUM, "Review"))
+        self.assertEqual((system.severity, system.status), (Severity.INFORMATIONAL, "Observed"))
+        self.assertEqual(system.evidence[0].value["review_candidates"], [])
+        self.assertEqual(system.evidence[0].value["disabled_third_party_context"][0]["label"], "com.vendor.inactive")
+
     def test_certificate_hash_parser(self):
         output = "SHA-256 hash: aa11\nSHA-1 hash: 0123456789012345678901234567890123456789\nSHA-256 hash: AA11"
         self.assertEqual(parse_certificate_hashes(output), ["0123456789012345678901234567890123456789"])
@@ -710,6 +795,18 @@ origin=Developer ID Application: Example (TEAM123)""")
         self.assertEqual(len(extensions), 2)
         self.assertEqual(extensions[0].bundle_id, "com.example.filter")
         self.assertEqual(extensions[0].state, "enabled active")
+        current_output = """2 extension(s)
+--- com.apple.system_extension.network_extension
+enabled active teamID bundleID (version) name [state]
+* * J6S6Q257EK ch.protonvpn.mac.OpenVPN-Extension (4.3.0/2404171112) ProtonVPN OpenVPN [activated enabled]
+* * J6S6Q257EK ch.protonvpn.mac.WireGuard-Extension (6.5.1/3106797) Proton VPN WireGuard [activated enabled]"""
+        current = parse_system_extensions(current_output)
+        self.assertEqual([item.bundle_id for item in current], [
+            "ch.protonvpn.mac.OpenVPN-Extension",
+            "ch.protonvpn.mac.WireGuard-Extension",
+        ])
+        self.assertTrue(all(item.team_id == "J6S6Q257EK" for item in current))
+        self.assertTrue(all(item.state == "activated enabled" for item in current))
 
     def test_ioc_pack_matches_explicit_path(self):
         class FakeRunner:
@@ -746,6 +843,14 @@ origin=Developer ID Application: Example (TEAM123)""")
         self.assertEqual(classify_trust(True, unavailable, rejected)[:2], (Severity.INFORMATIONAL, "Unknown"))
         ad_hoc = SignatureDetails(identifier="local.app", signature_type="Ad hoc")
         self.assertEqual(classify_trust(True, valid, accepted, ad_hoc)[:2], (Severity.LOW, "Review"))
+        metadata_only = CommandResult(("codesign",), 1, "", "resource fork, Finder information, or similar detritus not allowed")
+        self.assertEqual(classify_trust(True, metadata_only, accepted)[:2], (Severity.MEDIUM, "Review"))
+        missing_resource = CommandResult(("codesign",), 1, "", "a sealed resource is missing or invalid\nfile missing: payload.dylib")
+        self.assertEqual(classify_trust(True, missing_resource, rejected)[:2], (Severity.HIGH, "Fail"))
+        self.assertIn("incomplete", classify_trust(True, missing_resource, rejected)[2])
+        apple = SignatureDetails(identifier="com.apple.Passwords", signature_type="Apple")
+        not_assessable = CommandResult(("spctl",), 3, "", "rejected (the code is valid but does not seem to be an app)")
+        self.assertEqual(classify_trust(True, valid, not_assessable, apple)[:2], (Severity.INFORMATIONAL, "Pass"))
 
     def test_application_discovery_is_bounded(self):
         with tempfile.TemporaryDirectory() as directory:

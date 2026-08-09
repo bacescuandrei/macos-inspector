@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.3 - 2026-08-09
+
+- Reworked Live Triage correlation around socket exposure, process runtime, parent state, redacted command context, and working directory instead of treating every suspicious-path listener as high priority.
+- Kept loopback-only correlations as low-priority context while elevating long-running basic development servers bound beyond localhost, including stale servers publishing temporary directories.
+- Deduplicated equivalent IPv4/IPv6 socket rows and retained their underlying socket count in evidence.
+- Added bounded command-line collection with common password, token, secret, credential, cookie, authorization, and API-key argument redaction.
+- Refined Application Trust conclusions for world/group-writable files, Apple system components that Gatekeeper does not assess independently, system-managed Cryptex symlinks, disallowed extended metadata, and missing sealed resources.
+- Fixed current-format `systemextensionsctl` parsing so real third-party extensions are recorded instead of the table header.
+- Distinguished enabled third-party background services from disabled third-party context.
+- Expanded the regression suite to 55 tests.
+
 ## 1.2.2 - 2026-08-09
 
 - Removed the Romanian locale and language selector; the security dashboard and direct-file launch page are now English-only.

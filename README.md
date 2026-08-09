@@ -2,7 +2,7 @@
 
 macOS Inspector is a read-only macOS security auditing and DFIR framework with a dependency-free core. It collects verifiable evidence, produces normalized findings, calculates transparent security scores, and exports professional reports through a local web dashboard.
 
-> Status: version 1.2.2 is feature-complete for the documented scope. Fifteen collectors cover accounts, persistence, Application Trust, privacy, browsers, management, network, extensions, security controls, live process/network triage, managed IOC/YARA rules, and explicit online vulnerability intelligence. The responsive English security dashboard provides case management, provider settings, cache provenance, scan controls, findings, comparisons, and nine report formats. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
+> Status: version 1.2.3 is feature-complete for the documented scope. Fifteen collectors cover accounts, persistence, Application Trust, privacy, browsers, management, network, extensions, security controls, live process/network triage, managed IOC/YARA rules, and explicit online vulnerability intelligence. The responsive English security dashboard provides case management, provider settings, cache provenance, scan controls, findings, comparisons, and nine report formats. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
 
 ## Safety contract
 
@@ -74,7 +74,7 @@ Provider failures or malformed responses are reported as **Unknown** without inv
 
 ## Live triage, IOC and YARA
 
-Live triage snapshots running processes, parent relationships, listeners, and established connections, then flags bounded review candidates such as writable, hidden, temporary, or missing-parent execution paths. It remains read-only and does not terminate processes or connections.
+Live triage snapshots running processes, parent relationships, listeners, and established connections, then prioritizes bounded review candidates using combined path, parent, runtime, command-context, working-directory, and socket-exposure signals. Equivalent socket rows are deduplicated, loopback-only tooling is kept as low-priority context, and long-running basic development servers exposed beyond localhost are elevated. Persisted command context is length-bounded and redacts common secret-bearing arguments. The collector remains read-only and does not terminate processes or connections.
 
 Versioned IOC JSON packs and `.yar`/`.yara` rule files can be imported from the dashboard. YARA is optional, executes locally through a trusted binary, and accepts at most ten explicit targets; scanning `/` or the entire home directory is rejected. Files, hashes, matches, and rules are never uploaded.
 
