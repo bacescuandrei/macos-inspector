@@ -15,7 +15,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import unquote, urlparse
 
 from macos_inspector import __version__
 from macos_inspector.collectors import COLLECTORS, LOCAL_COLLECTORS
@@ -650,14 +650,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json({"entries": self.state.cache_status()})
         elif path == "/api/scans":
             self._send_json({"scans": self.state.list_jobs()})
-        elif path == "/api/compare":
-            query = parse_qs(parsed.query)
-            try:
-                self._send_json(self.state.compare(query.get("baseline", [""])[0], query.get("current", [""])[0]))
-            except FileNotFoundError as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
-            except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         elif path.startswith("/api/manifests/") and path.endswith("/verify"):
             scan_id = unquote(path.removeprefix("/api/manifests/").removesuffix("/verify")).strip("/")
             try:
@@ -692,6 +684,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not self._require_local_request():
             return
         path = urlparse(self.path).path
+        if path == "/api/compare":
+            try:
+                payload = self._read_json_body(4096)
+                self._send_json(self.state.compare(str(payload.get("baseline", "")), str(payload.get("current", ""))))
+            except PermissionError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+            except FileNotFoundError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+            except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         if path.startswith("/api/scans/") and path.endswith("/cancel"):
             if self.headers.get("X-MacOS-Inspector") != "1":
                 self._send_json({"error": "Invalid local request."}, HTTPStatus.FORBIDDEN)

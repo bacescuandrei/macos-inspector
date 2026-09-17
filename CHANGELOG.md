@@ -4,6 +4,7 @@
 
 - Hardened the local dashboard against DNS rebinding and cross-origin writes by validating request authorities and browser origins against the active loopback server.
 - Added same-origin response protections and end-to-end regression coverage for the local web boundary.
+- Moved comparison-report generation to a protected `POST` request so read-only `GET` routes cannot create local files.
 
 ## 1.2.4 - 2026-09-17
 

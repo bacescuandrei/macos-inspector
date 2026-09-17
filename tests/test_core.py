@@ -84,29 +84,31 @@ def finding(severity=Severity.HIGH, status="Fail"):
     return Finding("TEST-1", "Persistence", "Test", severity, status, "Description", "Why", "Checked", "Expected", "Observed", "Recommendation", (Evidence("test", "unit", "value"),))
 
 
+def dashboard_request(server, method, path, host, *, origin=None, payload=None, extra_host=None, extra_origin=None, write_header=True):
+    connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+    body = json.dumps(payload).encode() if payload is not None else None
+    connection.putrequest(method, path, skip_host=True)
+    connection.putheader("Host", host)
+    if extra_host is not None:
+        connection.putheader("Host", extra_host)
+    if origin is not None:
+        connection.putheader("Origin", origin)
+    if extra_origin is not None:
+        connection.putheader("Origin", extra_origin)
+    if body is not None:
+        connection.putheader("Content-Type", "application/json")
+        connection.putheader("Content-Length", str(len(body)))
+        if write_header:
+            connection.putheader("X-MacOS-Inspector", "1")
+    connection.endheaders(body)
+    response = connection.getresponse()
+    result = response.status, dict(response.getheaders()), response.read()
+    connection.close()
+    return result
+
+
 class CoreTests(unittest.TestCase):
     def test_dashboard_rejects_dns_rebinding_hosts_and_cross_origin_writes(self):
-        def request(server, method, path, host, *, origin=None, payload=None, extra_host=None, extra_origin=None):
-            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
-            body = json.dumps(payload).encode() if payload is not None else None
-            connection.putrequest(method, path, skip_host=True)
-            connection.putheader("Host", host)
-            if extra_host is not None:
-                connection.putheader("Host", extra_host)
-            if origin is not None:
-                connection.putheader("Origin", origin)
-            if extra_origin is not None:
-                connection.putheader("Origin", extra_origin)
-            if body is not None:
-                connection.putheader("Content-Type", "application/json")
-                connection.putheader("Content-Length", str(len(body)))
-                connection.putheader("X-MacOS-Inspector", "1")
-            connection.endheaders(body)
-            response = connection.getresponse()
-            result = response.status, dict(response.getheaders()), response.read()
-            connection.close()
-            return result
-
         with tempfile.TemporaryDirectory() as directory:
             state = DashboardState(Path(directory))
             server = DashboardServer(("127.0.0.1", 0), state)
@@ -114,41 +116,83 @@ class CoreTests(unittest.TestCase):
             thread.start()
             port = server.server_port
             try:
-                status, headers, _ = request(server, "GET", "/api/health", f"127.0.0.1:{port}")
+                status, headers, _ = dashboard_request(server, "GET", "/api/health", f"127.0.0.1:{port}")
                 self.assertEqual(status, 200)
                 self.assertEqual(headers["Cross-Origin-Resource-Policy"], "same-origin")
                 self.assertEqual(headers["X-Frame-Options"], "SAMEORIGIN")
 
                 for host in (f"attacker.example:{port}", f"localhost.attacker.example:{port}", f"127.0.0.1.example:{port}"):
-                    status, _, body = request(server, "GET", "/api/health", host)
+                    status, _, body = dashboard_request(server, "GET", "/api/health", host)
                     self.assertEqual(status, 403)
                     self.assertIn(b"Invalid local request", body)
 
-                status, _, _ = request(
+                status, _, _ = dashboard_request(
                     server, "GET", "/api/health", f"127.0.0.1:{port}", extra_host=f"localhost:{port}",
                 )
                 self.assertEqual(status, 403)
 
-                status, _, _ = request(
+                status, _, _ = dashboard_request(
                     server, "POST", "/api/settings", f"127.0.0.1:{port}",
                     origin=f"http://attacker.example:{port}", payload={"cache_hours": 7},
                 )
                 self.assertEqual(status, 403)
                 self.assertEqual(state.settings.load()["cache_hours"], 24)
 
-                status, _, _ = request(
+                status, _, _ = dashboard_request(
                     server, "POST", "/api/settings", f"127.0.0.1:{port}",
                     origin=f"http://127.0.0.1:{port}", extra_origin=f"http://localhost:{port}", payload={"cache_hours": 7},
                 )
                 self.assertEqual(status, 403)
                 self.assertEqual(state.settings.load()["cache_hours"], 24)
 
-                status, _, _ = request(
+                status, _, _ = dashboard_request(
                     server, "POST", "/api/settings", f"127.0.0.1:{port}",
                     origin=f"http://127.0.0.1:{port}", payload={"cache_hours": 7},
                 )
                 self.assertEqual(status, 200)
                 self.assertEqual(state.settings.load()["cache_hours"], 7)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+    def test_dashboard_comparison_reports_require_protected_post(self):
+        def scan_payload(scan_id, score):
+            return {
+                "metadata": {"scan_id": scan_id, "collectors": ["security"]},
+                "summary": {"overall_score": score, "category_scores": {"Security": score}},
+                "findings": [],
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            for scan_id, score in (("baseline", 80), ("current", 90)):
+                (state.output / f"macos-inspector-{scan_id}.json").write_text(json.dumps(scan_payload(scan_id, score)))
+            server = DashboardServer(("127.0.0.1", 0), state)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            port = server.server_port
+            try:
+                status, _, _ = dashboard_request(
+                    server, "GET", "/api/compare?baseline=baseline&current=current", f"127.0.0.1:{port}",
+                )
+                self.assertEqual(status, 404)
+                self.assertFalse(list(state.output.glob("macos-inspector-comparison-*")))
+
+                status, _, _ = dashboard_request(
+                    server, "POST", "/api/compare", f"127.0.0.1:{port}",
+                    payload={"baseline": "baseline", "current": "current"}, write_header=False,
+                )
+                self.assertEqual(status, 403)
+                self.assertFalse(list(state.output.glob("macos-inspector-comparison-*")))
+
+                status, _, body = dashboard_request(
+                    server, "POST", "/api/compare", f"127.0.0.1:{port}",
+                    payload={"baseline": "baseline", "current": "current"},
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(body)["score_delta"], 10)
+                self.assertEqual(len(list(state.output.glob("macos-inspector-comparison-*"))), 2)
             finally:
                 server.shutdown()
                 server.server_close()

@@ -659,7 +659,7 @@ async function compareWithBaseline(job) {
   if (job.scan_id === state.baselineJob.scan_id) return setMessage('Choose a different scan to compare with the baseline.', true);
   setMessage('Comparing normalized findings...');
   try {
-    const comparison = await api(`/api/compare?baseline=${encodeURIComponent(state.baselineJob.scan_id)}&current=${encodeURIComponent(job.scan_id)}`);
+    const comparison = await api('/api/compare', writeOptions('POST', {baseline: state.baselineJob.scan_id, current: job.scan_id}));
     renderComparison(comparison);
     setMessage('Comparison complete.');
     document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth', block: 'start'});
