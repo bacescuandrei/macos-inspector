@@ -99,7 +99,7 @@ def collect_readiness(output: Path, home: Path | None = None) -> dict:
         "id": "tcc", "title": "TCC evidence access", "status": "ready" if tcc_ready else "limited",
         "detail": f"{readable_tcc} of {len(visible_tcc)} visible TCC database(s) can be opened read-only.",
         "impact": "Unavailable databases limit privacy-permission findings but do not stop other collectors.",
-        "action": "If required by the case policy, grant the launcher Full Disk Access and restart it." if not tcc_ready else "No action required.",
+        "action": "If the case policy permits it, grant Full Disk Access to the application that launches Python, such as Terminal, then restart the launcher." if not tcc_ready else "No action required.",
     })
 
     profiles = discover_browser_profiles(home)
@@ -110,7 +110,7 @@ def collect_readiness(output: Path, home: Path | None = None) -> dict:
         "id": "browser", "title": "Browser evidence access", "status": "ready" if browser_ready else "limited",
         "detail": f"{len(profiles)} supported profile(s) are visible; {readable_histories} of {len(history_databases)} history database(s) are readable.",
         "impact": "Protected or locked databases reduce browser history and download coverage.",
-        "action": "Close affected browsers or approve Full Disk Access when the collection policy allows it." if not browser_ready else "No action required.",
+        "action": "Close affected browsers or, when policy permits it, grant Full Disk Access to the application that launches Python." if not browser_ready else "No action required.",
     })
 
     checks.append({

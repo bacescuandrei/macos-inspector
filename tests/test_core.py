@@ -6,6 +6,7 @@ import sqlite3
 import json
 import importlib.util
 import plistlib
+import re
 import threading
 import zipfile
 from contextlib import closing
@@ -567,9 +568,30 @@ class CoreTests(unittest.TestCase):
             self.assertTrue(any(name.endswith("/SECURITY.md") for name in names))
             self.assertTrue(any(name.endswith("/docs/ARCHITECTURE.md") for name in names))
             self.assertTrue(any(name.endswith("/docs/THREAT_MODEL.md") for name in names))
+            self.assertTrue(any(name.endswith("/docs/INSTALLATION.md") for name in names))
+            self.assertTrue(any(name.endswith("/docs/USAGE.md") for name in names))
             self.assertTrue(any(name.endswith("/src/macos_inspector/webui/index.html") for name in names))
             self.assertFalse(any("macos-inspector-reports" in name or "/tmp/" in name or "/output/" in name for name in names))
             self.assertFalse(any(".DS_Store" in name or ".egg-info/" in name or "/._" in name for name in names))
+
+    def test_public_documentation_relative_links_resolve(self):
+        root = Path(__file__).resolve().parents[1]
+        documents = (
+            list(root.glob("*.md"))
+            + list((root / "docs").rglob("*.md"))
+            + list((root / ".github" / "release-notes").rglob("*.md"))
+        )
+        missing = []
+        for document in documents:
+            content = document.read_text(encoding="utf-8")
+            for match in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", content):
+                target = match.group(1).strip().split()[0].split("#", 1)[0]
+                if not target or target.startswith(("http://", "https://", "mailto:")):
+                    continue
+                candidate = (document.parent / target).resolve()
+                if not candidate.exists():
+                    missing.append(f"{document.relative_to(root)} -> {target}")
+        self.assertEqual(missing, [])
 
     def test_gitea_workflow_tests_and_verifies_release_without_secrets(self):
         root = Path(__file__).resolve().parents[1]

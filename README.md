@@ -1,169 +1,227 @@
 # macOS Inspector
 
-macOS Inspector is a read-only macOS security auditing and DFIR framework with a dependency-free core. It collects verifiable evidence, produces normalized findings, calculates transparent security scores, and exports professional reports through a local web dashboard.
+[![CI](https://github.com/bacescuandrei/macos-inspector/actions/workflows/ci.yml/badge.svg)](https://github.com/bacescuandrei/macos-inspector/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> Status: version 1.2.4 is feature-complete for the documented scope. Fifteen collectors cover accounts, persistence, Application Trust, privacy, browsers, management, network, extensions, security controls, live process/network triage, managed IOC/YARA rules, and explicit online vulnerability intelligence. The responsive English security dashboard provides case management, provider settings, cache provenance, scan controls, findings, comparisons, and nine report formats. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
+macOS Inspector is a read-only macOS security inspection and DFIR triage tool. It collects local evidence, evaluates it with documented rules, and presents findings and reports through a local web dashboard.
 
-## Safety contract
+It was created to make evidence that is normally scattered across command-line tools, property lists, SQLite databases, application bundles, running processes, sockets, and macOS security settings easier to collect and review in one place.
 
-- No remediation, deletion, quarantine, privilege escalation, or configuration changes.
-- Commands are executed without a shell, with timeouts and captured output.
-- The tool never invokes `sudo` and does not request Full Disk Access.
-- Permission failures are reported as collection notes instead of bypassed.
-- Reports record the commands used and the evidence supporting each finding.
-- Local profiles and the default CLI collection never access an OSINT service.
-- Online vulnerability intelligence is opt-in. Common Apple CVE identifiers may be requested from Apple, CISA, FIRST, and NIST; no hash, file, hostname, user, case, or collected evidence is sent.
-- ThreatFox is disabled by default and is never queried automatically. Only an indicator typed by the analyst is submitted after a separate confirmation.
+The project is intended for incident responders, forensic analysts, security engineers, system administrators, and technically experienced Mac owners. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Some macOS commands may update their own access metadata or unified logs simply by executing. Run from trusted media and validate the workflow against your evidence-handling policy before use in a legal investigation.
+Current release: `v1.2.4`
 
-## Quick start
+## What it can help answer
 
-For normal use on macOS, double-click **macOS Inspector.command**. The launcher starts the local read-only dashboard and opens `http://127.0.0.1:8765/` automatically. If the dashboard is already running, it simply reopens the page. No terminal commands are required for routine scans.
+- Which applications have valid signatures, hardened runtime, notarization evidence, suspicious paths, or integrity concerns?
+- Which accounts, launch items, background services, privacy grants, profiles, extensions, and network settings deserve review?
+- Which processes own listeners or established connections, and what local context makes them higher priority?
+- Does the installed macOS version require review against current Apple, CISA KEV, FIRST EPSS, or NIST NVD information?
+- Did a bounded local IOC or YARA rule match the files explicitly selected by the analyst?
+- What changed between two scans, and can the exported evidence still be verified?
 
-Do not use `src/macos_inspector/webui/index.html` as the application launcher: it is the dashboard source and cannot start a local Python service from inside a browser. If it is opened directly, it now loads its styling and shows a clear launch page instead of a broken interface.
+macOS Inspector reports observations and rule outcomes. A `Review`, `Fail`, or `Match` result is not by itself proof of malware, exploitation, or compromise.
 
-The small launcher window remains open while the dashboard is running so macOS preserves access to the folder containing the tool. It does not require any input; closing that window stops only the local dashboard server.
+## Inspection areas
 
-The launcher requires Python 3.10 or newer. Missing or incompatible Python installations are reported through a macOS alert instead of failing silently.
+| Dashboard workflow | Primary purpose | Network use |
+| --- | --- | --- |
+| Quick triage | Accounts, live activity, persistence, security controls, profiles, extensions, network configuration, and IOCs | None |
+| Application Trust | Signatures, notarization, Gatekeeper context, entitlements, metadata, bundle layout, and file integrity | None |
+| Privacy and browsers | TCC permissions and bounded browser history, download, and extension artifacts | None |
+| Vulnerability Intelligence | Local macOS version correlation with public Apple, CISA, FIRST, and NIST data | Explicit opt-in |
+| Threat Hunting | Live process and network context plus imported IOC and optional YARA rules | None, except separate manual ThreatFox lookup |
+| Full local collection | Every local collector in one scan | None |
 
-To create the portable final ZIP package during development:
+Fifteen collectors cover accounts and access, Application Trust, background items, browser artifacts, IOCs, live triage, management profiles, network configuration, free OSINT context, persistence, privacy permissions, security controls, system extensions, vulnerability exposure, and YARA rules.
 
-```bash
-PYTHONPATH=src python3 -m scripts.build_release
+## Read findings correctly
+
+| Status | Meaning | What it does not mean |
+| --- | --- | --- |
+| Pass | The specific rule met its documented expectation | The host or application is safe |
+| Observed | Inventory or state was recorded without a negative rule outcome | The observation is benign or malicious |
+| Review | Context is required before the observation can be accepted or escalated | Compromise was detected |
+| Fail | A defined security expectation was not met | Malware was proven |
+| Unknown | Evidence was unavailable, incomplete, or could not be evaluated | The check passed |
+| Match | An imported IOC or YARA rule matched within the selected scope | The matched object is conclusively malicious |
+| Not Applicable | The component or optional feature was not present in the inspected scope | The entire category was assessed |
+
+Severity is a review priority, not a malware verdict. Always inspect the finding explanation, observed evidence, collection notes, and host context before reaching a security conclusion.
+
+## Install the portable release
+
+Requirements:
+
+- macOS
+- Python 3.10 or newer
+- no `sudo`
+- no mandatory Full Disk Access
+
+1. Download `macos-inspector-1.2.4-macos.zip` and `SHA256SUMS` from the GitHub release.
+2. Verify the archive before opening it:
+
+   ```bash
+   shasum -a 256 macos-inspector-1.2.4-macos.zip
+   ```
+
+   Compare the result with the value in `SHA256SUMS` on the same release.
+3. Extract the ZIP.
+4. Double-click **macOS Inspector.command**.
+
+The release is not Apple-signed or notarized. After verifying the checksum, use Finder's Control-click, then **Open**, if macOS blocks the first launch. Do not disable Gatekeeper globally and do not remove quarantine attributes from unrelated files.
+
+The launcher starts a local service on `http://127.0.0.1:8765/` and opens the dashboard. Keep the launcher window open while using the application. Closing it stops the local service.
+
+Do not open `src/macos_inspector/webui/index.html` as the application. That file is only the dashboard source and cannot start the local Python service.
+
+See [Installation](docs/INSTALLATION.md) for source installation, permission behavior, troubleshooting, release verification, and removal.
+
+## Run a first scan
+
+1. Open the dashboard with the launcher.
+2. Review **Collection readiness**. A limited result identifies reduced coverage, not a failed installation.
+3. Select **Quick triage**.
+4. Keep the default report formats or select the formats required by the case.
+5. Select **Run selected scan**.
+6. Review high-priority findings first, then examine the evidence and collection notes.
+7. Open the HTML report from scan history or export the case bundle.
+
+Routine use does not require terminal commands. The CLI remains available for automation and reproducible collections.
+
+## Practical examples
+
+### Validate an unfamiliar application
+
+Goal: determine whether an application has the expected macOS trust signals.
+
+Steps: open **Application Trust**, run the scan, find the application, then review its signature, Team ID, notarization result, hardened runtime, entitlements, quarantine metadata, bundle paths, and executable integrity.
+
+Representative result:
+
+```text
+Status: Pass
+Severity: Informational
+Observed: Valid Developer ID signature, hardened runtime enabled,
+notarization accepted, executable located inside the application bundle.
 ```
 
-The archive contains the executable double-click launcher, dashboard source, collector modules, documentation, and IOC templates. Existing reports, temporary files, and case evidence are deliberately excluded.
+Interpretation: the application met the checks shown in the finding. This does not prove that the software is harmless or that its publisher is trustworthy. Confirm the publisher, expected installation source, hashes, and behavior before closing the review.
 
-```bash
-python3 -m macos_inspector --output ./reports
-python3 -m macos_inspector --collectors application-trust,persistence,security --formats html,json,markdown,csv,sarif,manifest
+### Investigate a listening process
+
+Goal: connect a network listener to its owning process and execution context.
+
+Steps: run **Threat Hunting**, open **Process and network connection correlation**, and inspect the local address, owning PID, executable path, parent process, command context, working directory, runtime, and exposure beyond loopback.
+
+Representative result:
+
+```text
+Status: Review
+Severity: High
+Observed: 1 listener, 0 established connections, 1 high-priority candidate,
+0 medium-priority candidates, 0 loopback-limited candidates.
 ```
 
-PDF export is built into the portable package and selected by default with the other report formats; no package installation or terminal command is required.
+Interpretation: the combined context raised review priority. A listener alone is not malicious. Confirm whether the service is expected, identify its owner, inspect its files and launch mechanism, and compare it with a known-good baseline.
 
-For the local dashboard, start the read-only web interface once:
+### Review macOS vulnerability exposure
 
-```bash
-python3 -m macos_inspector --web
+Goal: prioritize operating-system updates using public vulnerability information.
+
+Steps: opt in to **Vulnerability Intelligence**, confirm the network disclosure notice, run the profile, and open **Apple KEV applicability correlation**.
+
+Representative result:
+
+```text
+Local version: macOS 26.5.2, build 25F84
+Latest release observed: macOS 26.6
+Status: Review
+Observed: 1 possibly affected; 1 requires vendor-advisory review;
+0 outside the evaluated version range.
 ```
 
-It binds to `127.0.0.1:8765` by default. The responsive dashboard offers Quick triage, Application Trust, Privacy & browsers, Vulnerability Intelligence, Threat Hunting, and Full local collection profiles, plus a separate Run button for every collector. Quick triage is selected by default; Full local collection deliberately excludes online enrichment. Choosing an online collector displays its privacy boundary and requires confirmation before the scan starts.
+Interpretation: the version correlation is a prioritization signal. It is not proof that the host is exploited or compromised. Confirm the exact model, OS build, Apple security advisory, remediation state, and organizational exception policy.
 
-The **Cases, sources and rules** area provides local case records, provider and cache settings, explicit ThreatFox lookup, IOC/YARA imports, bounded YARA targets, and signing identity management. The English-only interface supports keyboard focus and reduced-motion preferences and has no horizontal content overflow from 320-pixel mobile layouts through wide desktop layouts.
+More workflows, including privacy grants, persistence, IOC/YARA matches, scan comparison, and evidence verification, are documented in [Usage and interpretation](docs/USAGE.md).
 
-The page also provides collection readiness, progress, cancellation, history, comparison, finding details, timelines, and links to every report export. Long collectors such as Application Trust report the current application, item count, progress bar, and estimated remaining time. All standard report formats are selected by default; the encrypted bundle is deliberately opt-in because it requires a password between 12 and 256 characters. The dashboard rejects invalid formats before evidence collection begins and never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
+## Data, privacy, and system behavior
 
-## Vulnerability intelligence and OSINT
+- The dashboard binds to loopback only. Non-local bind addresses are rejected.
+- Collectors use an allowlist of read-only commands without a shell. The tool does not execute browser-supplied commands.
+- The tool does not remediate, delete, quarantine, terminate processes, install software, elevate privileges, or change macOS configuration.
+- Local profiles and the default CLI collection do not contact intelligence providers.
+- The online profile is opt-in. It sends only public Apple CVE identifiers to the enabled Apple, CISA, FIRST, and NIST endpoints.
+- ThreatFox is disabled by default and is separate from scans. It sends only an indicator typed and confirmed by the analyst.
+- Imported IOC packs and YARA rules remain local. YARA scans at most ten explicit targets and rejects `/` and the entire home directory.
+- Report files, case records, settings, cache entries, signing secrets, and unfinished job journals remain on the Mac. Private local stores use owner-only permissions.
+- Common secret-bearing command arguments are redacted from collected process context. This reduces exposure but cannot guarantee that every sensitive value is recognized.
+- Full Disk Access is not requested automatically. If policy permits broader coverage, grant it to the application that launches Python, such as Terminal, then restart the launcher. Never bypass TCC protections for convenience.
+- Running read-only macOS commands may still create normal unified-log entries or update access metadata.
 
-The **Free OSINT threat intelligence** section retrieves CISA's public Known Exploited Vulnerabilities catalog from its [official GitHub mirror](https://github.com/cisagov/kev-data). It validates the feed schema and size, records catalog provenance, and extracts Apple-related entries. Results provide external prioritization context only: the presence of an Apple CVE in KEV is never reported as proof that the inspected Mac is affected. Confirm product and operating-system versions against Apple advisories before assigning host impact.
+Browser artifacts and reports may contain sensitive history, downloads, usernames, paths, network endpoints, case notes, and host identifiers. Store, transfer, and dispose of them under the applicable evidence-handling policy.
 
-The **Vulnerability exposure** collector records the exact local macOS version/build and correlates Apple-related KEV entries with Apple Security Releases, FIRST EPSS probability, and NIST NVD applicability/CVSS data. Results are explicitly classified as **Possibly affected**, **Not in affected range**, or **Not enough evidence**. They are prioritization signals, never proof of compromise.
+The portable dashboard stores reports in `macos-inspector-reports` beside the launcher and keeps its private settings, cases, caches, imported rules, and signing material under that report directory in `.macos-inspector-data`. Source or CLI operations that use shared application state default to `~/Library/Application Support/macOS Inspector` unless `MACOS_INSPECTOR_DATA_DIR` is set.
 
-Validated provider responses are cached locally with retrieval time, URL, size, and SHA-256 provenance. Fresh cache entries avoid repeated requests; a validated last-known-good entry can be used if a provider is temporarily unavailable. Cache duration is configurable from 1 to 168 hours and the cache can be cleared from the dashboard.
+## Reports and evidence handling
 
-| Provider | Default | Credential | Data sent |
-| --- | --- | --- | --- |
-| Apple Security Releases | enabled in online profile | none | common public-page request |
-| CISA KEV | enabled in online profile | none | common public-feed request |
-| FIRST EPSS | enabled in online profile | none | common Apple CVE identifiers |
-| NIST NVD | enabled in online profile | optional API key | common Apple CVE identifiers |
-| ThreatFox | disabled | free Auth-Key | only the indicator explicitly entered and confirmed by the analyst |
+The dashboard supports HTML, JSON, Markdown, CSV, SARIF, PDF, evidence manifests, case-bundle ZIP files, and optional encrypted bundles. Every manifest records SHA-256 digests for normalized evidence and generated reports. The dashboard can verify those files and any attached signature.
 
-Provider failures or malformed responses are reported as **Unknown** without invalidating local scan results. Online response bodies never contain or persist local host evidence.
+Encrypted bundles require the optional `cryptography` dependency. The password is used only for the active export and is not saved in settings, scan history, or reports. A lost password cannot be recovered.
 
-## Live triage, IOC and YARA
+The built-in signing identity uses Ed25519 when the optional dependency is available and otherwise uses HMAC-SHA256. HMAC can detect later changes for a party that possesses the same secret, but it does not provide public-key identity assurance. For portable third-party verification, use an Ed25519, RSA, or EC private key and verify its public-key fingerprint through a separate trusted channel.
 
-Live triage snapshots running processes, parent relationships, listeners, and established connections, then prioritizes bounded review candidates using combined path, parent, runtime, command-context, working-directory, and socket-exposure signals. Equivalent socket rows are deduplicated, loopback-only tooling is kept as low-priority context, and long-running basic development servers exposed beyond localhost are elevated. Persisted command context is length-bounded and redacts common secret-bearing arguments. The collector remains read-only and does not terminate processes or connections.
+## Limitations
 
-Versioned IOC JSON packs and `.yar`/`.yara` rule files can be imported from the dashboard. YARA is optional, executes locally through a trusted binary, and accepts at most ten explicit targets; scanning `/` or the entire home directory is rejected. Files, hashes, matches, and rules are never uploaded.
+- macOS Inspector performs live inspection, not a bit-for-bit forensic acquisition.
+- Results reflect the current user's visibility and the permissions available at collection time.
+- Some TCC and browser databases may be unavailable while protected or locked.
+- Browser collection is bounded to supported profiles and recent rows; it is not complete browsing-history recovery.
+- Application signatures, notarization, and Gatekeeper results are trust signals, not a behavioral verdict.
+- IOC and YARA results are only as reliable as the imported rules and selected scan targets.
+- External intelligence can be delayed, incomplete, unavailable, or ambiguous for a particular build.
+- Volatile process and network state can change during collection.
+- The portable release is not Apple-signed or notarized.
+- There is no remote agent, continuous monitoring service, automatic remediation, or cloud console.
+- Legal admissibility and chain-of-custody requirements depend on the analyst's process and jurisdiction.
 
-The **Collection readiness** preflight shows macOS and Python compatibility, trusted command availability, report-storage access, visible application coverage, read-only TCC and browser-database access, built-in PDF support, and optional asymmetric signing support. It reports limitations and recommended actions without requesting privileges or exposing evidence paths and content through the health endpoint.
-
-Active scans can be cancelled from the dashboard. Unfinished jobs are journaled locally with owner-only permissions (`0600`); if the dashboard stops unexpectedly, they are restored as **interrupted** on the next start. Partial results are never published as completed reports.
-
-The header continuously shows the local server connection state and retries automatically after a restart. `GET /api/health` provides a minimal operational status for diagnostics without exposing the report directory or evidence content. Dashboard assets and reports use `Cache-Control: no-store`.
-
-Every evidence manifest contains SHA-256 digests for the normalized evidence and generated reports. The dashboard's **Verify evidence** button rechecks all exported files and any attached signature. Selecting **Case bundle ZIP** packages every report from that scan, the manifest, a SHA-256 bundle index, and offline verification instructions into one download; artifacts from other cases and private signing keys are never included.
-
-The dashboard can create a private local signing identity automatically: Ed25519 when the optional cryptography package is present, otherwise built-in HMAC-SHA256. Secret files and local case/settings stores use owner-only permissions and are excluded from reports and release archives. **Encrypted case bundle** uses AES-256-GCM with a Scrypt-derived key; its password exists only for the active export and is not written to settings, job history, or reports.
-
-For a portable asymmetric identity, install the optional dependency and provide an Ed25519, RSA, or EC private key in PEM format. The manifest contains only the public key and its SHA-256 fingerprint; the private key is never written to a report.
-
-```bash
-python3 -m pip install '.[signing]'
-MACOS_INSPECTOR_SIGNING_KEY=/secure/inspector-ed25519.pem python3 -m macos_inspector --formats html,json,manifest
-python3 -m macos_inspector --verify-manifest ./macos-inspector-reports/macos-inspector-SCAN_ID.manifest
-```
-
-Encrypted private keys are supported through `MACOS_INSPECTOR_SIGNING_KEY_PASSWORD`. Existing HMAC-SHA256 signing remains available through `MACOS_INSPECTOR_MANIFEST_KEY`; asymmetric signing takes precedence when both are configured. For identity trust, compare the displayed public-key fingerprint with a value obtained through a separate trusted channel or pass a trusted PEM key with `--public-key`.
-
-Encrypted bundles use the optional cryptography dependency as well:
+## Development
 
 ```bash
-MACOS_INSPECTOR_BUNDLE_PASSWORD='a long case password' python3 -m macos_inspector --formats html,json,manifest,encrypted-bundle
-MACOS_INSPECTOR_BUNDLE_PASSWORD='a long case password' python3 -m macos_inspector --decrypt-bundle ./macos-inspector-reports/macos-inspector-SCAN_ID.zip.enc
+git clone https://github.com/bacescuandrei/macos-inspector.git
+cd macos-inspector
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[signing]'
+PYTHONPATH=src python -m unittest discover -s tests -v
+node --check src/macos_inspector/webui/app.js
+PYTHONPATH=src python -m scripts.build_release
 ```
 
-For development without installation:
+CLI example:
 
 ```bash
-PYTHONPATH=src python3 -m macos_inspector --output ./reports
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+macos-inspector --collectors application-trust,persistence,security \
+  --formats html,json,markdown,csv,sarif,manifest \
+  --output ./macos-inspector-reports
 ```
 
-## Project documentation
+Findings do not change the process exit code. The CLI exits `0` when collection completes, `1` for an internal collection error, and `2` for invalid input.
 
+## Documentation
+
+- [Installation and verification](docs/INSTALLATION.md)
+- [Usage and interpretation](docs/USAGE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Support](SUPPORT.md)
-- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Changelog](CHANGELOG.md)
 
-## Continuous integration
+## Contributing and license
 
-The GitHub workflow runs the test suite on Linux and macOS with Python 3.10 and 3.13. It installs the optional cryptography dependency, compiles the Python sources, checks dashboard JavaScript syntax, builds the portable ZIP on macOS, records its SHA-256 checksum, and uploads the verified artifact.
+Contributions are welcome when they preserve the read-only collection boundary and include tests for evaluation logic. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
-The Gitea workflow in `.gitea/workflows/ci.yml` automatically runs the test suite, compiles Python sources, checks dashboard JavaScript syntax, builds the portable ZIP, verifies its contents, and publishes it as a temporary build artifact. The workflow never packages or uploads locally generated reports, case evidence, environment files, or private keys.
-
-Repository Actions and an `ubuntu-latest` runner must be enabled once on the Gitea server. See [docs/GITEA_ACTIONS.md](docs/GITEA_ACTIONS.md) for the setup and the boundary between portable CI checks and validation that requires a real Mac.
-
-Useful options:
-
-```text
---list-collectors       Show available collectors
---verify-manifest PATH  Verify a manifest, signature, and report digests
---public-key PATH       Require a trusted PEM public key during verification
---collectors LIST       Comma-separated collector IDs
---formats LIST          html,json,markdown,csv,sarif,manifest,pdf,bundle,encrypted-bundle
---decrypt-bundle PATH   Decrypt an AES-256-GCM case bundle
---decrypt-output PATH   Destination ZIP for --decrypt-bundle
---min-severity LEVEL    Minimum severity included in reports
---case-reference TEXT   Optional case or incident reference
---analyst TEXT          Optional analyst name or team
---output DIRECTORY      Report destination
---web                   Start the local dashboard
---host HOST             Dashboard bind address (local addresses only)
---port PORT             Dashboard port
-```
-
-The process exits `0` when collection completes, `1` when an internal collection error occurs, and `2` for invalid CLI input. Findings themselves do not change the exit code.
-
-## Architecture
-
-```text
-src/macos_inspector/
-  core/          immutable result models, safe commands, storage, intelligence, scoring
-  collectors/    isolated read-only audit modules
-  reporters/     JSON, Markdown, CSV, and self-contained HTML exporters
-  cli.py         orchestration and public command-line interface
-```
-
-Collector modules return `Finding` objects. They do not write reports and reporters do not collect data. This separation makes checks testable and helps keep forensic behavior reviewable.
-
-## Maintenance
-
-The documented 1.2 scope has no required unfinished modules. Future releases may add compatibility data, fixtures, optional intelligence sources, or new collectors as macOS evolves; those are scope expansions rather than missing functionality.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the collector contract and contribution workflow.
+macOS Inspector is released under the [MIT License](LICENSE).

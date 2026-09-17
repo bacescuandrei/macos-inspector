@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "macOS Inspector contributors"}]
+keywords = ["macos", "security", "dfir", "incident-response", "digital-forensics", "threat-hunting", "yara"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
@@ -17,6 +18,12 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Security",
 ]
+
+[project.urls]
+Homepage = "https://github.com/bacescuandrei/macos-inspector"
+Repository = "https://github.com/bacescuandrei/macos-inspector.git"
+Issues = "https://github.com/bacescuandrei/macos-inspector/issues"
+Changelog = "https://github.com/bacescuandrei/macos-inspector/blob/main/CHANGELOG.md"
 
 [project.scripts]
 macos-inspector = "macos_inspector.cli:main"

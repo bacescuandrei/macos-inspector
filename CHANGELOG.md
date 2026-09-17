@@ -2,6 +2,10 @@
 
 ## 1.2.4 - 2026-09-17
 
+- Reworked the README around product purpose, intended users, safe installation, practical workflows, result interpretation, privacy behavior, evidence handling, and known limitations.
+- Added complete installation and usage guides with fixture-derived examples that distinguish observations from security conclusions.
+- Expanded contributor and security guidance and added documentation-link validation.
+- Corrected Full Disk Access guidance to identify the application that launches Python as the permission subject.
 - Added GitHub CI for Linux and macOS with Python 3.10 and 3.13.
 - Added security, support, conduct, architecture, threat-model, issue, and pull-request documentation.
 - Included the public project documentation in the portable release archive.
