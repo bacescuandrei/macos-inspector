@@ -10,7 +10,7 @@
 <body>
   <section id="local-launcher-help" class="local-launcher-help hidden" aria-labelledby="local-launcher-title">
     <div class="launcher-shell">
-      <div class="launcher-brand"><span class="brand-mark" aria-hidden="true">⌘</span><div><p class="eyebrow">MACOS INSPECTOR · LOCAL DASHBOARD</p><strong>macOS Inspector</strong></div></div>
+      <div class="launcher-brand"><span class="brand-mark" aria-hidden="true">⌘</span><div><p class="eyebrow">MACOS INSPECTOR | LOCAL DASHBOARD</p><strong>macOS Inspector</strong></div></div>
       <div class="launcher-card">
         <span class="launcher-status"><i></i> Direct HTML source file</span>
         <h1 id="local-launcher-title">The complete interface requires the secure local server</h1>
@@ -35,7 +35,7 @@
       <h1>macOS Inspector</h1>
     </div>
     <div class="topbar-actions"><a class="topbar-link" href="#operations" data-i18n="manage">Manage</a></div>
-    <span id="connection" class="connection checking" role="status" aria-live="polite">Connecting…</span>
+    <span id="connection" class="connection checking" role="status" aria-live="polite">Connecting...</span>
   </header>
 
   <main class="layout">
@@ -45,13 +45,13 @@
         <h2 id="intro-title" data-i18n="introTitle">Collect evidence without terminal commands</h2>
         <p class="lede" data-i18n="introText">Choose audit sections, run a read-only scan, then inspect findings and reports in one place.</p>
       </div>
-      <div class="safety-note"><span>●</span> <span data-i18n="safety">Local-first · online OSINT is opt-in · no remediation</span></div>
+      <div class="safety-note"><span>●</span> <span data-i18n="safety">Local-first | online OSINT is opt-in | no remediation</span></div>
     </section>
 
     <section id="operations" class="operations-section" aria-labelledby="operations-title">
       <div class="section-heading">
         <div><p class="eyebrow">CONTROL CENTER</p><h2 id="operations-title" data-i18n="operationsTitle">Cases, sources and rules</h2></div>
-        <span class="privacy-chip" data-i18n="localSettings">Local settings · private permissions</span>
+        <span class="privacy-chip" data-i18n="localSettings">Local settings | private permissions</span>
       </div>
       <div class="operations-grid">
         <details class="operation-card" open>
@@ -76,11 +76,11 @@
           <summary><span class="operation-icon" aria-hidden="true">02</span><span><strong>OSINT &amp; cache</strong><small data-i18n="osintHelp">Enable providers and inspect local-cache provenance.</small></span></summary>
           <div class="operation-body">
             <div class="provider-grid">
-              <label class="toggle-row"><span><strong>Apple Security Releases</strong><small data-i18n="publicNoKey">Public source · no key</small></span><input data-provider="apple" type="checkbox"></label>
-              <label class="toggle-row"><span><strong>CISA KEV</strong><small data-i18n="publicNoKey">Public source · no key</small></span><input data-provider="cisa" type="checkbox"></label>
-              <label class="toggle-row"><span><strong>FIRST EPSS</strong><small data-i18n="publicNoKey">Public source · no key</small></span><input data-provider="epss" type="checkbox"></label>
-              <label class="toggle-row"><span><strong>NIST NVD</strong><small data-i18n="optionalKey">Public API · optional key</small></span><input data-provider="nvd" type="checkbox"></label>
-              <label class="toggle-row"><span><strong>ThreatFox</strong><small data-i18n="optionalFreeKey">Optional · free Auth-Key</small></span><input data-provider="threatfox" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>Apple Security Releases</strong><small data-i18n="publicNoKey">Public source | no key</small></span><input data-provider="apple" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>CISA KEV</strong><small data-i18n="publicNoKey">Public source | no key</small></span><input data-provider="cisa" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>FIRST EPSS</strong><small data-i18n="publicNoKey">Public source | no key</small></span><input data-provider="epss" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>NIST NVD</strong><small data-i18n="optionalKey">Public API | optional key</small></span><input data-provider="nvd" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>ThreatFox</strong><small data-i18n="optionalFreeKey">Optional | free Auth-Key</small></span><input data-provider="threatfox" type="checkbox"></label>
             </div>
             <div class="form-grid two-columns">
               <label><span data-i18n="cacheHours">Cache (hours)</span><input id="cache-hours" class="field" type="number" min="1" max="168"></label>
@@ -104,10 +104,10 @@
           <div class="operation-body">
             <div class="upload-grid">
               <label class="upload-card"><strong>IOC pack JSON</strong><small>max 2 MiB</small><input id="ioc-pack-file" type="file" accept="application/json,.json"><span data-i18n="chooseFile">Choose file</span></label>
-              <label class="upload-card"><strong>YARA rules</strong><small>.yar / .yara · max 5 MiB</small><input id="yara-rule-file" type="file" accept=".yar,.yara,text/plain"><span data-i18n="chooseFile">Choose file</span></label>
+              <label class="upload-card"><strong>YARA rules</strong><small>.yar / .yara | max 5 MiB</small><input id="yara-rule-file" type="file" accept=".yar,.yara,text/plain"><span data-i18n="chooseFile">Choose file</span></label>
             </div>
             <label class="toggle-row solo"><span><strong data-i18n="enableYara">Enable YARA scanning</strong><small data-i18n="yaraOptional">Requires the yara executable in a trusted path.</small></span><input id="yara-enabled" type="checkbox"></label>
-            <label class="field-label" for="yara-targets" data-i18n="yaraTargets">Explicit YARA targets · one path per line</label>
+            <label class="field-label" for="yara-targets" data-i18n="yaraTargets">Explicit YARA targets | one path per line</label>
             <textarea id="yara-targets" class="field textarea code-field" rows="4"></textarea>
             <button id="save-yara-settings" class="secondary-button" type="button" data-i18n="saveYara">Save YARA targets</button>
             <div class="managed-columns"><div><h3 data-i18n="iocPacks">IOC packs</h3><div id="ioc-pack-list" class="managed-list"></div></div><div><h3 data-i18n="yaraRules">YARA rules</h3><div id="yara-rule-list" class="managed-list"></div></div></div>
@@ -132,8 +132,8 @@
         <div><p class="eyebrow">PREFLIGHT</p><h2 id="readiness-title" data-i18n="readinessTitle">Collection readiness</h2></div>
         <button id="refresh-readiness" class="text-button" type="button" data-i18n="recheck">Recheck</button>
       </div>
-      <div id="readiness-summary" class="readiness-summary" role="status" data-i18n="checkingAccess">Checking local access…</div>
-      <div id="readiness-checks" class="readiness-grid"><p class="muted" data-i18n="runningDiagnostics">Running read-only diagnostics…</p></div>
+      <div id="readiness-summary" class="readiness-summary" role="status" data-i18n="checkingAccess">Checking local access...</div>
+      <div id="readiness-checks" class="readiness-grid"><p class="muted" data-i18n="runningDiagnostics">Running read-only diagnostics...</p></div>
     </section>
 
     <section class="workspace-grid">
@@ -143,9 +143,9 @@
           <div class="scope-actions"><button id="select-all" class="text-button" type="button" data-i18n="all">All</button><button id="clear-selection" class="text-button" type="button" data-i18n="clear">Clear</button></div>
         </div>
         <p class="scope-label" data-i18n="scanProfiles">Scan profiles</p>
-        <div id="scan-profiles" class="profile-grid" aria-label="Scan profiles"><p class="muted">Loading profiles…</p></div>
+        <div id="scan-profiles" class="profile-grid" aria-label="Scan profiles"><p class="muted">Loading profiles...</p></div>
         <p class="scope-label sections-label" data-i18n="individualSections">Individual sections</p>
-        <div id="collectors" class="collector-list" aria-live="polite"><p class="muted">Loading audit sections…</p></div>
+        <div id="collectors" class="collector-list" aria-live="polite"><p class="muted">Loading audit sections...</p></div>
 
         <div class="section-heading compact"><div><p class="eyebrow">02 / EXPORTS</p><h2 data-i18n="reportFormats">Report formats</h2></div></div>
         <div id="formats" class="format-list"></div>
@@ -167,7 +167,7 @@
           <option value="critical" data-i18n="severityCritical">Critical only</option>
         </select>
         <div id="bundle-password-wrap" class="hidden">
-          <label class="field-label" for="bundle-password" data-i18n="bundlePassword">Encrypted bundle password · minimum 12 characters</label>
+          <label class="field-label" for="bundle-password" data-i18n="bundlePassword">Encrypted bundle password | minimum 12 characters</label>
           <input id="bundle-password" class="field" type="password" minlength="12" maxlength="256" autocomplete="new-password">
         </div>
         <button id="run-selected" class="primary-button" type="button" data-i18n="runSelected">Run selected audit</button>
@@ -185,9 +185,9 @@
         <div id="summary" class="summary-grid hidden"></div>
         <section id="comparison-panel" class="comparison-panel hidden" aria-labelledby="comparison-title"><div class="comparison-heading"><div><span class="eyebrow">BASELINE DIFF</span><h3 id="comparison-title" data-i18n="scanComparison">Scan comparison</h3></div><button id="close-comparison" class="text-button" type="button" data-i18n="close">Close</button></div><div id="comparison-summary" class="comparison-summary"></div><div id="comparison-results" class="comparison-results"></div></section>
         <div id="report-links" class="report-links hidden"></div>
-        <details id="timeline-panel" class="timeline-panel hidden"><summary>Timeline · <span id="timeline-count">0</span> events</summary><div id="timeline" class="timeline-list"></div></details>
+        <details id="timeline-panel" class="timeline-panel hidden"><summary>Timeline | <span id="timeline-count">0</span> events</summary><div id="timeline" class="timeline-list"></div></details>
         <div id="findings-toolbar" class="findings-toolbar hidden">
-          <label><span data-i18n="searchFindings">Search findings</span><input id="finding-search" class="field" type="search" placeholder="Title, ID, evidence…" data-i18n-placeholder="searchFindingsPlaceholder"></label>
+          <label><span data-i18n="searchFindings">Search findings</span><input id="finding-search" class="field" type="search" placeholder="Title, ID, evidence..." data-i18n-placeholder="searchFindingsPlaceholder"></label>
           <label><span data-i18n="status">Status</span><select id="finding-status-filter" class="field"><option value="" data-i18n="allStatuses">All statuses</option></select></label>
           <label><span data-i18n="category">Category</span><select id="finding-category-filter" class="field"><option value="" data-i18n="allCategories">All categories</option></select></label>
           <div class="finding-page-controls"><span id="finding-range">0</span><button id="findings-prev" class="text-button" type="button" data-i18n="previous">Previous</button><button id="findings-next" class="text-button" type="button" data-i18n="next">Next</button></div>
@@ -199,7 +199,7 @@
     <section class="history-section" aria-labelledby="history-title">
       <div class="section-heading"><div><p class="eyebrow">04 / HISTORY</p><h2 id="history-title" data-i18n="previousScans">Previous scans</h2></div><button id="refresh-history" class="text-button" type="button" data-i18n="refresh">Refresh</button></div>
       <div class="history-toolbar"><label for="history-search" data-i18n="findScan">Find a scan</label><input id="history-search" class="field" type="search" placeholder="Case, analyst, collector or scan ID" data-i18n-placeholder="findScanPlaceholder"><button id="clear-history-search" class="text-button" type="button" data-i18n="clear">Clear</button><span id="history-count"></span></div>
-      <div id="history" class="history-list"><p class="muted">Loading scan history…</p></div>
+      <div id="history" class="history-list"><p class="muted">Loading scan history...</p></div>
     </section>
   </main>
   <script src="app.js"></script>

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.4 - 2026-09-17
+
+- Added GitHub CI for Linux and macOS with Python 3.10 and 3.13.
+- Added security, support, conduct, architecture, threat-model, issue, and pull-request documentation.
+- Included the public project documentation in the portable release archive.
+- Replaced long dashes and decorative punctuation in dashboard and report text with plain ASCII punctuation.
+- Added checks that keep the dashboard English-only and reject long dash characters.
+
 ## 1.2.3 - 2026-08-09
 
 - Reworked Live Triage correlation around socket exposure, process runtime, parent state, redacted command context, and working directory instead of treating every suspicious-path listener as high priority.

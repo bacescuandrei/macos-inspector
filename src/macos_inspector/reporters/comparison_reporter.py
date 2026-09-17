@@ -37,14 +37,14 @@ def write_comparison_reports(comparison: dict, output: Path) -> dict[str, Path]:
     rows = []
     for kind in ("new", "resolved"):
         for finding in comparison.get(kind, []):
-            rows.append((kind, finding.get("finding_id"), finding.get("title"), f'{finding.get("severity", "")} · {finding.get("status", "")}'))
+            rows.append((kind, finding.get("finding_id"), finding.get("title"), f'{finding.get("severity", "")} | {finding.get("status", "")}'))
     for finding in comparison.get("changed", []):
-        detail = " · ".join(f"{field}: {values.get('before')} → {values.get('after')}" for field, values in finding.get("changes", {}).items())
+        detail = " | ".join(f"{field}: {values.get('before')} -> {values.get('after')}" for field, values in finding.get("changes", {}).items())
         rows.append(("changed", finding.get("finding_id"), finding.get("title"), detail))
     changes_html = "".join(
         f'<article class="change"><span class="kind {kind}">{kind}</span><div><strong>{html.escape(str(title or ""))}</strong><code>{html.escape(str(finding_id or ""))}</code><small>{html.escape(detail)}</small></div></article>'
         for kind, finding_id, title, detail in rows
     ) or '<p class="meta">No finding-level changes were detected.</p>'
-    document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector comparison</title><style>{CSS}</style></head><body><main><h1>Scan comparison</h1><p class="meta">Baseline {html.escape(baseline)} → current {html.escape(current)}</p><section class="summary"><div><span>Score change</span><strong>{delta_label}</strong></div><div><span>New</span><strong>{counts['new']}</strong></div><div><span>Resolved</span><strong>{counts['resolved']}</strong></div><div><span>Changed</span><strong>{counts['changed']}</strong></div></section>{scope_html}<section class="categories"><h2>Category score changes</h2><table><thead><tr><th>Category</th><th>Delta</th></tr></thead><tbody>{category_rows}</tbody></table></section><h2>Finding changes</h2>{changes_html}</main></body></html>'''
+    document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector comparison</title><style>{CSS}</style></head><body><main><h1>Scan comparison</h1><p class="meta">Baseline {html.escape(baseline)} -> current {html.escape(current)}</p><section class="summary"><div><span>Score change</span><strong>{delta_label}</strong></div><div><span>New</span><strong>{counts['new']}</strong></div><div><span>Resolved</span><strong>{counts['resolved']}</strong></div><div><span>Changed</span><strong>{counts['changed']}</strong></div></section>{scope_html}<section class="categories"><h2>Category score changes</h2><table><thead><tr><th>Category</th><th>Delta</th></tr></thead><tbody>{category_rows}</tbody></table></section><h2>Finding changes</h2>{changes_html}</main></body></html>'''
     secure_write_text(html_path, document)
     return {"comparison_json": json_path, "comparison_html": html_path}

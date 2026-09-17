@@ -82,14 +82,14 @@ class YARARulesCollector(Collector):
         completed = 0
         for rule in rules:
             for target in targets:
-                self.report_progress(f"{rule.name} → {target}", completed, total)
+                self.report_progress(f"{rule.name} -> {target}", completed, total)
                 result = self.runner.run(("yara", "-r", "-w", str(rule), str(target)))
                 commands.append(result.command)
                 if result.returncode == 127:
                     errors.append("The optional yara executable is not installed in a trusted path.")
                     return [self._summary("Unknown", rules, targets, errors, tuple(commands))]
                 if result.timed_out:
-                    errors.append(f"Timed out: {rule.name} → {target}")
+                    errors.append(f"Timed out: {rule.name} -> {target}")
                 elif result.returncode not in {0, 1} and result.stderr:
                     errors.append(f"{rule.name}: {result.stderr[:500]}")
                 matches.extend({**item, "rule_file": rule.name, "target": str(target)} for item in parse_yara_matches(result.stdout))

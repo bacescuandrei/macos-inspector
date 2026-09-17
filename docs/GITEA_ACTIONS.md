@@ -16,7 +16,7 @@ The workflow does not need repository secrets and does not upload scan reports o
 Gitea Actions needs both repository Actions and an `act_runner` connected to the Gitea instance.
 
 1. Open the repository in Gitea.
-2. Go to **Settings → Actions → General** and enable repository Actions.
+2. Go to **Settings > Actions > General** and enable repository Actions.
 3. In the Gitea administration interface, create or copy a runner registration token.
 4. Install `act_runner` on a dedicated runner host or container, then register it against the instance URL. Do not save the registration token in this repository.
 5. Give the runner an `ubuntu-latest` label backed by a Linux container image that includes Node.js. The standard runner labels already provide this mapping.

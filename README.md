@@ -2,7 +2,7 @@
 
 macOS Inspector is a read-only macOS security auditing and DFIR framework with a dependency-free core. It collects verifiable evidence, produces normalized findings, calculates transparent security scores, and exports professional reports through a local web dashboard.
 
-> Status: version 1.2.3 is feature-complete for the documented scope. Fifteen collectors cover accounts, persistence, Application Trust, privacy, browsers, management, network, extensions, security controls, live process/network triage, managed IOC/YARA rules, and explicit online vulnerability intelligence. The responsive English security dashboard provides case management, provider settings, cache provenance, scan controls, findings, comparisons, and nine report formats. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
+> Status: version 1.2.4 is feature-complete for the documented scope. Fifteen collectors cover accounts, persistence, Application Trust, privacy, browsers, management, network, extensions, security controls, live process/network triage, managed IOC/YARA rules, and explicit online vulnerability intelligence. The responsive English security dashboard provides case management, provider settings, cache provenance, scan controls, findings, comparisons, and nine report formats. Evidence timestamps are normalized into a shared DFIR timeline. Validate the workflow against the applicable evidence-handling policy before relying on it in a legal investigation.
 
 ## Safety contract
 
@@ -52,7 +52,7 @@ It binds to `127.0.0.1:8765` by default. The responsive dashboard offers Quick t
 
 The **Cases, sources and rules** area provides local case records, provider and cache settings, explicit ThreatFox lookup, IOC/YARA imports, bounded YARA targets, and signing identity management. The English-only interface supports keyboard focus and reduced-motion preferences and has no horizontal content overflow from 320-pixel mobile layouts through wide desktop layouts.
 
-The page also provides collection readiness, progress, cancellation, history, comparison, finding details, timelines, and links to every report export. Long collectors such as Application Trust report the current application, item count, progress bar, and estimated remaining time. All standard report formats are selected by default; the encrypted bundle is deliberately opt-in because it requires a 12–256 character password. The dashboard rejects invalid formats before evidence collection begins and never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
+The page also provides collection readiness, progress, cancellation, history, comparison, finding details, timelines, and links to every report export. Long collectors such as Application Trust report the current application, item count, progress bar, and estimated remaining time. All standard report formats are selected by default; the encrypted bundle is deliberately opt-in because it requires a password between 12 and 256 characters. The dashboard rejects invalid formats before evidence collection begins and never accepts arbitrary commands from the browser; every action maps to a registered collector and the same read-only command allowlist used by the CLI.
 
 ## Vulnerability intelligence and OSINT
 
@@ -112,7 +112,18 @@ PYTHONPATH=src python3 -m macos_inspector --output ./reports
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
+## Project documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Threat model](docs/THREAT_MODEL.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+
 ## Continuous integration
+
+The GitHub workflow runs the test suite on Linux and macOS with Python 3.10 and 3.13. It installs the optional cryptography dependency, compiles the Python sources, checks dashboard JavaScript syntax, builds the portable ZIP on macOS, records its SHA-256 checksum, and uploads the verified artifact.
 
 The Gitea workflow in `.gitea/workflows/ci.yml` automatically runs the test suite, compiles Python sources, checks dashboard JavaScript syntax, builds the portable ZIP, verifies its contents, and publishes it as a temporary build artifact. The workflow never packages or uploads locally generated reports, case evidence, environment files, or private keys.
 
@@ -155,4 +166,4 @@ Collector modules return `Finding` objects. They do not write reports and report
 
 The documented 1.2 scope has no required unfinished modules. Future releases may add compatibility data, fixtures, optional intelligence sources, or new collectors as macOS evolves; those are scope expansions rather than missing functionality.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the collector contract.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the collector contract and contribution workflow.

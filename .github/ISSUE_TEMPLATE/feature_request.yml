@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a focused improvement to the collection or reporting workflow.
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the analyst or responder problem this change would solve.
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed approach
+      description: Explain the expected input, evidence, and output.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Read-only and privacy considerations
+      description: Note any permissions, network access, or sensitive data involved.
+    validations:
+      required: true

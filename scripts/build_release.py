@@ -17,10 +17,14 @@ def release_files() -> list[Path]:
         ROOT / "README.md",
         ROOT / "CHANGELOG.md",
         ROOT / "CONTRIBUTING.md",
+        ROOT / "CODE_OF_CONDUCT.md",
         ROOT / "LICENSE",
+        ROOT / "SECURITY.md",
+        ROOT / "SUPPORT.md",
         ROOT / "pyproject.toml",
         ROOT / LAUNCHER,
     ]
+    files.extend(path for path in (ROOT / "docs").rglob("*") if path.is_file())
     files.extend(path for path in (ROOT / "src").rglob("*") if path.is_file())
     files.extend(path for path in (ROOT / "ioc-packs").rglob("*") if path.is_file())
     return sorted(

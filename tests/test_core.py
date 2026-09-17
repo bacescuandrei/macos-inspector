@@ -140,7 +140,8 @@ class CoreTests(unittest.TestCase):
         self.assertIn("window.location.protocol === 'file:'", script)
         self.assertNotIn('id="language-select"', index)
         self.assertNotIn('value="ro"', index)
-        self.assertNotRegex(index + script, r"[ăâîșțĂÂÎȘȚ]")
+        self.assertNotRegex(index + script, r"[\u0103\u00e2\u00ee\u0219\u021b\u0102\u00c2\u00ce\u0218\u021a]")
+        self.assertNotRegex(index + script, r"[\u2013\u2014\u2018\u2019\u201c\u201d]")
 
     def test_vulnerability_exposure_correlates_without_claiming_compromise(self):
         payload = json.loads((Path(__file__).parent / "fixtures" / "osint" / "cisa_kev.json").read_text())
@@ -563,6 +564,9 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(permissions, 0o755)
             self.assertTrue(any(name.endswith("/LICENSE") for name in names))
             self.assertTrue(any(name.endswith("/CHANGELOG.md") for name in names))
+            self.assertTrue(any(name.endswith("/SECURITY.md") for name in names))
+            self.assertTrue(any(name.endswith("/docs/ARCHITECTURE.md") for name in names))
+            self.assertTrue(any(name.endswith("/docs/THREAT_MODEL.md") for name in names))
             self.assertTrue(any(name.endswith("/src/macos_inspector/webui/index.html") for name in names))
             self.assertFalse(any("macos-inspector-reports" in name or "/tmp/" in name or "/output/" in name for name in names))
             self.assertFalse(any(".DS_Store" in name or ".egg-info/" in name or "/._" in name for name in names))
@@ -582,6 +586,22 @@ class CoreTests(unittest.TestCase):
             self.assertIn(step, workflow)
         self.assertNotIn("MACOS_INSPECTOR_MANIFEST_KEY", workflow)
         self.assertNotIn("MACOS_INSPECTOR_SIGNING_KEY", workflow)
+
+    def test_github_workflow_tests_macos_and_builds_release(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github" / "workflows" / "ci.yml").read_text()
+        expected_steps = (
+            "ubuntu-latest",
+            "macos-latest",
+            'python-version: ["3.10", "3.13"]',
+            "python -m unittest discover -s tests -v",
+            "node --check src/macos_inspector/webui/app.js",
+            "python -m scripts.build_release",
+            "actions/upload-artifact@v4",
+            "contents: read",
+        )
+        for step in expected_steps:
+            self.assertIn(step, workflow)
 
     def test_dashboard_health_reports_only_operational_state(self):
         with tempfile.TemporaryDirectory() as directory:

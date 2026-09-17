@@ -53,11 +53,11 @@ def write_html(result: ScanResult, path: Path) -> None:
             f"<tr><td>{html.escape(event.timestamp)}</td><td>{html.escape(event.category)}</td><td><code>{html.escape(event.finding_id)}</code></td><td>{html.escape(event.summary)}</td><td>{html.escape(event.source)}</td></tr>"
             for event in result.timeline
         )
-        timeline = f'<details class="timeline"><summary><strong>Timeline</strong> · {len(result.timeline)} events</summary><div class="timeline-wrap"><table><thead><tr><th>Timestamp (UTC)</th><th>Category</th><th>Finding</th><th>Event</th><th>Source</th></tr></thead><tbody>{rows}</tbody></table></div></details>'
-    case_line = " · ".join(filter(None, [result.metadata.case_reference, result.metadata.analyst]))
+        timeline = f'<details class="timeline"><summary><strong>Timeline</strong> | {len(result.timeline)} events</summary><div class="timeline-wrap"><table><thead><tr><th>Timestamp (UTC)</th><th>Category</th><th>Finding</th><th>Event</th><th>Source</th></tr></thead><tbody>{rows}</tbody></table></div></details>'
+    case_line = " | ".join(filter(None, [result.metadata.case_reference, result.metadata.analyst]))
     case_html = f'<div class="meta">{html.escape(case_line)}</div>' if case_line else ""
     document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector report</title><style>{CSS}</style></head><body><main>
-<section class="hero"><div><h1>macOS Inspector</h1>{case_html}<div class="meta">{html.escape(result.metadata.hostname)} · {html.escape(result.metadata.completed_at)} · scan {html.escape(result.metadata.scan_id)}</div></div><div class="score">{result.overall_score}<small>/100</small></div></section>
+<section class="hero"><div><h1>macOS Inspector</h1>{case_html}<div class="meta">{html.escape(result.metadata.hostname)} | {html.escape(result.metadata.completed_at)} | scan {html.escape(result.metadata.scan_id)}</div></div><div class="score">{result.overall_score}<small>/100</small></div></section>
 {errors}<section class="scores">{scores}</section>{timeline}<section class="toolbar"><input id="q" aria-label="Search" placeholder="Search findings"><select id="severity"><option value="">All severities</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option><option>Informational</option></select><select id="category"><option value="">All categories</option>{category_options}</select><button id="theme">Theme</button></section>
 <p id="count"></p><section id="findings">{''.join(cards)}</section></main><script>{SCRIPT}</script></body></html>'''
     secure_write_text(path, document)

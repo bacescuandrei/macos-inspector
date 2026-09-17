@@ -1,8 +1,8 @@
 const state = { config: null, settings: null, cases: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [] };
 
 const COPY = {
-    manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, then inspect findings and reports in one place.', safety:'Local-first · online OSINT is opt-in · no remediation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings · private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets · one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password · minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
-    publicNoKey:'Public source · no key', optionalKey:'Public API · optional key', optionalFreeKey:'Optional · free Auth-Key', optional:'optional', explicitLookup:'Explicit ThreatFox IOC lookup', lookup:'Lookup', threatfoxPrivacy:'Only the indicator entered above is sent to ThreatFox after you press Lookup. Nothing is submitted automatically.', iocPacks:'IOC packs', yaraRules:'YARA rules', readinessTitle:'Collection readiness', recheck:'Recheck', checkingAccess:'Checking local access…', runningDiagnostics:'Running read-only diagnostics…', auditSections:'Audit sections', all:'All', clear:'Clear', scanProfiles:'Scan profiles', individualSections:'Individual sections', reportFormats:'Report formats', caseReferenceOptional:'Case reference', analystOptional:'Analyst', optionalLabel:'optional', casePlaceholder:'Incident or case ID', analystPlaceholder:'Name or team', minimumSeverity:'Minimum severity shown', severityAll:'All findings', severityLow:'Low and above', severityMedium:'Medium and above', severityHigh:'High and above', severityCritical:'Critical only', runSelected:'Run selected audit', cancelScan:'Cancel running scan', scanResults:'Scan results', ready:'Ready', readyTitle:'Ready when you are.', readyHelp:'Select a section and start an audit.', scanComparison:'Scan comparison', close:'Close', searchFindings:'Search findings', searchFindingsPlaceholder:'Title, ID, evidence…', status:'Status', allStatuses:'All statuses', category:'Category', allCategories:'All categories', previous:'Previous', next:'Next', noScan:'No scan selected', noScanHelp:'Your findings will appear here with evidence, commands and recommendations.', previousScans:'Previous scans', refresh:'Refresh', findScan:'Find a scan', findScanPlaceholder:'Case, analyst, collector or scan ID', interfaceLanguage:'Interface language', onlineOptIn:'Online opt-in', run:'Run', sections:'sections', unavailable:'Unavailable'
+    manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, then inspect findings and reports in one place.', safety:'Local-first | online OSINT is opt-in | no remediation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings | private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets | one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password | minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
+    publicNoKey:'Public source | no key', optionalKey:'Public API | optional key', optionalFreeKey:'Optional | free Auth-Key', optional:'optional', explicitLookup:'Explicit ThreatFox IOC lookup', lookup:'Lookup', threatfoxPrivacy:'Only the indicator entered above is sent to ThreatFox after you press Lookup. Nothing is submitted automatically.', iocPacks:'IOC packs', yaraRules:'YARA rules', readinessTitle:'Collection readiness', recheck:'Recheck', checkingAccess:'Checking local access...', runningDiagnostics:'Running read-only diagnostics...', auditSections:'Audit sections', all:'All', clear:'Clear', scanProfiles:'Scan profiles', individualSections:'Individual sections', reportFormats:'Report formats', caseReferenceOptional:'Case reference', analystOptional:'Analyst', optionalLabel:'optional', casePlaceholder:'Incident or case ID', analystPlaceholder:'Name or team', minimumSeverity:'Minimum severity shown', severityAll:'All findings', severityLow:'Low and above', severityMedium:'Medium and above', severityHigh:'High and above', severityCritical:'Critical only', runSelected:'Run selected audit', cancelScan:'Cancel running scan', scanResults:'Scan results', ready:'Ready', readyTitle:'Ready when you are.', readyHelp:'Select a section and start an audit.', scanComparison:'Scan comparison', close:'Close', searchFindings:'Search findings', searchFindingsPlaceholder:'Title, ID, evidence...', status:'Status', allStatuses:'All statuses', category:'Category', allCategories:'All categories', previous:'Previous', next:'Next', noScan:'No scan selected', noScanHelp:'Your findings will appear here with evidence, commands and recommendations.', previousScans:'Previous scans', refresh:'Refresh', findScan:'Find a scan', findScanPlaceholder:'Case, analyst, collector or scan ID', interfaceLanguage:'Interface language', onlineOptIn:'Online opt-in', run:'Run', sections:'sections', unavailable:'Unavailable'
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -60,7 +60,7 @@ function setConnection(status, health = null) {
   state.online = status === 'online';
   if (element) {
     element.className = `connection ${status}`;
-    element.textContent = status === 'online' ? `Connected · v${health?.version || '?'}` : status === 'checking' ? 'Connecting…' : 'Offline · retrying';
+    element.textContent = status === 'online' ? `Connected | v${health?.version || '?'}` : status === 'checking' ? 'Connecting...' : 'Offline | retrying';
     element.title = status === 'online' && health?.started_at ? `Server started ${health.started_at}` : 'The dashboard will reconnect automatically.';
   }
   updateRunAvailability();
@@ -119,7 +119,7 @@ function selectProfile(profileId, announce = true) {
   const selected = new Set(profile.collectors);
   document.querySelectorAll('[data-collector]').forEach((input) => { input.checked = selected.has(input.dataset.collector); });
   syncActiveProfile();
-  if (announce) setMessage(`${profile.title} selected · ${profile.collectors.length} audit section${profile.collectors.length === 1 ? '' : 's'}. Review the scope, then run the audit.`);
+  if (announce) setMessage(`${profile.title} selected | ${profile.collectors.length} audit section${profile.collectors.length === 1 ? '' : 's'}. Review the scope, then run the audit.`);
 }
 
 function renderFormats(preserve = false) {
@@ -147,11 +147,11 @@ function updateBundlePasswordVisibility() {
 async function loadReadiness() {
   const button = $('#refresh-readiness');
   button.disabled = true;
-  $('#readiness-summary').textContent = 'Checking local access…';
+  $('#readiness-summary').textContent = 'Checking local access...';
   try {
     const readiness = await api('/api/readiness');
     const summary = readiness.summary || {};
-    $('#readiness-summary').innerHTML = `<strong class="readiness-overall readiness-${escapeHtml(readiness.overall)}">${escapeHtml(readiness.overall)}</strong><span>${escapeHtml(summary.ready || 0)} ready · ${escapeHtml(summary.limited || 0)} limited · ${escapeHtml(summary.unavailable || 0)} unavailable · ${escapeHtml(summary.optional || 0)} optional</span>`;
+    $('#readiness-summary').innerHTML = `<strong class="readiness-overall readiness-${escapeHtml(readiness.overall)}">${escapeHtml(readiness.overall)}</strong><span>${escapeHtml(summary.ready || 0)} ready | ${escapeHtml(summary.limited || 0)} limited | ${escapeHtml(summary.unavailable || 0)} unavailable | ${escapeHtml(summary.optional || 0)} optional</span>`;
     $('#readiness-checks').innerHTML = (readiness.checks || []).map((check) => `<article class="readiness-card"><div><strong>${escapeHtml(check.title)}</strong><span class="readiness-status readiness-${escapeHtml(check.status)}">${escapeHtml(check.status)}</span></div><p>${escapeHtml(check.detail)}</p><small>${escapeHtml(check.impact)}</small>${check.action && check.action !== 'No action required.' ? `<details><summary>Recommended action</summary><p>${escapeHtml(check.action)}</p></details>` : ''}</article>`).join('');
   } catch (error) {
     $('#readiness-summary').textContent = 'Readiness check unavailable.';
@@ -177,7 +177,7 @@ async function startScan(collectorOverride = null) {
   updateRunAvailability();
   $('#cancel-scan').classList.remove('hidden');
   $('#cancel-scan').disabled = false;
-  setMessage('Starting read-only collection…');
+  setMessage('Starting read-only collection...');
   try {
     const job = await api('/api/scans', writeOptions('POST', { collectors, formats, minimum: $('#minimum').value, case_reference: $('#case-reference').value, analyst: $('#analyst').value, bundle_password: $('#bundle-password').value }));
     state.activeJob = job.job_id;
@@ -234,7 +234,7 @@ function renderProgress(job) {
   const completed = job.state === 'completed' ? (job.total_collectors || job.collectors?.length || 0) : (job.completed_collectors || 0);
   const total = job.total_collectors || job.collectors?.length || 0;
   $('#progress').className = 'progress-box';
-  const headline = job.state === 'completed' ? 'Scan completed' : job.state === 'failed' ? 'Scan failed' : job.state === 'cancelled' ? 'Scan cancelled' : job.state === 'interrupted' ? 'Scan interrupted by dashboard restart' : job.cancel_requested ? 'Stopping safely…' : job.current_collector ? `Collecting ${job.current_collector}` : 'Preparing collection…';
+  const headline = job.state === 'completed' ? 'Scan completed' : job.state === 'failed' ? 'Scan failed' : job.state === 'cancelled' ? 'Scan cancelled' : job.state === 'interrupted' ? 'Scan interrupted by dashboard restart' : job.cancel_requested ? 'Stopping safely...' : job.current_collector ? `Collecting ${job.current_collector}` : 'Preparing collection...';
   const itemTotal = Number(job.total_items || 0);
   const itemCompleted = Math.min(Number(job.completed_items || 0), itemTotal);
   const percent = itemTotal ? Math.round(itemCompleted / itemTotal * 100) : 0;
@@ -242,8 +242,8 @@ function renderProgress(job) {
   if (job.state === 'running' && itemTotal) {
     const ordinal = Math.min(itemCompleted + (job.current_item ? 1 : 0), itemTotal);
     const remaining = Math.max(0, Number(job.estimated_seconds_remaining || 0));
-    const estimate = remaining ? ` · about ${formatDuration(remaining)} remaining` : '';
-    const itemLabel = job.current_item ? ` · ${escapeHtml(job.current_item)}` : '';
+    const estimate = remaining ? ` | about ${formatDuration(remaining)} remaining` : '';
+    const itemLabel = job.current_item ? ` | ${escapeHtml(job.current_item)}` : '';
     itemProgress = `<div class="item-progress"><div class="progress-meter" role="progressbar" aria-label="Collector item progress" aria-valuemin="0" aria-valuemax="${itemTotal}" aria-valuenow="${itemCompleted}"><span style="width:${percent}%"></span></div><small>Application ${ordinal} of ${itemTotal}${itemLabel}${estimate}</small></div>`;
   }
   $('#progress').innerHTML = `<strong>${escapeHtml(headline)}</strong><span>${completed} of ${total} audit sections complete</span>${itemProgress}`;
@@ -261,7 +261,7 @@ async function cancelScan() {
   if (!state.activeJob) return;
   const button = $('#cancel-scan');
   button.disabled = true;
-  setMessage('Cancellation requested. Stopping the active read-only command…');
+  setMessage('Cancellation requested. Stopping the active read-only command...');
   try {
     await api(`/api/scans/${encodeURIComponent(state.activeJob)}/cancel`, {method: 'POST', headers: {'X-MacOS-Inspector': '1'}});
   } catch (error) {
@@ -282,10 +282,10 @@ function renderReports(job) {
 
 async function verifyEvidence(button) {
   button.disabled = true;
-  setMessage('Verifying manifest, signatures and report digests…');
+  setMessage('Verifying manifest, signatures and report digests...');
   try {
     const result = await api(`/api/manifests/${encodeURIComponent(button.dataset.verifyScan)}/verify`);
-    const identity = result.algorithm ? ` Signature: ${result.algorithm}${result.public_key_sha256 ? ` · key ${result.public_key_sha256.slice(0, 16)}…` : ''}.` : ' Manifest is unsigned.';
+    const identity = result.algorithm ? ` Signature: ${result.algorithm}${result.public_key_sha256 ? ` | key ${result.public_key_sha256.slice(0, 16)}...` : ''}.` : ' Manifest is unsigned.';
     setMessage(result.valid ? `Evidence verified: ${result.artifact_count} report(s) match.${identity}` : `Verification failed: ${result.errors.join(' ')}`, !result.valid);
   } catch (error) {
     setMessage(error.message, true);
@@ -380,7 +380,7 @@ function renderFindingPage() {
     return `<article class="finding" data-finding-index="${start + index}"><div class="finding-head"><span class="severity severity-${severity}">${escapeHtml(finding.severity)}</span><span class="finding-status">${escapeHtml(finding.status)}</span><span class="finding-title">${escapeHtml(finding.title)}</span><span class="finding-id">${escapeHtml(finding.finding_id)}</span><button type="button" class="finding-toggle">Details</button></div><p class="finding-observed">${escapeHtml(finding.observed_result)}</p><div class="finding-details"><p><strong>Why it matters</strong><br>${escapeHtml(finding.why_it_matters)}</p><p><strong>Recommendation</strong><br>${escapeHtml(finding.recommendation)}</p><p><strong>Commands used</strong></p><ul>${commands}</ul><p><strong>References</strong></p><ul>${references}</ul><p><strong>Evidence</strong></p><pre>${evidence}</pre></div></article>`;
   }).join('');
   document.querySelectorAll('.finding-toggle').forEach((button) => button.addEventListener('click', () => button.closest('.finding').classList.toggle('open')));
-  $('#finding-range').textContent = total ? `${start + 1}–${Math.min(start + state.findingPageSize, total)} of ${total}` : '0 findings';
+  $('#finding-range').textContent = total ? `${start + 1}-${Math.min(start + state.findingPageSize, total)} of ${total}` : '0 findings';
   $('#findings-prev').disabled = state.findingPage <= 1;
   $('#findings-next').disabled = start + state.findingPageSize >= total;
 }
@@ -425,7 +425,7 @@ async function loadOperationsData() {
 }
 
 function renderCases() {
-  const options = `<option value="">${escapeHtml(t('noSavedCase'))}</option>` + state.cases.map((item) => `<option value="${escapeHtml(item.id)}">${item.archived ? '◌ ' : ''}${escapeHtml(item.reference)} · ${escapeHtml(item.title)}</option>`).join('');
+  const options = `<option value="">${escapeHtml(t('noSavedCase'))}</option>` + state.cases.map((item) => `<option value="${escapeHtml(item.id)}">${item.archived ? '◌ ' : ''}${escapeHtml(item.reference)} | ${escapeHtml(item.title)}</option>`).join('');
   $('#case-select').innerHTML = options;
   $('#scan-case-select').innerHTML = options;
   if (state.activeCaseId && state.cases.some((item) => item.id === state.activeCaseId)) $('#case-select').value = state.activeCaseId;
@@ -450,7 +450,7 @@ function attachCaseToScan(caseId) {
 }
 
 async function saveCase() {
-  setInline('#case-message', 'Saving…');
+  setInline('#case-message', 'Saving...');
   try {
     const saved = await api('/api/cases', writeOptions('POST', {
       id: state.activeCaseId || undefined,
@@ -475,13 +475,13 @@ function renderSettings() {
   const settings = state.settings || {};
   document.querySelectorAll('[data-provider]').forEach((input) => { input.checked = Boolean(settings.providers?.[input.dataset.provider]?.enabled); });
   $('#cache-hours').value = settings.cache_hours || 24;
-  $('#nvd-key-state').textContent = settings.providers?.nvd?.api_key_configured ? `· ${t('configured')}` : `· ${t('notConfigured')}`;
-  $('#threatfox-key-state').textContent = settings.providers?.threatfox?.auth_key_configured ? `· ${t('configured')}` : `· ${t('notConfigured')}`;
+  $('#nvd-key-state').textContent = settings.providers?.nvd?.api_key_configured ? `| ${t('configured')}` : `| ${t('notConfigured')}`;
+  $('#threatfox-key-state').textContent = settings.providers?.threatfox?.auth_key_configured ? `| ${t('configured')}` : `| ${t('notConfigured')}`;
   $('#yara-enabled').checked = Boolean(settings.yara?.enabled);
   $('#yara-targets').value = (settings.yara?.targets || []).join('\n');
   $('#signing-enabled').checked = Boolean(settings.signing?.enabled);
   const signingAlgorithm = settings.signing?.algorithm || 'HMAC-SHA256 / Ed25519';
-  $('#signing-status').innerHTML = settings.signing?.key_configured ? `<strong>${escapeHtml(signingAlgorithm)}</strong><br>${escapeHtml(t('configured'))} · signing material stored locally` : `<strong>${escapeHtml(signingAlgorithm)}</strong><br>${escapeHtml(t('notConfigured'))}`;
+  $('#signing-status').innerHTML = settings.signing?.key_configured ? `<strong>${escapeHtml(signingAlgorithm)}</strong><br>${escapeHtml(t('configured'))} | signing material stored locally` : `<strong>${escapeHtml(signingAlgorithm)}</strong><br>${escapeHtml(t('notConfigured'))}`;
   const signingCapability = state.config?.feature_capabilities?.signing || {available:true, reason:''};
   $('#generate-signing-key').disabled = signingCapability.available === false;
   $('#generate-signing-key').title = signingCapability.reason || '';
@@ -527,14 +527,14 @@ async function generateSigningKey() {
     const result = await api('/api/signing/generate', writeOptions('POST', {replace}));
     state.settings = await api('/api/settings');
     renderSettings();
-    setInline('#signing-message', result.public_key_sha256 ? `${result.algorithm} ready · fingerprint ${result.public_key_sha256}` : `${result.algorithm} ready · local secret stored with 0600 permissions.`);
+    setInline('#signing-message', result.public_key_sha256 ? `${result.algorithm} ready | fingerprint ${result.public_key_sha256}` : `${result.algorithm} ready | local secret stored with 0600 permissions.`);
   } catch (error) { setInline('#signing-message', error.message, true); }
 }
 
 async function importManagedFile(kind, input) {
   const file = input.files?.[0];
   if (!file) return;
-  setInline('#rules-message', `Validating ${file.name}…`);
+  setInline('#rules-message', `Validating ${file.name}...`);
   try {
     const text = await file.text();
     const content = kind === 'ioc-packs' ? JSON.parse(text) : text;
@@ -548,7 +548,7 @@ async function importManagedFile(kind, input) {
 
 function renderManagedFiles(packs, rules) {
   const row = (kind, item, detail) => `<div class="managed-row"><span><strong>${escapeHtml(item.filename)}</strong><small>${escapeHtml(detail)}</small></span><button type="button" data-delete-kind="${kind}" data-delete-name="${escapeHtml(item.filename)}">Delete</button></div>`;
-  $('#ioc-pack-list').innerHTML = packs.length ? packs.map((item) => row('ioc-packs', item, item.valid ? `${item.name} · v${item.version} · ${item.indicator_count} indicators · ${formatBytes(item.size)}` : item.error)).join('') : '<p class="muted">No imported IOC packs.</p>';
+  $('#ioc-pack-list').innerHTML = packs.length ? packs.map((item) => row('ioc-packs', item, item.valid ? `${item.name} | v${item.version} | ${item.indicator_count} indicators | ${formatBytes(item.size)}` : item.error)).join('') : '<p class="muted">No imported IOC packs.</p>';
   $('#yara-rule-list').innerHTML = rules.length ? rules.map((item) => row('yara-rules', item, item.valid ? formatBytes(item.size) : item.error)).join('') : '<p class="muted">No imported YARA rules.</p>';
   document.querySelectorAll('[data-delete-kind]').forEach((button) => button.addEventListener('click', () => deleteManagedFile(button.dataset.deleteKind, button.dataset.deleteName)));
 }
@@ -564,7 +564,7 @@ async function deleteManagedFile(kind, filename) {
 }
 
 function renderCache(entries) {
-  $('#cache-list').innerHTML = entries.length ? entries.map((item) => `<div class="managed-row"><span><strong>${escapeHtml(item.provider || item.name)}</strong><small>${escapeHtml(item.fetched_at)} · ${formatBytes(item.size)} · SHA-256 ${escapeHtml(String(item.sha256).slice(0,16))}…</small></span></div>`).join('') : '<p class="muted">No cached intelligence yet.</p>';
+  $('#cache-list').innerHTML = entries.length ? entries.map((item) => `<div class="managed-row"><span><strong>${escapeHtml(item.provider || item.name)}</strong><small>${escapeHtml(item.fetched_at)} | ${formatBytes(item.size)} | SHA-256 ${escapeHtml(String(item.sha256).slice(0,16))}...</small></span></div>`).join('') : '<p class="muted">No cached intelligence yet.</p>';
 }
 
 async function clearOsintCache() {
@@ -580,11 +580,11 @@ async function lookupThreatFox() {
   const indicator = $('#threatfox-indicator').value.trim();
   if (!indicator) return setInline('#osint-settings-message', 'Enter an indicator for the explicit lookup.', true);
   if (!window.confirm(`Send only this indicator to ThreatFox?\n\n${indicator}`)) return;
-  $('#threatfox-result').innerHTML = '<p class="muted">Querying ThreatFox…</p>';
+  $('#threatfox-result').innerHTML = '<p class="muted">Querying ThreatFox...</p>';
   try {
     const result = await api('/api/threatfox/lookup', writeOptions('POST', {indicator}));
     const rows = result.data || [];
-    $('#threatfox-result').innerHTML = rows.length ? rows.slice(0,50).map((item) => `<div class="managed-row"><span><strong>${escapeHtml(item.ioc || item.id || indicator)}</strong><small>${escapeHtml(item.threat_type || item.malware_printable || result.query_status)} · confidence ${escapeHtml(item.confidence_level ?? '—')}</small></span></div>`).join('') : `<p class="muted">${escapeHtml(result.query_status)} · no matching IOC returned.</p>`;
+    $('#threatfox-result').innerHTML = rows.length ? rows.slice(0,50).map((item) => `<div class="managed-row"><span><strong>${escapeHtml(item.ioc || item.id || indicator)}</strong><small>${escapeHtml(item.threat_type || item.malware_printable || result.query_status)} | confidence ${escapeHtml(item.confidence_level ?? 'N/A')}</small></span></div>`).join('') : `<p class="muted">${escapeHtml(result.query_status)} | no matching IOC returned.</p>`;
     setInline('#osint-settings-message', 'Explicit ThreatFox lookup complete. The result was not persisted automatically.');
   } catch (error) {
     $('#threatfox-result').innerHTML = '';
@@ -639,7 +639,7 @@ function renderHistory() {
   if (!visible.length) { $('#history').innerHTML = '<p class="muted">No scans match this search.</p>'; return; }
   $('#history').innerHTML = visible.map((job) => {
     const actions = job.reports?.json ? `<button type="button" class="history-baseline${state.baselineJob?.job_id === job.job_id ? ' selected' : ''}" data-baseline-id="${escapeHtml(job.job_id)}">Baseline</button><button type="button" class="history-compare" data-compare-id="${escapeHtml(job.job_id)}">Compare</button><button type="button" class="history-open" data-history-id="${escapeHtml(job.job_id)}">View</button>` : '';
-    return `<div class="history-row"><div class="history-main"><strong>${job.case_reference ? `<span class="case-tag">${escapeHtml(job.case_reference)}</span> ` : ''}${escapeHtml((job.collectors || []).join(' · '))}</strong><small>${escapeHtml(job.completed_at || job.created_at || '')} · score ${escapeHtml(job.summary?.overall_score ?? '—')}${job.analyst ? ` · ${escapeHtml(job.analyst)}` : ''}${job.error ? ` · ${escapeHtml(job.error)}` : ''}<code>${escapeHtml(job.scan_id || '')}</code></small></div><span class="status-pill status-${escapeHtml(job.state)}">${escapeHtml(job.state)}</span>${actions}</div>`;
+    return `<div class="history-row"><div class="history-main"><strong>${job.case_reference ? `<span class="case-tag">${escapeHtml(job.case_reference)}</span> ` : ''}${escapeHtml((job.collectors || []).join(' | '))}</strong><small>${escapeHtml(job.completed_at || job.created_at || '')} | score ${escapeHtml(job.summary?.overall_score ?? 'N/A')}${job.analyst ? ` | ${escapeHtml(job.analyst)}` : ''}${job.error ? ` | ${escapeHtml(job.error)}` : ''}<code>${escapeHtml(job.scan_id || '')}</code></small></div><span class="status-pill status-${escapeHtml(job.state)}">${escapeHtml(job.state)}</span>${actions}</div>`;
   }).join('') + (matching.length > 50 ? `<p class="muted">Showing the 50 most recent matches.</p>` : '');
   document.querySelectorAll('[data-history-id]').forEach((button) => button.addEventListener('click', () => loadHistoryJob(state.historyScans.find((item) => item.job_id === button.dataset.historyId))));
   document.querySelectorAll('[data-baseline-id]').forEach((button) => button.addEventListener('click', () => setBaseline(state.historyScans.find((item) => item.job_id === button.dataset.baselineId))));
@@ -649,7 +649,7 @@ function renderHistory() {
 function setBaseline(job) {
   if (!job?.scan_id || !job.reports?.json) return setMessage('This scan has no JSON report and cannot be used as a baseline.', true);
   state.baselineJob = job;
-  setMessage(`Baseline selected: ${job.scan_id.slice(0, 8)} · score ${job.summary?.overall_score ?? '—'}. Choose Compare on another scan.`);
+  setMessage(`Baseline selected: ${job.scan_id.slice(0, 8)} | score ${job.summary?.overall_score ?? 'N/A'}. Choose Compare on another scan.`);
   document.querySelectorAll('[data-baseline-id]').forEach((button) => button.classList.toggle('selected', button.dataset.baselineId === job.job_id));
 }
 
@@ -657,7 +657,7 @@ async function compareWithBaseline(job) {
   if (!state.baselineJob) return setMessage('Select a baseline scan first.', true);
   if (!job?.scan_id || !job.reports?.json) return setMessage('This scan has no JSON report and cannot be compared.', true);
   if (job.scan_id === state.baselineJob.scan_id) return setMessage('Choose a different scan to compare with the baseline.', true);
-  setMessage('Comparing normalized findings…');
+  setMessage('Comparing normalized findings...');
   try {
     const comparison = await api(`/api/compare?baseline=${encodeURIComponent(state.baselineJob.scan_id)}&current=${encodeURIComponent(job.scan_id)}`);
     renderComparison(comparison);
@@ -670,9 +670,9 @@ function renderComparison(comparison) {
   const delta = comparison.score_delta > 0 ? `+${comparison.score_delta}` : String(comparison.score_delta);
   $('#comparison-summary').innerHTML = [['Score change', delta], ['New', comparison.counts.new], ['Resolved', comparison.counts.resolved], ['Changed', comparison.counts.changed]].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
   const rows = [
-    ...comparison.new.map((finding) => ({kind: 'New', id: finding.finding_id, title: finding.title, detail: `${finding.severity} · ${finding.status}`})),
-    ...comparison.resolved.map((finding) => ({kind: 'Resolved', id: finding.finding_id, title: finding.title, detail: `${finding.severity} · ${finding.status}`})),
-    ...comparison.changed.map((finding) => ({kind: 'Changed', id: finding.finding_id, title: finding.title, detail: Object.entries(finding.changes).map(([field, values]) => `${field}: ${values.before} → ${values.after}`).join(' · ')})),
+    ...comparison.new.map((finding) => ({kind: 'New', id: finding.finding_id, title: finding.title, detail: `${finding.severity} | ${finding.status}`})),
+    ...comparison.resolved.map((finding) => ({kind: 'Resolved', id: finding.finding_id, title: finding.title, detail: `${finding.severity} | ${finding.status}`})),
+    ...comparison.changed.map((finding) => ({kind: 'Changed', id: finding.finding_id, title: finding.title, detail: Object.entries(finding.changes).map(([field, values]) => `${field}: ${values.before} -> ${values.after}`).join(' | ')})),
   ];
   const scopeWarning = comparison.scope?.changed ? `<div class="comparison-warning"><strong>Collection scope changed.</strong> Added: ${escapeHtml(comparison.scope.added_collectors.join(', ') || 'none')}. Removed: ${escapeHtml(comparison.scope.removed_collectors.join(', ') || 'none')}. New and resolved counts may reflect collector coverage rather than a host-state change.</div>` : '';
   const exports = comparison.reports ? `<div class="comparison-exports"><strong>Comparison reports</strong><a href="${escapeHtml(comparison.reports.comparison_html)}" target="_blank" rel="noreferrer">Open HTML</a><a href="${escapeHtml(comparison.reports.comparison_json)}" target="_blank" rel="noreferrer">Open JSON</a></div>` : '';
@@ -729,6 +729,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setConnection('checking');
   applyEnglishCopy();
   const health = await checkHealth();
-  if (!health) setMessage('Dashboard server unavailable. Retrying automatically…', true);
+  if (!health) setMessage('Dashboard server unavailable. Retrying automatically...', true);
   state.healthPoll = setInterval(checkHealth, 4000);
 });
