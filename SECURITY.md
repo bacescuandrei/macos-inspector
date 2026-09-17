@@ -2,7 +2,7 @@
 
 ## Runtime security boundary
 
-macOS Inspector is a local, read-only inspection tool. The dashboard accepts only loopback connections, browser actions map to registered collectors, system commands come from a fixed allowlist, and commands run without a shell. The project does not invoke `sudo`, install software, remediate findings, terminate processes, or change security configuration.
+macOS Inspector is a local, read-only inspection tool. The dashboard accepts only loopback connections and rejects non-local `Host` authorities and browser `Origin` values before routing requests. Browser actions map to registered collectors, system commands come from a fixed allowlist, and commands run without a shell. The project does not invoke `sudo`, install software, remediate findings, terminate processes, or change security configuration.
 
 Local scan profiles do not contact external intelligence services. The online vulnerability profile requires confirmation and sends only public Apple CVE identifiers to enabled providers. Manual ThreatFox lookup is separate, disabled by default, and sends only an indicator entered and confirmed by the analyst.
 

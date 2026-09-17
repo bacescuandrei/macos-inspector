@@ -20,7 +20,9 @@ Collectors must use `CommandRunner`. Shell execution, `sudo`, package installati
 
 ### Dashboard exposure
 
-The dashboard accepts loopback addresses only. File and report routes resolve paths against managed directories. Responses containing evidence are not cached.
+The dashboard accepts loopback addresses only. Every request must use a localhost or loopback IP `Host` authority for the active server port. Browser requests that include an `Origin` must use the same local HTTP boundary. These checks reject DNS rebinding and cross-origin write attempts before an API route is processed. File and report routes resolve paths against managed directories. Responses containing evidence are not cached and include same-origin resource and framing restrictions.
+
+The alternative of relying only on a custom request header was rejected because a DNS-rebound page can become same-origin with its own hostile hostname. Per-launch random bearer tokens would provide another defense, but they would add secret lifecycle and launcher-to-browser transfer complexity. Strict local authority validation preserves the current launcher and CLI behavior while directly enforcing the documented loopback boundary.
 
 ### Malicious or malformed input
 

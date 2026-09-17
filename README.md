@@ -148,7 +148,7 @@ More workflows, including privacy grants, persistence, IOC/YARA matches, scan co
 
 ## Data, privacy, and system behavior
 
-- The dashboard binds to loopback only. Non-local bind addresses are rejected.
+- The dashboard binds to loopback only. Non-local bind addresses, non-loopback `Host` authorities, and non-local browser origins are rejected.
 - Collectors use an allowlist of read-only commands without a shell. The tool does not execute browser-supplied commands.
 - The tool does not remediate, delete, quarantine, terminate processes, install software, elevate privileges, or change macOS configuration.
 - Local profiles and the default CLI collection do not contact intelligence providers.

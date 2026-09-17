@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import mimetypes
 import os
@@ -78,6 +79,62 @@ SCAN_PROFILES = (
         "default": False,
     },
 )
+
+
+def _is_local_authority(value: str, expected_port: int) -> bool:
+    """Accept only localhost or loopback IP Host authorities for this server port."""
+    text = value.strip()
+    if not text or any(character in text for character in ("/", "\\", "@")):
+        return False
+    port = None
+    if text.startswith("["):
+        closing = text.find("]")
+        if closing < 0:
+            return False
+        host, remainder = text[1:closing], text[closing + 1:]
+        if remainder:
+            if not remainder.startswith(":") or not remainder[1:].isdigit():
+                return False
+            port = int(remainder[1:])
+    else:
+        if text.count(":") > 1:
+            return False
+        host = text
+        if ":" in text:
+            host, port_text = text.rsplit(":", 1)
+            if not port_text.isdigit():
+                return False
+            port = int(port_text)
+    host = host.rstrip(".").lower()
+    if not host or (port is None and expected_port != 80) or (port is not None and port != expected_port):
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_local_origin(value: str, expected_port: int) -> bool:
+    """Validate an optional browser Origin against the loopback HTTP boundary."""
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme != "http" or parsed.username or parsed.password:
+            return False
+        if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+            return False
+        port = parsed.port
+        if port is None:
+            port = 80
+        hostname = parsed.hostname or ""
+    except ValueError:
+        return False
+    if ":" in hostname:
+        authority = f"[{hostname}]:{port}"
+    else:
+        authority = f"{hostname}:{port}"
+    return _is_local_authority(authority, expected_port)
 
 
 @dataclass
@@ -493,13 +550,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         return
 
+    def _require_local_request(self) -> bool:
+        expected_port = self.server.server_port  # type: ignore[attr-defined]
+        hosts = self.headers.get_all("Host", [])
+        origins = self.headers.get_all("Origin", [])
+        if (
+            len(hosts) != 1
+            or len(origins) > 1
+            or not _is_local_authority(hosts[0], expected_port)
+            or (origins and not _is_local_origin(origins[0], expected_port))
+        ):
+            self._send_json({"error": "Invalid local request."}, HTTPStatus.FORBIDDEN)
+            return False
+        return True
+
     def _headers(self, status: int, content_type: str, length: int, report: bool = False, download_name: str | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         if download_name:
             self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
         if report:
@@ -536,6 +610,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
+        if not self._require_local_request():
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/":
@@ -613,6 +689,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self) -> None:
+        if not self._require_local_request():
+            return
         path = urlparse(self.path).path
         if path.startswith("/api/scans/") and path.endswith("/cancel"):
             if self.headers.get("X-MacOS-Inspector") != "1":
@@ -683,6 +761,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
     def do_DELETE(self) -> None:
+        if not self._require_local_request():
+            return
         path = urlparse(self.path).path
         if self.headers.get("X-MacOS-Inspector") != "1":
             self._send_json({"error": "Invalid local request."}, HTTPStatus.FORBIDDEN)

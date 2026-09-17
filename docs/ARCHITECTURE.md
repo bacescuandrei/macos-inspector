@@ -22,7 +22,7 @@ Collectors do not write reports. Reporters do not run host commands. This bounda
 
 ## Trust boundaries
 
-Host commands, local files, imported rules, intelligence responses, and browser requests are treated as untrusted input. Values are parsed, bounded, escaped, or validated before they are stored or rendered.
+Host commands, local files, imported rules, intelligence responses, and browser requests are treated as untrusted input. Values are parsed, bounded, escaped, or validated before they are stored or rendered. The web boundary validates each `Host` and any browser `Origin` against the active loopback server port before routing a request.
 
 Online intelligence is separate from local collection. Providers receive public vulnerability identifiers or an indicator entered by the analyst. Collected host evidence is not uploaded.
 

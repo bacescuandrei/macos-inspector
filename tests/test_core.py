@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import hashlib
+import http.client
 import io
 import sqlite3
 import json
@@ -74,7 +75,7 @@ from macos_inspector.reporters import REPORTERS, report_format_capabilities, req
 from macos_inspector.reporters.manifest_reporter import verify_manifest, write_manifest
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
 from macos_inspector.reporters.encrypted_bundle import decrypt_file, encryption_available
-from macos_inspector.web import DashboardState, SCAN_PROFILES, ScanJob
+from macos_inspector.web import DashboardServer, DashboardState, SCAN_PROFILES, ScanJob, _is_local_authority, _is_local_origin
 from scripts.build_release import LAUNCHER, build_release
 from macos_inspector.cli import parser as cli_parser
 
@@ -84,6 +85,86 @@ def finding(severity=Severity.HIGH, status="Fail"):
 
 
 class CoreTests(unittest.TestCase):
+    def test_dashboard_rejects_dns_rebinding_hosts_and_cross_origin_writes(self):
+        def request(server, method, path, host, *, origin=None, payload=None, extra_host=None, extra_origin=None):
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+            body = json.dumps(payload).encode() if payload is not None else None
+            connection.putrequest(method, path, skip_host=True)
+            connection.putheader("Host", host)
+            if extra_host is not None:
+                connection.putheader("Host", extra_host)
+            if origin is not None:
+                connection.putheader("Origin", origin)
+            if extra_origin is not None:
+                connection.putheader("Origin", extra_origin)
+            if body is not None:
+                connection.putheader("Content-Type", "application/json")
+                connection.putheader("Content-Length", str(len(body)))
+                connection.putheader("X-MacOS-Inspector", "1")
+            connection.endheaders(body)
+            response = connection.getresponse()
+            result = response.status, dict(response.getheaders()), response.read()
+            connection.close()
+            return result
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            server = DashboardServer(("127.0.0.1", 0), state)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            port = server.server_port
+            try:
+                status, headers, _ = request(server, "GET", "/api/health", f"127.0.0.1:{port}")
+                self.assertEqual(status, 200)
+                self.assertEqual(headers["Cross-Origin-Resource-Policy"], "same-origin")
+                self.assertEqual(headers["X-Frame-Options"], "SAMEORIGIN")
+
+                for host in (f"attacker.example:{port}", f"localhost.attacker.example:{port}", f"127.0.0.1.example:{port}"):
+                    status, _, body = request(server, "GET", "/api/health", host)
+                    self.assertEqual(status, 403)
+                    self.assertIn(b"Invalid local request", body)
+
+                status, _, _ = request(
+                    server, "GET", "/api/health", f"127.0.0.1:{port}", extra_host=f"localhost:{port}",
+                )
+                self.assertEqual(status, 403)
+
+                status, _, _ = request(
+                    server, "POST", "/api/settings", f"127.0.0.1:{port}",
+                    origin=f"http://attacker.example:{port}", payload={"cache_hours": 7},
+                )
+                self.assertEqual(status, 403)
+                self.assertEqual(state.settings.load()["cache_hours"], 24)
+
+                status, _, _ = request(
+                    server, "POST", "/api/settings", f"127.0.0.1:{port}",
+                    origin=f"http://127.0.0.1:{port}", extra_origin=f"http://localhost:{port}", payload={"cache_hours": 7},
+                )
+                self.assertEqual(status, 403)
+                self.assertEqual(state.settings.load()["cache_hours"], 24)
+
+                status, _, _ = request(
+                    server, "POST", "/api/settings", f"127.0.0.1:{port}",
+                    origin=f"http://127.0.0.1:{port}", payload={"cache_hours": 7},
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(state.settings.load()["cache_hours"], 7)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+    def test_dashboard_local_authority_and_origin_validation(self):
+        port = 8765
+        for authority in ("localhost:8765", "LOCALHOST.:8765", "127.0.0.1:8765", "[::1]:8765"):
+            self.assertTrue(_is_local_authority(authority, port), authority)
+        for authority in ("", "localhost", "localhost:9000", "localhost.example:8765", "127.0.0.1.example:8765", "127.1:8765", "[::1]:9000", "user@localhost:8765"):
+            self.assertFalse(_is_local_authority(authority, port), authority)
+        self.assertTrue(_is_local_origin("http://localhost:8765", port))
+        self.assertTrue(_is_local_origin("http://[::1]:8765", port))
+        for origin in ("null", "https://localhost:8765", "http://localhost:9000", "http://attacker.example:8765", "http://localhost:8765/path"):
+            self.assertFalse(_is_local_origin(origin, port), origin)
+
     def test_settings_cases_and_secrets_remain_local(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

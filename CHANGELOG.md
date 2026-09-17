@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Hardened the local dashboard against DNS rebinding and cross-origin writes by validating request authorities and browser origins against the active loopback server.
+- Added same-origin response protections and end-to-end regression coverage for the local web boundary.
+
 ## 1.2.4 - 2026-09-17
 
 - Reworked the README around product purpose, intended users, safe installation, practical workflows, result interpretation, privacy behavior, evidence handling, and known limitations.
