@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from macos_inspector.core.io import read_json_limited
 from macos_inspector.reporters.common import secure_write_text
 
 
 MAX_TEXT = 2_000
+MAX_STORE_BYTES = 8 * 1024 * 1024
 CASE_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$")
 
 
@@ -30,7 +32,7 @@ def application_data_dir() -> Path:
 
 def _read_object(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = read_json_limited(path, MAX_STORE_BYTES)
         return payload if isinstance(payload, dict) else {}
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return {}

@@ -12,11 +12,14 @@ from typing import Any
 from .application_trust import DEFAULT_APPLICATION_ROOTS, _bundle_metadata, discover_applications
 from .base import Collector
 from .persistence import LAUNCH_PATHS
+from macos_inspector.core.io import read_bytes_limited, read_json_limited
 from macos_inspector.core.models import Evidence, Finding, Severity
 from macos_inspector.core.storage import application_data_dir
 
 
 MAX_HASH_BYTES = 2 * 1024 * 1024 * 1024
+MAX_PACK_BYTES = 2 * 1024 * 1024
+MAX_PLIST_BYTES = 5 * 1024 * 1024
 SUPPORTED_TYPES = {"path", "sha256", "bundle_id", "launchd_label"}
 
 
@@ -49,7 +52,7 @@ def _parse_updated_at(value: Any) -> datetime:
 
 def load_ioc_pack(path: Path) -> tuple[IOCPack | None, str | None]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = read_json_limited(path, MAX_PACK_BYTES)
         if not isinstance(payload, dict):
             raise ValueError("pack root must be an object")
         if payload.get("enabled", True) is False:
@@ -243,11 +246,11 @@ class IOCCollector(Collector):
                     candidates = directory.glob("*.plist")
                     for path in candidates:
                         try:
-                            data = plistlib.loads(path.read_bytes())
+                            data = plistlib.loads(read_bytes_limited(path, MAX_PLIST_BYTES))
                             label = data.get("Label") if isinstance(data, dict) else None
                             if label:
                                 values.setdefault(str(label), []).append(str(path))
-                        except (OSError, plistlib.InvalidFileException):
+                        except (OSError, ValueError, plistlib.InvalidFileException):
                             continue
                 except OSError:
                     continue

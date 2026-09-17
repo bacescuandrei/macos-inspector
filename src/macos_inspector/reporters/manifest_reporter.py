@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Iterable
 
 from macos_inspector.core.models import ScanResult
+from macos_inspector.core.io import read_bytes_limited, read_json_limited
 from .common import secure_write_text
+
+
+MAX_MANIFEST_BYTES = 8 * 1024 * 1024
+MAX_KEY_BYTES = 1024 * 1024
 
 
 def _canonical(value: object) -> bytes:
@@ -32,7 +37,7 @@ def _asymmetric_signature(payload: bytes, private_key_path: Path, password: str 
     except ImportError as exc:
         raise RuntimeError("Asymmetric manifest signing requires: pip install 'macos-inspector[signing]'") from exc
     private_key = serialization.load_pem_private_key(
-        private_key_path.read_bytes(), password=password.encode() if password else None,
+        read_bytes_limited(private_key_path, MAX_KEY_BYTES), password=password.encode() if password else None,
     )
     if isinstance(private_key, ed25519.Ed25519PrivateKey):
         algorithm, signature = "Ed25519", private_key.sign(payload)
@@ -99,7 +104,7 @@ def verify_manifest(
 ) -> tuple[bool, list[str]]:
     errors = []
     try:
-        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest = read_json_limited(path, MAX_MANIFEST_BYTES)
         directory = base_directory or path.parent
         for artifact in manifest.get("artifacts", []):
             candidate = directory / Path(str(artifact["name"])).name
@@ -124,7 +129,7 @@ def verify_manifest(
                     from cryptography.exceptions import InvalidSignature
                     from cryptography.hazmat.primitives import hashes, serialization
                     from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
-                    key_bytes = public_key.read_bytes() if isinstance(public_key, Path) else public_key
+                    key_bytes = read_bytes_limited(public_key, MAX_KEY_BYTES) if isinstance(public_key, Path) else public_key
                     key_bytes = key_bytes or str(signature.get("public_key", "")).encode("ascii")
                     verifier = serialization.load_pem_public_key(key_bytes)
                     public_der = verifier.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)

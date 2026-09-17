@@ -12,12 +12,14 @@ from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from macos_inspector import __version__
+from macos_inspector.core.io import read_json_limited
 from macos_inspector.core.storage import SettingsStore, application_data_dir
 from macos_inspector.reporters.common import secure_write_text
 
 
 MAX_JSON_BYTES = 25 * 1024 * 1024
 MAX_HTML_BYTES = 8 * 1024 * 1024
+MAX_CACHE_BYTES = 32 * 1024 * 1024
 EPSS_API = "https://api.first.org/data/v1/epss"
 NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 APPLE_RELEASES = "https://support.apple.com/en-us/100100"
@@ -58,7 +60,7 @@ def _cache_path(name: str) -> Path:
 def _load_cache(name: str, validator: Callable[[object], object]) -> tuple[dict, object] | None:
     path = _cache_path(name)
     try:
-        record = json.loads(path.read_text(encoding="utf-8"))
+        record = read_json_limited(path, MAX_CACHE_BYTES)
         if not isinstance(record, dict) or record.get("schema_version") != 1:
             return None
         payload = validator(record.get("payload"))

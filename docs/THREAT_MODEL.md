@@ -26,7 +26,7 @@ The alternative of relying only on a custom request header was rejected because 
 
 ### Malicious or malformed input
 
-IOC packs, YARA rules, browser data, command output, and intelligence responses may be malformed or hostile. Parsers apply size, count, path, schema, timeout, and output limits. HTML output escapes collected values.
+IOC packs, YARA rules, browser data, local state files, scan reports, manifests, command output, and intelligence responses may be malformed or hostile. Parsers apply size, count, path, schema, timeout, and output limits. Large report downloads are streamed with bounded memory use. HTML output escapes collected values.
 
 ### Secret disclosure
 

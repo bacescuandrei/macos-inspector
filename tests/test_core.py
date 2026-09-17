@@ -63,6 +63,7 @@ from macos_inspector.collectors.live_triage import (
 )
 from macos_inspector.collectors.yara_rules import discover_yara_rules, parse_yara_matches
 from macos_inspector.core.intelligence import IntelligenceResource, fetch_cached_json, parse_apple_security_releases, validate_epss, validate_nvd
+from macos_inspector.core.io import read_json_limited
 from macos_inspector.core.storage import CaseStore, SettingsStore
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
@@ -191,12 +192,42 @@ class CoreTests(unittest.TestCase):
                     payload={"baseline": "baseline", "current": "current"},
                 )
                 self.assertEqual(status, 200)
-                self.assertEqual(json.loads(body)["score_delta"], 10)
+                comparison = json.loads(body)
+                self.assertEqual(comparison["score_delta"], 10)
                 self.assertEqual(len(list(state.output.glob("macos-inspector-comparison-*"))), 2)
+
+                status, _, body = dashboard_request(
+                    server, "GET", comparison["reports"]["comparison_json"], f"127.0.0.1:{port}",
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(body)["score_delta"], 10)
             finally:
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
+
+    def test_local_json_inputs_are_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "payload.json"
+            path.write_text('{"value": 7}', encoding="utf-8")
+            self.assertEqual(read_json_limited(path, path.stat().st_size), {"value": 7})
+            with self.assertRaisesRegex(ValueError, "size limit"):
+                read_json_limited(path, path.stat().st_size - 1)
+
+            report = Path(directory) / "macos-inspector-oversized.json"
+            report.write_text('{"metadata": {"scan_id": "oversized"}, "summary": {}, "findings": []}', encoding="utf-8")
+            state = DashboardState(Path(directory))
+            with patch("macos_inspector.web.MAX_REPORT_JSON_BYTES", 32):
+                self.assertFalse(state.list_jobs())
+                with self.assertRaisesRegex(ValueError, "size limit"):
+                    state.compare("oversized", "oversized")
+
+            manifest = Path(directory) / "oversized.manifest"
+            manifest.write_text('{"artifacts": []}', encoding="utf-8")
+            with patch("macos_inspector.reporters.manifest_reporter.MAX_MANIFEST_BYTES", 8):
+                valid, errors = verify_manifest(manifest)
+            self.assertFalse(valid)
+            self.assertIn("size limit", errors[0])
 
     def test_dashboard_local_authority_and_origin_validation(self):
         port = 8765

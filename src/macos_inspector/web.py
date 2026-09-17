@@ -19,6 +19,8 @@ from urllib.parse import unquote, urlparse
 
 from macos_inspector import __version__
 from macos_inspector.collectors import COLLECTORS, LOCAL_COLLECTORS
+from macos_inspector.collectors.ioc import MAX_PACK_BYTES, load_ioc_pack
+from macos_inspector.core.io import read_json_limited, read_text_limited
 from macos_inspector.core.models import Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.readiness import collect_readiness
@@ -26,13 +28,19 @@ from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.runner import CommandRunner, ScanCancelled
 from macos_inspector.core.storage import CaseStore, SettingsStore
 from macos_inspector.core.intelligence import clear_intelligence_cache, lookup_threatfox
-from macos_inspector.collectors.ioc import load_ioc_pack
 from macos_inspector.collectors.yara_rules import MAX_RULE_BYTES, discover_yara_rules
 from macos_inspector.reporters import REPORTERS, report_format_capabilities, require_report_formats
-from macos_inspector.reporters.manifest_reporter import verify_manifest
+from macos_inspector.reporters.manifest_reporter import MAX_KEY_BYTES, MAX_MANIFEST_BYTES, verify_manifest
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
 from macos_inspector.reporters.common import secure_write_bytes, secure_write_text
 from macos_inspector.reporters.encrypted_bundle import encryption_available
+
+
+MAX_JOB_JOURNAL_BYTES = 2 * 1024 * 1024
+MAX_REPORT_JSON_BYTES = 64 * 1024 * 1024
+MAX_CACHE_RECORD_BYTES = 32 * 1024 * 1024
+MAX_HISTORY_SCANS = 500
+REPORT_STREAM_CHUNK_BYTES = 64 * 1024
 
 
 SCAN_PROFILES = (
@@ -190,7 +198,7 @@ class DashboardState:
 
     def _load_journal(self) -> None:
         try:
-            payload = json.loads(self.journal_path.read_text(encoding="utf-8"))
+            payload = read_json_limited(self.journal_path, MAX_JOB_JOURNAL_BYTES)
             if payload.get("schema_version") != 1 or not isinstance(payload.get("jobs"), list):
                 return
             allowed = set(ScanJob.__dataclass_fields__)
@@ -287,7 +295,7 @@ class DashboardState:
             previous_hmac_key = os.environ.get("MACOS_INSPECTOR_MANIFEST_KEY")
             configured_key = str(signing.get("key_path", "")) if signing.get("enabled") else ""
             if configured_key and signing.get("algorithm") == "HMAC-SHA256":
-                os.environ["MACOS_INSPECTOR_MANIFEST_KEY"] = Path(configured_key).read_text(encoding="ascii").strip()
+                os.environ["MACOS_INSPECTOR_MANIFEST_KEY"] = read_text_limited(Path(configured_key), MAX_KEY_BYTES, "ascii").strip()
                 os.environ.pop("MACOS_INSPECTOR_SIGNING_KEY", None)
             elif configured_key:
                 os.environ["MACOS_INSPECTOR_SIGNING_KEY"] = configured_key
@@ -355,9 +363,15 @@ class DashboardState:
             live = [job.to_dict() for job in self.jobs.values()]
         known_scans = {job.get("scan_id") for job in live}
         historical = []
-        for path in sorted(self.output.glob("macos-inspector-*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+        candidates = []
+        for path in self.output.glob("macos-inspector-*.json"):
             try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
+                candidates.append((path.stat().st_mtime, path))
+            except OSError:
+                continue
+        for _, path in sorted(candidates, reverse=True)[:MAX_HISTORY_SCANS]:
+            try:
+                payload = read_json_limited(path, MAX_REPORT_JSON_BYTES)
                 metadata, summary = payload["metadata"], payload["summary"]
                 scan_id = metadata["scan_id"]
                 if scan_id in known_scans:
@@ -373,7 +387,7 @@ class DashboardState:
                     "case_reference": metadata.get("case_reference", ""), "analyst": metadata.get("analyst", ""),
                     "completed_at": metadata.get("completed_at"), "summary": summary, "reports": reports,
                 })
-            except (OSError, KeyError, json.JSONDecodeError):
+            except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
                 continue
         return sorted(live + historical, key=lambda job: job.get("created_at") or "", reverse=True)
 
@@ -410,11 +424,11 @@ class DashboardState:
             key_path = Path(str(signing.get("key_path", ""))).expanduser()
             if signing.get("enabled") and key_path.is_file():
                 try:
-                    verification_key = key_path.read_text(encoding="utf-8").strip()
-                except OSError:
+                    verification_key = read_text_limited(key_path, MAX_KEY_BYTES).strip()
+                except (OSError, UnicodeError, ValueError):
                     verification_key = None
         valid, errors = verify_manifest(manifest, verification_key)
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        payload = read_json_limited(manifest, MAX_MANIFEST_BYTES)
         signature = payload.get("signature") or {}
         return {
             "valid": valid, "errors": errors, "artifact_count": len(payload.get("artifacts", [])),
@@ -428,7 +442,7 @@ class DashboardState:
             path = self.output / f"macos-inspector-{scan_id}.json"
             if not path.is_file():
                 raise FileNotFoundError(f"JSON report not found: {scan_id}")
-            return json.loads(path.read_text(encoding="utf-8"))
+            return read_json_limited(path, MAX_REPORT_JSON_BYTES)
         comparison = compare_scan_payloads(load(baseline_id), load(current_id))
         paths = write_comparison_reports(comparison, self.output)
         comparison["reports"] = {name: f"/reports/{path.name}" for name, path in paths.items()}
@@ -452,7 +466,7 @@ class DashboardState:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.json", filename):
             raise ValueError("IOC pack filename is invalid.")
         text = json.dumps(content, indent=2, ensure_ascii=False) + "\n"
-        if len(text.encode()) > 2 * 1024 * 1024:
+        if len(text.encode()) > MAX_PACK_BYTES:
             raise ValueError("IOC pack exceeds 2 MiB.")
         directory = self.data_root / "ioc-packs"
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -502,7 +516,7 @@ class DashboardState:
         if directory.is_dir():
             for path in sorted(directory.glob("*.json")):
                 try:
-                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    raw = read_json_limited(path, MAX_CACHE_RECORD_BYTES)
                     records.append({
                         "name": path.stem, "provider": raw.get("provider", ""), "url": raw.get("url", ""),
                         "fetched_at": raw.get("fetched_at", ""), "sha256": raw.get("sha256", ""), "size": path.stat().st_size,
@@ -675,10 +689,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path.parent != self.state.output or not path.is_file():
             self.send_error(404)
             return
-        body = path.read_bytes()
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        self._headers(200, content_type, len(body), report=path.suffix == ".html", download_name=filename if filename.endswith((".zip", ".zip.enc")) else None)
-        self.wfile.write(body)
+        try:
+            handle = path.open("rb")
+        except OSError:
+            self._send_json({"error": "Report could not be read."}, HTTPStatus.NOT_FOUND)
+            return
+        with handle:
+            try:
+                length = os.fstat(handle.fileno()).st_size
+            except OSError:
+                self._send_json({"error": "Report could not be read."}, HTTPStatus.NOT_FOUND)
+                return
+            self._headers(200, content_type, length, report=path.suffix == ".html", download_name=filename if filename.endswith((".zip", ".zip.enc")) else None)
+            try:
+                remaining = length
+                while remaining:
+                    chunk = handle.read(min(REPORT_STREAM_CHUNK_BYTES, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+            except OSError:
+                return
 
     def do_POST(self) -> None:
         if not self._require_local_request():
