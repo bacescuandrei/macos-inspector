@@ -16,6 +16,7 @@ Collectors do not write reports. Reporters do not run host commands. This bounda
 
 - `collectors`: read-only host inspection and parsing logic.
 - `core`: models, command execution, scan orchestration, scoring, storage, comparison, intelligence caching, and timeline generation.
+- `core.process_control`: guarded validation and signaling for report-listed current-user processes.
 - `reporters`: HTML, JSON, Markdown, CSV, SARIF, PDF, manifest, ZIP, and encrypted ZIP output.
 - `web.py`: loopback-only dashboard API, job state, cancellation, settings, cases, and report access.
 - `webui`: static HTML, CSS, and JavaScript served by the local dashboard.
@@ -26,6 +27,8 @@ Host commands, local files, imported rules, intelligence responses, and browser 
 
 Online intelligence is separate from local collection. Providers receive public vulnerability identifiers or an indicator entered by the analyst. Collected host evidence is not uploaded.
 
+Process response is separate from collection. The web API loads a managed report, accepts only candidates produced by two Live Triage findings, and delegates identity revalidation and signaling to `core.process_control`. The response module cannot accept an arbitrary command line. It exposes only `SIGTERM` and `SIGKILL`, after an exact UID and executable match, and the dashboard records the result locally.
+
 ## Extension rules
 
-A new collector must have a stable identifier, remain useful without elevated privileges, report unavailable data honestly, and return normalized findings. A new dashboard action must map to a registered operation and must not accept arbitrary commands.
+A new collector must have a stable identifier, remain read-only, remain useful without elevated privileges, report unavailable data honestly, and return normalized findings. A new dashboard action must map to a registered operation and must not accept arbitrary commands. Any new response capability requires an explicit threat-model update, narrow authorization, current-state revalidation, confirmation, audit behavior, and regression tests.

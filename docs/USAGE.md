@@ -181,9 +181,13 @@ Observed: 1 listener, 0 established connections, 1 high-priority candidate,
 
 Interpretation: the combined signals raised priority. A listener, a temporary path, or a development server is not malicious by itself. Loopback-only tools remain context unless other evidence raises their priority.
 
-Next step: identify the process owner and parent, validate the executable and launch mechanism, inspect the listening address, compare with approved services, and acquire volatile evidence before terminating anything outside the tool.
+Next step: identify the process owner and parent, validate the executable and launch mechanism, inspect the listening address, compare with approved services, and acquire volatile evidence before containment.
 
-Limitations: this is a point-in-time snapshot. Short-lived processes and connections can disappear during collection. Command arguments are bounded and common secret forms are redacted, but complete secret detection is not guaranteed.
+For a process listed in the finding's **Process response** section, use **Terminate** to request a normal `SIGTERM`. The server acts only if the PID is still owned by the dashboard user and still resolves to the executable recorded in that scan. Run Live Triage again afterward to confirm the current state.
+
+Use **Force kill** only when a validated process did not respond to normal termination and immediate containment is operationally justified. It sends `SIGKILL`, prevents application cleanup, and can lose unsaved data. Both actions require confirmation and are recorded in the private local response log. A zombie is already dead and cannot receive either signal; review its parent process and the reason it has not reaped the child.
+
+Limitations: this is a point-in-time snapshot. Short-lived processes and connections can disappear during collection. A review candidate is not proof of malware. The identity check reduces PID-reuse risk but does not replace analyst validation. Command arguments are bounded and common secret forms are redacted, but complete secret detection is not guaranteed.
 
 ### IOC and YARA rules
 

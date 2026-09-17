@@ -44,21 +44,28 @@ def parse_processes(text: str) -> list[dict[str, object]]:
     """Parse PID metadata while preserving executable paths that contain spaces."""
     processes = []
     for line in text.splitlines()[:MAX_PROCESSES]:
-        parts = line.strip().split(None, 3)
-        if len(parts) != 4:
+        parts = line.strip().split(None, 5)
+        if len(parts) not in {4, 6}:
             continue
         try:
             pid, ppid = int(parts[0]), int(parts[1])
+            uid = int(parts[2]) if len(parts) == 6 else None
         except ValueError:
             continue
+        user, process_state, executable = (
+            (parts[3], parts[4], parts[5]) if len(parts) == 6 else (parts[2], "", parts[3])
+        )
         processes.append({
             "pid": pid,
             "ppid": ppid,
-            "user": parts[2],
+            "uid": uid,
+            "user": user,
+            "stat": process_state,
+            "zombie": "Z" in process_state.upper(),
             "elapsed": None,
             "elapsed_seconds": None,
-            "executable": parts[3],
-            "command_line": parts[3],
+            "executable": executable,
+            "command_line": executable,
         })
     return processes
 
@@ -241,12 +248,15 @@ def suspicious_processes(processes: list[dict[str, object]]) -> list[dict[str, o
         if str(item["user"]) == "root" and executable.startswith("/Users/"):
             reasons.append("root process executes from a user-profile path")
             risk_score += 4
+        if bool(item.get("zombie")):
+            reasons.append("process is a zombie awaiting collection by its parent")
+            risk_score += 2
         ppid = int(item["ppid"])
         if ppid not in {0, 1} and ppid not in pids:
             reasons.append("parent process is not present in this point-in-time snapshot")
             risk_score += 1
         if reasons:
-            priority = "high" if risk_score >= 4 else ("medium" if risk_score >= 3 else "low")
+            priority = "high" if risk_score >= 4 else ("medium" if risk_score >= 2 else "low")
             rows.append({
                 **item,
                 "priority": priority,
@@ -348,7 +358,7 @@ class LiveTriageCollector(Collector):
     description = "Snapshots running processes, parent relationships, listeners and active network connections."
 
     def collect(self) -> list[Finding]:
-        process_result = self.runner.run(("ps", "-axo", "pid=,ppid=,user=,comm="))
+        process_result = self.runner.run(("ps", "-axo", "pid=,ppid=,uid=,user=,stat=,comm="))
         context_result = self.runner.run(("ps", "-axo", "pid=,etime=,args="))
         network_result = self.runner.run(("lsof", "-nP", "-i", "-FpcnT"))
         processes = parse_processes(process_result.stdout) if process_result.returncode == 0 else []
@@ -392,7 +402,7 @@ class LiveTriageCollector(Collector):
             finding_id="LIVE-PROCESS-TREE", category="Live Triage", title="Running process tree snapshot",
             severity=severity,
             status="Review" if suspicious else ("Observed" if available else "Unknown"),
-            description="Captures PID, parent PID, user, runtime, executable path and command line without modifying process state.",
+            description="Captures PID, parent PID, numeric owner, process state, runtime, executable path and command line without modifying process state.",
             why_it_matters="Unexpected execution paths and missing parent relationships can identify activity that warrants preservation and deeper analysis.",
             what_was_checked="Current process table",
             expected_result="Processes run from expected protected locations with explainable parent relationships.",

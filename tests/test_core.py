@@ -8,6 +8,7 @@ import json
 import importlib.util
 import plistlib
 import re
+import signal
 import threading
 import zipfile
 from contextlib import closing
@@ -67,6 +68,7 @@ from macos_inspector.core.io import read_json_limited
 from macos_inspector.core.storage import CaseStore, SettingsStore
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
+from macos_inspector.core.process_control import review_process_candidates, terminate_reported_process
 from macos_inspector.core.runner import CommandResult, CommandRunner, ScanCancelled
 from macos_inspector.core.readiness import _probe_sqlite_readable, collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
@@ -340,10 +342,20 @@ class CoreTests(unittest.TestCase):
         self.assertEqual([item["version"] for item in releases["releases"]], ["26.6", "15.7.8"])
 
     def test_live_triage_parsers_and_correlation(self):
-        processes = parse_processes("1 0 root /sbin/launchd\n42 1 alice /private/tmp/agent\n99 42 alice /Applications/Safe.app/Contents/MacOS/Safe")
-        self.assertEqual(len(processes), 3)
+        processes = parse_processes(
+            "1 0 0 root Ss /sbin/launchd\n"
+            "42 1 501 alice S /private/tmp/agent\n"
+            "77 1 501 alice Z /Applications/Old.app/Contents/MacOS/Old\n"
+            "99 42 501 alice S /Applications/Safe.app/Contents/MacOS/Safe"
+        )
+        self.assertEqual(len(processes), 4)
+        self.assertEqual(processes[1]["uid"], 501)
         suspicious = suspicious_processes(processes)
         self.assertEqual(suspicious[0]["pid"], 42)
+        zombie = next(item for item in suspicious if item["pid"] == 77)
+        self.assertTrue(zombie["zombie"])
+        self.assertEqual(zombie["priority"], "medium")
+        self.assertIn("zombie", zombie["reasons"][0])
         sockets = parse_lsof_fields("p42\ncagent\nn*:8080\nTST=LISTEN\nn1.2.3.4:443\nTST=ESTABLISHED\n")
         self.assertEqual([item["state"] for item in sockets], ["LISTEN", "ESTABLISHED"])
 
@@ -352,13 +364,104 @@ class CoreTests(unittest.TestCase):
                 if argv[0] == "ps":
                     if "etime" in argv[2]:
                         return CommandResult(tuple(argv), 0, "1 01:00 /sbin/launchd\n42 00:30 /private/tmp/agent", "")
-                    return CommandResult(tuple(argv), 0, "1 0 root /sbin/launchd\n42 1 alice /private/tmp/agent", "")
+                    return CommandResult(tuple(argv), 0, "1 0 0 root Ss /sbin/launchd\n42 1 501 alice S /private/tmp/agent", "")
                 return CommandResult(tuple(argv), 0, "p42\ncagent\nn*:8080\nTST=LISTEN", "")
 
         findings = {item.finding_id: item for item in LiveTriageCollector(FakeRunner()).collect()}
         self.assertEqual(findings["LIVE-PROCESS-TREE"].status, "Review")
         self.assertEqual(findings["LIVE-PROCESS-TREE"].severity, Severity.MEDIUM)
         self.assertEqual(findings["LIVE-NETWORK-PROCESSES"].severity, Severity.HIGH)
+
+    def test_process_response_requires_reported_current_user_identity_and_logs_action(self):
+        candidate = {
+            "pid": 4242, "ppid": 12, "uid": 501, "user": "alice", "stat": "S", "zombie": False,
+            "executable": "/private/tmp/agent", "priority": "medium", "reasons": ["fixture"],
+        }
+        report = {
+            "metadata": {"scan_id": "response-scan", "collectors": ["live-triage"]},
+            "summary": {"overall_score": 80},
+            "findings": [{
+                "finding_id": "LIVE-PROCESS-TREE", "status": "Review",
+                "evidence": [{"kind": "process_snapshot", "value": {"review_candidates": [candidate]}}],
+            }],
+        }
+
+        class ProcessRunner:
+            def __init__(self, executable="/private/tmp/agent", stat="S"):
+                self.executable = executable
+                self.stat = stat
+
+            def run(self, argv):
+                return CommandResult(tuple(argv), 0, f"4242 12 501 alice {self.stat} {self.executable}", "")
+
+        signals = []
+        result = terminate_reported_process(
+            report, 4242, "terminate", runner=ProcessRunner(), kill_process=lambda pid, value: signals.append((pid, value)),
+            effective_uid=501, protected_pids={1, 100, 101},
+        )
+        self.assertEqual(signals, [(4242, signal.SIGTERM)])
+        self.assertEqual(result["status"], "signal_sent")
+        self.assertEqual(review_process_candidates(report), [candidate])
+
+        with self.assertRaises(PermissionError):
+            terminate_reported_process(report, 9999, "terminate", runner=ProcessRunner(), effective_uid=501, protected_pids={1})
+        with self.assertRaisesRegex(PermissionError, "protected"):
+            terminate_reported_process(report, 4242, "terminate", runner=ProcessRunner(), effective_uid=501, protected_pids={1, 4242})
+        cross_user_report = json.loads(json.dumps(report))
+        cross_user_report["findings"][0]["evidence"][0]["value"]["review_candidates"][0]["uid"] = 502
+        with self.assertRaisesRegex(PermissionError, "dashboard user"):
+            terminate_reported_process(cross_user_report, 4242, "terminate", runner=ProcessRunner(), effective_uid=501, protected_pids={1})
+        with self.assertRaisesRegex(RuntimeError, "different process"):
+            terminate_reported_process(report, 4242, "kill", runner=ProcessRunner("/tmp/reused"), effective_uid=501, protected_pids={1})
+        with self.assertRaisesRegex(PermissionError, "runs as root"):
+            terminate_reported_process(report, 4242, "terminate", runner=ProcessRunner(), effective_uid=0, protected_pids={1})
+        zombie_report = json.loads(json.dumps(report))
+        zombie_report["findings"][0]["evidence"][0]["value"]["review_candidates"][0].update({"stat": "Z", "zombie": True})
+        with self.assertRaisesRegex(RuntimeError, "zombie"):
+            terminate_reported_process(zombie_report, 4242, "kill", runner=ProcessRunner("/private/tmp/agent", "Z"), effective_uid=501, protected_pids={1})
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            report_path = state.output / "macos-inspector-response-scan.json"
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            state_result = state.terminate_process(
+                "response-scan", 4242, "kill", runner=ProcessRunner(), kill_process=lambda pid, value: signals.append((pid, value)),
+                effective_uid=501, protected_pids={1},
+            )
+            self.assertEqual(state_result["signal"], "SIGKILL")
+            self.assertTrue(state_result["audit_logged"])
+            action_log = state.data_root / "response-actions.jsonl"
+            self.assertEqual(action_log.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(action_log.read_text())["scan_id"], "response-scan")
+
+    def test_process_response_endpoint_requires_protected_post(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            server = DashboardServer(("127.0.0.1", 0), state)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            port = server.server_port
+            response = {"pid": 4242, "signal": "SIGTERM", "status": "signal_sent", "timestamp": "2026-01-01T00:00:00+00:00"}
+            try:
+                with patch.object(state, "terminate_process", return_value=response) as terminate:
+                    status, _, _ = dashboard_request(
+                        server, "POST", "/api/processes/terminate", f"127.0.0.1:{port}",
+                        payload={"scan_id": "scan", "pid": 4242, "mode": "terminate"}, write_header=False,
+                    )
+                    self.assertEqual(status, 403)
+                    terminate.assert_not_called()
+
+                    status, _, body = dashboard_request(
+                        server, "POST", "/api/processes/terminate", f"127.0.0.1:{port}",
+                        payload={"scan_id": "scan", "pid": 4242, "mode": "terminate"},
+                    )
+                    self.assertEqual(status, 200)
+                    self.assertEqual(json.loads(body)["signal"], "SIGTERM")
+                    terminate.assert_called_once_with("scan", 4242, "terminate")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
 
     def test_live_triage_prioritizes_exposure_and_suppresses_loopback_false_positive(self):
         processes = merge_process_context(

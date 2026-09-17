@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.2.5 - 2026-09-17
+
+- Added analyst-confirmed `SIGTERM` and `SIGKILL` controls for current-user processes explicitly listed as Live Triage review candidates.
+- Revalidate the live PID owner and executable immediately before signaling, reject stale or arbitrary targets, protect the dashboard and its parent, and disable response when running as root.
+- Added process-state collection and explicit zombie handling; zombies are explained as already-exited processes that must be reaped by their parent rather than signaled.
+- Added a bounded owner-only response audit log, responsive dashboard controls, and tests for authorization, PID reuse, root mode, zombies, HTTP request protection, and real `SIGTERM` delivery to a controlled test process.
 
 - Hardened the local dashboard against DNS rebinding and cross-origin writes by validating request authorities and browser origins against the active loopback server.
 - Added same-origin response protections and end-to-end regression coverage for the local web boundary.

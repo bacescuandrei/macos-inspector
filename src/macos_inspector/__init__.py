@@ -1,3 +1,3 @@
-"""Read-only macOS security auditing framework."""
+"""macOS security auditing, DFIR triage, and guarded process response."""
 
-__version__ = "1.2.4"
+__version__ = "1.2.5"

@@ -1,7 +1,7 @@
-const state = { config: null, settings: null, cases: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [] };
+const state = { config: null, settings: null, cases: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', processCandidates: new Map() };
 
 const COPY = {
-    manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, then inspect findings and reports in one place.', safety:'Local-first | online OSINT is opt-in | no remediation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings | private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets | one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password | minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
+    manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, inspect findings, and explicitly contain a reported process when necessary.', safety:'Local-first | online OSINT is opt-in | containment requires confirmation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings | private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets | one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password | minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
     publicNoKey:'Public source | no key', optionalKey:'Public API | optional key', optionalFreeKey:'Optional | free Auth-Key', optional:'optional', explicitLookup:'Explicit ThreatFox IOC lookup', lookup:'Lookup', threatfoxPrivacy:'Only the indicator entered above is sent to ThreatFox after you press Lookup. Nothing is submitted automatically.', iocPacks:'IOC packs', yaraRules:'YARA rules', readinessTitle:'Collection readiness', recheck:'Recheck', checkingAccess:'Checking local access...', runningDiagnostics:'Running read-only diagnostics...', auditSections:'Audit sections', all:'All', clear:'Clear', scanProfiles:'Scan profiles', individualSections:'Individual sections', reportFormats:'Report formats', caseReferenceOptional:'Case reference', analystOptional:'Analyst', optionalLabel:'optional', casePlaceholder:'Incident or case ID', analystPlaceholder:'Name or team', minimumSeverity:'Minimum severity shown', severityAll:'All findings', severityLow:'Low and above', severityMedium:'Medium and above', severityHigh:'High and above', severityCritical:'Critical only', runSelected:'Run selected audit', cancelScan:'Cancel running scan', scanResults:'Scan results', ready:'Ready', readyTitle:'Ready when you are.', readyHelp:'Select a section and start an audit.', scanComparison:'Scan comparison', close:'Close', searchFindings:'Search findings', searchFindingsPlaceholder:'Title, ID, evidence...', status:'Status', allStatuses:'All statuses', category:'Category', allCategories:'All categories', previous:'Previous', next:'Next', noScan:'No scan selected', noScanHelp:'Your findings will appear here with evidence, commands and recommendations.', previousScans:'Previous scans', refresh:'Refresh', findScan:'Find a scan', findScanPlaceholder:'Case, analyst, collector or scan ID', interfaceLanguage:'Interface language', onlineOptIn:'Online opt-in', run:'Run', sections:'sections', unavailable:'Unavailable'
 };
 
@@ -298,6 +298,7 @@ async function loadReport(job) {
   if (!job.reports || !job.reports.json) return;
   try {
     const payload = await api(job.reports.json);
+    state.currentScanId = payload.metadata?.scan_id || '';
     renderCaseMetadata(payload.metadata || {});
     renderSummary(payload.summary);
     renderTimeline(payload.timeline || []);
@@ -372,17 +373,85 @@ function renderFindingPage() {
     $('#findings').innerHTML = '<div class="empty-state"><h3>No findings match this severity filter</h3><p>The scan completed successfully, but no findings are visible at the selected threshold.</p></div>';
   } else if (!visible.length) {
     $('#findings').innerHTML = '<div class="empty-state"><h3>No matching findings</h3><p>Adjust the search, status, or category filters.</p></div>';
-  } else $('#findings').innerHTML = visible.map((finding, index) => {
+  } else {
+    state.processCandidates = new Map();
+    $('#findings').innerHTML = visible.map((finding, index) => {
     const severity = finding.severity.toLowerCase().replaceAll(' ', '-');
     const evidence = escapeHtml(JSON.stringify(finding.evidence || [], null, 2));
     const commands = (finding.commands_used || []).map((command) => `<li><code>${escapeHtml(command)}</code></li>`).join('') || '<li>None</li>';
     const references = (finding.references || []).map((reference) => `<li><a href="${escapeHtml(reference)}" target="_blank" rel="noreferrer">${escapeHtml(reference)}</a></li>`).join('') || '<li>None</li>';
-    return `<article class="finding" data-finding-index="${start + index}"><div class="finding-head"><span class="severity severity-${severity}">${escapeHtml(finding.severity)}</span><span class="finding-status">${escapeHtml(finding.status)}</span><span class="finding-title">${escapeHtml(finding.title)}</span><span class="finding-id">${escapeHtml(finding.finding_id)}</span><button type="button" class="finding-toggle">Details</button></div><p class="finding-observed">${escapeHtml(finding.observed_result)}</p><div class="finding-details"><p><strong>Why it matters</strong><br>${escapeHtml(finding.why_it_matters)}</p><p><strong>Recommendation</strong><br>${escapeHtml(finding.recommendation)}</p><p><strong>Commands used</strong></p><ul>${commands}</ul><p><strong>References</strong></p><ul>${references}</ul><p><strong>Evidence</strong></p><pre>${evidence}</pre></div></article>`;
-  }).join('');
+    const responseControls = renderProcessResponseControls(finding);
+    return `<article class="finding" data-finding-index="${start + index}"><div class="finding-head"><span class="severity severity-${severity}">${escapeHtml(finding.severity)}</span><span class="finding-status">${escapeHtml(finding.status)}</span><span class="finding-title">${escapeHtml(finding.title)}</span><span class="finding-id">${escapeHtml(finding.finding_id)}</span><button type="button" class="finding-toggle">Details</button></div><p class="finding-observed">${escapeHtml(finding.observed_result)}</p><div class="finding-details"><p><strong>Why it matters</strong><br>${escapeHtml(finding.why_it_matters)}</p><p><strong>Recommendation</strong><br>${escapeHtml(finding.recommendation)}</p>${responseControls}<p><strong>Commands used</strong></p><ul>${commands}</ul><p><strong>References</strong></p><ul>${references}</ul><p><strong>Evidence</strong></p><pre>${evidence}</pre></div></article>`;
+    }).join('');
+  }
   document.querySelectorAll('.finding-toggle').forEach((button) => button.addEventListener('click', () => button.closest('.finding').classList.toggle('open')));
+  document.querySelectorAll('[data-process-action]').forEach((button) => button.addEventListener('click', () => respondToProcess(button)));
   $('#finding-range').textContent = total ? `${start + 1}-${Math.min(start + state.findingPageSize, total)} of ${total}` : '0 findings';
   $('#findings-prev').disabled = state.findingPage <= 1;
   $('#findings-next').disabled = start + state.findingPageSize >= total;
+}
+
+function processCandidates(finding) {
+  if (!['LIVE-PROCESS-TREE', 'LIVE-NETWORK-PROCESSES'].includes(finding.finding_id) || finding.status !== 'Review') return [];
+  const candidates = new Map();
+  (finding.evidence || []).forEach((evidence) => {
+    const rows = evidence?.value?.review_candidates;
+    if (!Array.isArray(rows)) return;
+    rows.forEach((candidate) => {
+      const pid = Number(candidate?.pid);
+      if (Number.isInteger(pid) && pid > 1 && !candidates.has(pid)) candidates.set(pid, candidate);
+    });
+  });
+  return [...candidates.values()];
+}
+
+function renderProcessResponseControls(finding) {
+  const candidates = processCandidates(finding);
+  if (!candidates.length) return '';
+  const capability = state.config?.feature_capabilities?.process_response || {available:true, reason:''};
+  const rows = candidates.map((candidate) => {
+    const key = `${finding.finding_id}:${candidate.pid}`;
+    state.processCandidates.set(key, {...candidate, finding_id:finding.finding_id});
+    const reasons = Array.isArray(candidate.reasons) ? candidate.reasons.join(' | ') : '';
+    const zombie = Boolean(candidate.zombie) || String(candidate.stat || '').toUpperCase().includes('Z');
+    const legacy = !Number.isInteger(candidate.uid);
+    const disabled = capability.available === false || zombie || legacy;
+    const note = zombie ? 'Zombie process: it has already exited. Review or restart its parent so it can be reaped.' : legacy ? 'Run Live Triage again with version 1.2.5 before using process response.' : capability.reason;
+    const actions = disabled
+      ? `<span class="process-action-note">${escapeHtml(note || 'Process response unavailable.')}</span>`
+      : `<div class="process-buttons"><button type="button" data-process-key="${escapeHtml(key)}" data-process-action="terminate">Terminate</button><button type="button" class="force" data-process-key="${escapeHtml(key)}" data-process-action="kill">Force kill</button></div>`;
+    return `<div class="process-action-row"><div><strong>PID ${escapeHtml(candidate.pid)} | ${escapeHtml(candidate.user || `UID ${candidate.uid}`)}</strong><code>${escapeHtml(candidate.executable || 'unknown')}</code><small>${escapeHtml(reasons || 'Live Triage review candidate')}</small></div>${actions}<span class="process-action-result" aria-live="polite"></span></div>`;
+  }).join('');
+  return `<section class="process-response"><div class="process-response-heading"><strong>Process response</strong><span>Evidence is a review signal, not a malware verdict. Preserve what you need before containment.</span></div>${rows}</section>`;
+}
+
+async function respondToProcess(button) {
+  const candidate = state.processCandidates.get(button.dataset.processKey);
+  if (!candidate || !state.currentScanId) return setMessage('The process action is not tied to a loaded scan. Reload the report.', true);
+  const mode = button.dataset.processAction;
+  const force = mode === 'kill';
+  const prompt = force
+    ? `Force kill PID ${candidate.pid} with SIGKILL?\n\n${candidate.executable}\n\nThe process cannot clean up and unsaved data may be lost. This finding is not proof of malware.`
+    : `Terminate PID ${candidate.pid} with SIGTERM?\n\n${candidate.executable}\n\nPreserve volatile evidence first. This finding is not proof of malware.`;
+  if (!window.confirm(prompt)) return;
+  const row = button.closest('.process-action-row');
+  const result = row.querySelector('.process-action-result');
+  row.querySelectorAll('button').forEach((item) => { item.disabled = true; });
+  result.textContent = force ? 'Sending SIGKILL...' : 'Sending SIGTERM...';
+  try {
+    const response = await api('/api/processes/terminate', writeOptions('POST', {
+      scan_id: state.currentScanId, pid: Number(candidate.pid), mode,
+    }));
+    const auditNote = response.audit_logged === false ? ` ${response.audit_error}` : ' The action was recorded in the local response log.';
+    result.textContent = `${response.signal} sent at ${response.timestamp}.${auditNote} Run Live Triage again to confirm current state.`;
+    row.classList.add('process-action-complete');
+    setMessage(`${response.signal} sent to PID ${response.pid}.${response.audit_logged === false ? ' The local audit log could not be updated.' : ' The action was recorded locally.'}`, response.audit_logged === false);
+  } catch (error) {
+    result.textContent = error.message;
+    result.classList.add('error');
+    row.querySelectorAll('button').forEach((item) => { item.disabled = false; });
+    setMessage(error.message, true);
+  }
 }
 
 async function loadHistory() {

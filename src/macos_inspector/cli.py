@@ -18,7 +18,7 @@ def _csv(value: str) -> list[str]:
 
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="macos-inspector", description="Read-only macOS security and DFIR assessment")
+    p = argparse.ArgumentParser(prog="macos-inspector", description="macOS security inspection and DFIR triage")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument("--output", type=Path, default=Path("macos-inspector-reports"))
     p.add_argument("--collectors", default=",".join(LOCAL_COLLECTORS))

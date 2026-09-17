@@ -4,6 +4,7 @@
 
 - Keep routine collection read-only.
 - Prevent the dashboard from becoming a general command runner.
+- Restrict process containment to a current-user identity explicitly recorded by Live Triage.
 - Keep reports, settings, keys, and case records local unless the analyst exports them.
 - Make report tampering detectable when a manifest is used.
 - Prevent imported files and external responses from escaping their intended scope.
@@ -24,6 +25,14 @@ The dashboard accepts loopback addresses only. Every request must use a localhos
 
 The alternative of relying only on a custom request header was rejected because a DNS-rebound page can become same-origin with its own hostile hostname. Per-launch random bearer tokens would provide another defense, but they would add secret lifecycle and launcher-to-browser transfer complexity. Strict local authority validation preserves the current launcher and CLI behavior while directly enforcing the documented loopback boundary.
 
+### Process response
+
+Process response is not an arbitrary PID or signal API. A request must reference a managed JSON report and a `Review` candidate from the Live Triage process-tree or process/network finding. The recorded numeric owner must match the dashboard user. Immediately before acting, the server resolves the PID again and requires the live numeric owner and executable path to match the report. This check limits stale-report and PID-reuse errors.
+
+PID 1, the dashboard process, and its parent are protected. Response is disabled when the dashboard runs as root. `SIGTERM` and `SIGKILL` are separate choices with separate local confirmations; `SIGKILL` is presented as a last resort because it prevents cleanup and can lose data. A zombie has already exited and is never signaled. Successful actions are appended to a bounded owner-only local audit log.
+
+These controls reduce accidental or cross-user termination but cannot determine whether a candidate is malicious. The analyst remains responsible for validating the finding, preserving volatile evidence, understanding operational impact, and confirming current state with a new scan.
+
 ### Malicious or malformed input
 
 IOC packs, YARA rules, browser data, local state files, scan reports, manifests, command output, and intelligence responses may be malformed or hostile. Parsers apply size, count, path, schema, timeout, and output limits. Large report downloads are streamed with bounded memory use. HTML output escapes collected values.
@@ -42,4 +51,4 @@ Online providers are optional. A provider result supplies context and does not p
 
 ## Out of scope
 
-macOS Inspector is not an EDR, anti-malware engine, memory acquisition tool, or complete forensic imaging system. It does not defend a compromised operating system from falsifying command output. It does not guarantee legal admissibility or chain of custody for every jurisdiction.
+macOS Inspector is not an EDR, anti-malware engine, memory acquisition tool, or complete forensic imaging system. It does not continuously monitor or automatically remediate a host. It does not defend a compromised operating system from falsifying command output. It does not guarantee legal admissibility or chain of custody for every jurisdiction.

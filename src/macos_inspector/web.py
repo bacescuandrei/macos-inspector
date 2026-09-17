@@ -23,6 +23,7 @@ from macos_inspector.collectors.ioc import MAX_PACK_BYTES, load_ioc_pack
 from macos_inspector.core.io import read_json_limited, read_text_limited
 from macos_inspector.core.models import Severity
 from macos_inspector.core.comparison import compare_scan_payloads
+from macos_inspector.core.process_control import terminate_reported_process
 from macos_inspector.core.readiness import collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.runner import CommandRunner, ScanCancelled
@@ -41,6 +42,7 @@ MAX_REPORT_JSON_BYTES = 64 * 1024 * 1024
 MAX_CACHE_RECORD_BYTES = 32 * 1024 * 1024
 MAX_HISTORY_SCANS = 500
 REPORT_STREAM_CHUNK_BYTES = 64 * 1024
+MAX_RESPONSE_LOG_BYTES = 4 * 1024 * 1024
 
 
 SCAN_PROFILES = (
@@ -435,18 +437,55 @@ class DashboardState:
             "algorithm": signature.get("algorithm"), "public_key_sha256": signature.get("public_key_sha256"),
         }
 
+    def _load_scan_report(self, scan_id: str) -> dict:
+        if not scan_id or Path(scan_id).name != scan_id:
+            raise ValueError("Invalid scan identifier.")
+        path = self.output / f"macos-inspector-{scan_id}.json"
+        if not path.is_file():
+            raise FileNotFoundError(f"JSON report not found: {scan_id}")
+        report = read_json_limited(path, MAX_REPORT_JSON_BYTES)
+        metadata = report.get("metadata") if isinstance(report, dict) else None
+        if not isinstance(metadata, dict) or metadata.get("scan_id") != scan_id:
+            raise ValueError("JSON report identity does not match the requested scan.")
+        return report
+
     def compare(self, baseline_id: str, current_id: str) -> dict:
-        def load(scan_id: str) -> dict:
-            if not scan_id or Path(scan_id).name != scan_id:
-                raise ValueError("Invalid scan identifier.")
-            path = self.output / f"macos-inspector-{scan_id}.json"
-            if not path.is_file():
-                raise FileNotFoundError(f"JSON report not found: {scan_id}")
-            return read_json_limited(path, MAX_REPORT_JSON_BYTES)
-        comparison = compare_scan_payloads(load(baseline_id), load(current_id))
+        comparison = compare_scan_payloads(self._load_scan_report(baseline_id), self._load_scan_report(current_id))
         paths = write_comparison_reports(comparison, self.output)
         comparison["reports"] = {name: f"/reports/{path.name}" for name, path in paths.items()}
         return comparison
+
+    def terminate_process(self, scan_id: str, pid: int, mode: str, **controls) -> dict:
+        report = self._load_scan_report(scan_id)
+        result = terminate_reported_process(report, pid, mode, **controls)
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "scan_id": scan_id,
+            **result,
+        }
+        log_path = self.data_root / "response-actions.jsonl"
+        try:
+            with self.lock:
+                if log_path.is_file() and log_path.stat().st_size >= MAX_RESPONSE_LOG_BYTES:
+                    rotated = self.data_root / "response-actions.previous.jsonl"
+                    rotated.unlink(missing_ok=True)
+                    os.replace(log_path, rotated)
+                descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+                try:
+                    os.fchmod(descriptor, 0o600)
+                    payload = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+                    written = 0
+                    while written < len(payload):
+                        written += os.write(descriptor, payload[written:])
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+        except OSError as exc:
+            record["audit_logged"] = False
+            record["audit_error"] = f"The signal was sent, but the local audit record could not be written: {exc}"
+        else:
+            record["audit_logged"] = True
+        return record
 
     def list_ioc_packs(self) -> list[dict]:
         directory = self.data_root / "ioc-packs"
@@ -645,6 +684,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "feature_capabilities": {
                     "signing": {"available": True, "reason": "HMAC-SHA256 is built in; Ed25519 is used when the optional signing dependency is available."},
                     "yara": {"available": Path(CommandRunner.ALLOWED["yara"]).is_file(), "reason": "" if Path(CommandRunner.ALLOWED["yara"]).is_file() else "Install YARA with Homebrew to enable local rule execution."},
+                    "process_response": {"available": os.geteuid() != 0, "reason": "" if os.geteuid() != 0 else "Process response is disabled when the dashboard runs as root."},
                 },
                 "severities": [severity.label() for severity in Severity],
             })
@@ -717,6 +757,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not self._require_local_request():
             return
         path = urlparse(self.path).path
+        if path == "/api/processes/terminate":
+            try:
+                payload = self._read_json_body(4096)
+                self._send_json(self.state.terminate_process(
+                    str(payload.get("scan_id", "")), payload.get("pid"), str(payload.get("mode", "terminate")),
+                ))
+            except PermissionError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+            except FileNotFoundError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+            except ProcessLookupError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+            except RuntimeError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+            except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         if path == "/api/compare":
             try:
                 payload = self._read_json_body(4096)

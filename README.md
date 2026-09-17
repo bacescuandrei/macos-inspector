@@ -4,13 +4,13 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-macOS Inspector is a read-only macOS security inspection and DFIR triage tool. It collects local evidence, evaluates it with documented rules, and presents findings and reports through a local web dashboard.
+macOS Inspector is a macOS security inspection and DFIR triage tool. It collects local evidence with read-only collectors, evaluates it with documented rules, and presents findings and reports through a local web dashboard. A guarded response control can signal a current-user process that Live Triage has explicitly marked for review.
 
 It was created to make evidence that is normally scattered across command-line tools, property lists, SQLite databases, application bundles, running processes, sockets, and macOS security settings easier to collect and review in one place.
 
 The project is intended for incident responders, forensic analysts, security engineers, system administrators, and technically experienced Mac owners. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current release: `v1.2.4`
+Current release: `v1.2.5`
 
 ## What it can help answer
 
@@ -59,11 +59,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.2.4-macos.zip` and `SHA256SUMS` from the GitHub release.
+1. Download `macos-inspector-1.2.5-macos.zip` and `SHA256SUMS` from the GitHub release.
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.2.4-macos.zip
+   shasum -a 256 macos-inspector-1.2.5-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
@@ -126,6 +126,8 @@ Observed: 1 listener, 0 established connections, 1 high-priority candidate,
 
 Interpretation: the combined context raised review priority. A listener alone is not malicious. Confirm whether the service is expected, identify its owner, inspect its files and launch mechanism, and compare it with a known-good baseline.
 
+If containment is required, expand the finding and use **Terminate** first. This sends `SIGTERM` only after the dashboard confirms that the PID still belongs to the same executable and current user recorded in the scan. **Force kill** sends `SIGKILL`, is separately confirmed, and can cause data loss. Preserve volatile evidence before either action and rerun Live Triage afterward. A zombie has already exited and cannot be killed; its parent must reap it.
+
 ### Review macOS vulnerability exposure
 
 Goal: prioritize operating-system updates using public vulnerability information.
@@ -150,7 +152,9 @@ More workflows, including privacy grants, persistence, IOC/YARA matches, scan co
 
 - The dashboard binds to loopback only. Non-local bind addresses, non-loopback `Host` authorities, and non-local browser origins are rejected.
 - Collectors use an allowlist of read-only commands without a shell. The tool does not execute browser-supplied commands.
-- The tool does not remediate, delete, quarantine, terminate processes, install software, elevate privileges, or change macOS configuration.
+- Collection remains read-only. The only host-changing response action is an explicit, confirmed signal to a current-user process already listed as a Live Triage review candidate.
+- Process response is disabled when the dashboard runs as root, rejects arbitrary PIDs and stale process identities, protects the dashboard and its parent, and records successful actions in a private local log.
+- The tool does not delete or quarantine files, install software, invoke `sudo`, elevate privileges, or change macOS configuration.
 - Local profiles and the default CLI collection do not contact intelligence providers.
 - The online profile is opt-in. It sends only public Apple CVE identifiers to the enabled Apple, CISA, FIRST, and NIST endpoints.
 - ThreatFox is disabled by default and is separate from scans. It sends only an indicator typed and confirmed by the analyst.
@@ -182,8 +186,9 @@ The built-in signing identity uses Ed25519 when the optional dependency is avail
 - IOC and YARA results are only as reliable as the imported rules and selected scan targets.
 - External intelligence can be delayed, incomplete, unavailable, or ambiguous for a particular build.
 - Volatile process and network state can change during collection.
+- Process termination can interrupt work or lose unsaved data. `SIGKILL` does not allow cleanup, and a zombie cannot receive another signal.
 - The portable release is not Apple-signed or notarized.
-- There is no remote agent, continuous monitoring service, automatic remediation, or cloud console.
+- There is no remote agent, continuous monitoring service, automatic remediation, or cloud console. Process response always requires a local analyst confirmation.
 - Legal admissibility and chain-of-custody requirements depend on the analyst's process and jurisdiction.
 
 ## Development
@@ -222,6 +227,6 @@ Findings do not change the process exit code. The CLI exits `0` when collection 
 
 ## Contributing and license
 
-Contributions are welcome when they preserve the read-only collection boundary and include tests for evaluation logic. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Contributions are welcome when they preserve the read-only collector boundary, keep response actions narrowly constrained, and include tests for evaluation logic. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 macOS Inspector is released under the [MIT License](LICENSE).
