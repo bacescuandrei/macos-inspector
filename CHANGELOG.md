@@ -6,6 +6,7 @@
 - Added same-origin response protections and end-to-end regression coverage for the local web boundary.
 - Moved comparison-report generation to a protected `POST` request so read-only `GET` routes cannot create local files.
 - Bounded local JSON, manifest, key, cache, IOC pack, and scan-history reads, and streamed report downloads to avoid loading large artifacts into server memory.
+- Updated GitHub CI actions to current Node.js 24 releases and pinned each action to an immutable commit.
 
 ## 1.2.4 - 2026-09-17
 

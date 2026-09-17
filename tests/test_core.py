@@ -775,11 +775,14 @@ class CoreTests(unittest.TestCase):
             "python -m unittest discover -s tests -v",
             "node --check src/macos_inspector/webui/app.js",
             "python -m scripts.build_release",
-            "actions/upload-artifact@v4",
+            "actions/upload-artifact@",
             "contents: read",
         )
         for step in expected_steps:
             self.assertIn(step, workflow)
+        action_references = re.findall(r"uses:\s+[^@\s]+@([^\s#]+)", workflow)
+        self.assertTrue(action_references)
+        self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}", reference) for reference in action_references))
 
     def test_dashboard_health_reports_only_operational_state(self):
         with tempfile.TemporaryDirectory() as directory:
