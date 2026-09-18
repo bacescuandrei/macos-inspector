@@ -9,6 +9,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlencode, urlparse
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from macos_inspector import __version__
@@ -24,6 +25,8 @@ EPSS_API = "https://api.first.org/data/v1/epss"
 NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 APPLE_RELEASES = "https://support.apple.com/en-us/100100"
 THREATFOX_API = "https://threatfox-api.abuse.ch/api/v1/"
+VIRUSTOTAL_API = "https://www.virustotal.com/api/v3/files/"
+MALWAREBAZAAR_API = "https://mb-api.abuse.ch/api/v1/"
 
 
 @dataclass(frozen=True)
@@ -284,3 +287,146 @@ def lookup_threatfox(indicator: str) -> dict:
         raise ValueError("ThreatFox returned an invalid response.")
     data = payload.get("data") if isinstance(payload.get("data"), list) else []
     return {"query_status": payload["query_status"], "data": data[:100], "indicator_transmitted": value, "automatic_submission": False}
+
+
+def _sha256(value: str) -> str:
+    digest = value.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("A valid SHA-256 value is required.")
+    return digest
+
+
+def _validate_reputation_cache(payload: object) -> dict:
+    if not isinstance(payload, dict) or not isinstance(payload.get("status"), str):
+        raise ValueError("Cached reputation response is invalid.")
+    return payload
+
+
+def _cached_reputation(name: str) -> dict | None:
+    cached = _load_cache(name, _validate_reputation_cache)
+    if not cached:
+        return None
+    resource = _cached_resource(cached[0], cached[1], int(SettingsStore().load()["cache_hours"]), "cache")
+    if resource.stale:
+        return None
+    provenance = {**resource.provenance(), "host_data_transmitted": True, "transmitted_fields": ["sha256"]}
+    return {**resource.payload, "provenance": provenance}
+
+
+def _store_reputation(name: str, provider: str, url: str, payload: dict) -> dict:
+    resource = _store_cache(name, provider, url, payload)
+    provenance = {**resource.provenance(), "host_data_transmitted": True, "transmitted_fields": ["sha256"]}
+    return {**payload, "provenance": provenance}
+
+
+def lookup_virustotal_hash(sha256: str) -> dict:
+    digest = _sha256(sha256)
+    settings = SettingsStore().load()["providers"]["virustotal"]
+    if not settings.get("enabled"):
+        raise ValueError("VirusTotal is disabled in local settings.")
+    api_key = str(settings.get("api_key", ""))
+    if not api_key:
+        raise ValueError("VirusTotal requires an API key in local settings.")
+    cache_name = f"rep-vt-{digest}"
+    cached = _cached_reputation(cache_name)
+    if cached:
+        return cached
+    url = f"{VIRUSTOTAL_API}{digest}"
+    request = Request(url, headers={"Accept": "application/json", "x-apikey": api_key, "User-Agent": f"macOS-Inspector/{__version__} (explicit hash lookup)"})
+    try:
+        with urlopen(request, timeout=20) as response:
+            destination = urlparse(response.geturl())
+            if destination.scheme != "https" or destination.hostname != "www.virustotal.com":
+                raise ValueError("VirusTotal redirected to an untrusted host.")
+            raw = response.read(5 * 1024 * 1024 + 1)
+    except HTTPError as exc:
+        if exc.code == 404:
+            destination = urlparse(exc.geturl())
+            if destination.scheme != "https" or destination.hostname != "www.virustotal.com":
+                raise ValueError("VirusTotal redirected to an untrusted host.") from exc
+            return _store_reputation(cache_name, "VirusTotal", url, {"status": "not_found", "provider": "VirusTotal", "sha256": digest})
+        raise
+    if len(raw) > 5 * 1024 * 1024:
+        raise ValueError("VirusTotal response exceeds the size limit.")
+    payload = json.loads(raw.decode("utf-8"))
+    data = payload.get("data") if isinstance(payload, dict) else None
+    attributes = data.get("attributes") if isinstance(data, dict) else None
+    if not isinstance(attributes, dict):
+        raise ValueError("VirusTotal returned an invalid response.")
+    stats = attributes.get("last_analysis_stats", {})
+    result = {
+        "status": "found", "provider": "VirusTotal", "sha256": digest,
+        "type": attributes.get("type_description"),
+        "reputation": attributes.get("reputation"),
+        "analysis_stats": stats if isinstance(stats, dict) else {},
+        "last_analysis_date": attributes.get("last_analysis_date"),
+    }
+    return _store_reputation(cache_name, "VirusTotal", url, result)
+
+
+def lookup_malwarebazaar_hash(sha256: str) -> dict:
+    digest = _sha256(sha256)
+    settings = SettingsStore().load()["providers"]["malwarebazaar"]
+    if not settings.get("enabled"):
+        raise ValueError("MalwareBazaar is disabled in local settings.")
+    auth_key = str(settings.get("auth_key", ""))
+    if not auth_key:
+        raise ValueError("MalwareBazaar requires a free Auth-Key in local settings.")
+    cache_name = f"rep-mb-{digest}"
+    cached = _cached_reputation(cache_name)
+    if cached:
+        return cached
+    body = urlencode({"query": "get_info", "hash": digest}).encode("ascii")
+    request = Request(MALWAREBAZAAR_API, data=body, method="POST", headers={
+        "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded",
+        "Auth-Key": auth_key, "User-Agent": f"macOS-Inspector/{__version__} (explicit hash lookup)",
+    })
+    with urlopen(request, timeout=20) as response:
+        destination = urlparse(response.geturl())
+        if destination.scheme != "https" or destination.hostname != "mb-api.abuse.ch":
+            raise ValueError("MalwareBazaar redirected to an untrusted host.")
+        raw = response.read(5 * 1024 * 1024 + 1)
+    if len(raw) > 5 * 1024 * 1024:
+        raise ValueError("MalwareBazaar response exceeds the size limit.")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("query_status"), str):
+        raise ValueError("MalwareBazaar returned an invalid response.")
+    rows = payload.get("data") if isinstance(payload.get("data"), list) else []
+    first = rows[0] if rows and isinstance(rows[0], dict) else {}
+    result = {
+        "status": "found" if payload["query_status"] == "ok" and first else "not_found",
+        "provider": "MalwareBazaar", "sha256": digest,
+        "signature": first.get("signature"), "file_type": first.get("file_type"),
+        "first_seen": first.get("first_seen"), "tags": first.get("tags") if isinstance(first.get("tags"), list) else [],
+    }
+    return _store_reputation(cache_name, "MalwareBazaar", MALWAREBAZAAR_API, result)
+
+
+def lookup_hash_reputation(sha256: str) -> dict:
+    digest = _sha256(sha256)
+    settings = SettingsStore().load()["providers"]
+    enabled = [name for name in ("virustotal", "malwarebazaar", "threatfox") if settings.get(name, {}).get("enabled")]
+    if not enabled:
+        raise ValueError("Enable and configure at least one hash reputation provider first.")
+    results = []
+    for name in enabled:
+        try:
+            if name == "virustotal":
+                result = lookup_virustotal_hash(digest)
+            elif name == "malwarebazaar":
+                result = lookup_malwarebazaar_hash(digest)
+            else:
+                raw = lookup_threatfox(digest)
+                result = {
+                    "status": "found" if raw.get("query_status") == "ok" and raw.get("data") else "not_found",
+                    "provider": "ThreatFox", "sha256": digest, "matches": len(raw.get("data", [])),
+                }
+        except Exception as exc:
+            labels = {"virustotal": "VirusTotal", "malwarebazaar": "MalwareBazaar", "threatfox": "ThreatFox"}
+            result = {"status": "error", "provider": labels[name], "sha256": digest, "error": str(exc)}
+        results.append(result)
+    return {
+        "sha256_transmitted": digest, "providers": results,
+        "automatic_submission": False, "file_uploaded": False,
+        "privacy_note": "Only this SHA-256 value was sent to the explicitly enabled providers.",
+    }

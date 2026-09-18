@@ -15,6 +15,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 from macos_inspector import __version__
@@ -23,13 +24,14 @@ from macos_inspector.collectors.ioc import MAX_PACK_BYTES, load_ioc_pack
 from macos_inspector.core.io import read_json_limited, read_text_limited
 from macos_inspector.core.models import Severity
 from macos_inspector.core.comparison import compare_scan_payloads
+from macos_inspector.core.decision_support import build_decision_support, write_investigation_summary
 from macos_inspector.core.guidance import build_guidance
 from macos_inspector.core.process_control import terminate_reported_process
 from macos_inspector.core.readiness import collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.runner import CommandRunner, ScanCancelled
 from macos_inspector.core.storage import CaseStore, InvestigationStore, SettingsStore
-from macos_inspector.core.intelligence import clear_intelligence_cache, lookup_threatfox
+from macos_inspector.core.intelligence import clear_intelligence_cache, lookup_hash_reputation, lookup_threatfox
 from macos_inspector.collectors.yara_rules import MAX_RULE_BYTES, discover_yara_rules
 from macos_inspector.reporters import REPORTERS, report_format_capabilities, require_report_formats
 from macos_inspector.reporters.manifest_reporter import MAX_KEY_BYTES, MAX_MANIFEST_BYTES, verify_manifest
@@ -47,6 +49,38 @@ MAX_RESPONSE_LOG_BYTES = 4 * 1024 * 1024
 
 
 SCAN_PROFILES = (
+    {
+        "id": "unexpected-app",
+        "title": "I found an app I do not recognize",
+        "description": "Check application identity, startup behavior, live processes, extensions, and local indicators.",
+        "collectors": ("application-trust", "background-items", "persistence", "live-triage", "system-extensions", "ioc"),
+        "default": False,
+        "goal": True,
+    },
+    {
+        "id": "remote-access",
+        "title": "I suspect remote access",
+        "description": "Review running processes, listeners, installed apps, startup mechanisms, and system extensions.",
+        "collectors": ("live-triage", "network", "application-trust", "persistence", "background-items", "system-extensions", "ioc"),
+        "default": False,
+        "goal": True,
+    },
+    {
+        "id": "browser-problem",
+        "title": "My browser behaves strangely",
+        "description": "Review browser artifacts, privacy permissions, network configuration, persistence, and local indicators.",
+        "collectors": ("browser-artifacts", "privacy", "network", "persistence", "ioc"),
+        "default": False,
+        "goal": True,
+    },
+    {
+        "id": "performance",
+        "title": "My Mac is unusually slow",
+        "description": "Review live processes, startup items, persistence, extensions, and core security controls.",
+        "collectors": ("live-triage", "background-items", "persistence", "system-extensions", "security"),
+        "default": False,
+        "goal": True,
+    },
     {
         "id": "quick",
         "title": "Quick triage",
@@ -461,6 +495,40 @@ class DashboardState:
         report = self._load_scan_report(scan_id)
         return build_guidance(report, self.investigations.for_report(report))
 
+    def _previous_comparable_report(self, current: dict[str, Any]) -> dict[str, Any] | None:
+        metadata = current.get("metadata", {})
+        current_id = metadata.get("scan_id")
+        current_scope = set(metadata.get("collectors", []))
+        current_completed = str(metadata.get("completed_at", ""))
+        candidates: list[tuple[str, dict[str, Any]]] = []
+        for path in self.output.glob("macos-inspector-*.json"):
+            try:
+                report = read_json_limited(path, MAX_REPORT_JSON_BYTES)
+                previous = report.get("metadata", {}) if isinstance(report, dict) else {}
+                if previous.get("scan_id") == current_id or set(previous.get("collectors", [])) != current_scope:
+                    continue
+                completed = str(previous.get("completed_at", ""))
+                if not completed or (current_completed and completed >= current_completed):
+                    continue
+                candidates.append((completed, report))
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+        return max(candidates, key=lambda item: item[0])[1] if candidates else None
+
+    def decision_support(self, scan_id: str) -> dict:
+        report = self._load_scan_report(scan_id)
+        return build_decision_support(
+            report, self._previous_comparable_report(report), self.investigations.for_report(report),
+        )
+
+    def export_investigation_summary(self, scan_id: str) -> dict:
+        report = self._load_scan_report(scan_id)
+        decision = build_decision_support(
+            report, self._previous_comparable_report(report), self.investigations.for_report(report),
+        )
+        path = write_investigation_summary(report, decision, self.output)
+        return {"report": f"/reports/{path.name}", "filename": path.name}
+
     def save_investigation(self, scan_id: str, supplied: object) -> dict:
         report = self._load_scan_report(scan_id)
         record = self.investigations.save(report, supplied)
@@ -697,6 +765,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "yara": {"available": Path(CommandRunner.ALLOWED["yara"]).is_file(), "reason": "" if Path(CommandRunner.ALLOWED["yara"]).is_file() else "Install YARA with Homebrew to enable local rule execution."},
                     "process_response": {"available": os.geteuid() != 0, "reason": "" if os.geteuid() != 0 else "Process response is disabled when the dashboard runs as root."},
                     "guided_investigation": {"available": True, "reason": "Plain-language guidance and investigation notes are stored locally and never modify scan evidence."},
+                    "decision_support": {"available": True, "reason": "Change analysis, confidence, and correlations are derived from completed local reports."},
                 },
                 "severities": [severity.label() for severity in Severity],
             })
@@ -720,6 +789,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             scan_id = unquote(path.removeprefix("/api/guidance/")).strip("/")
             try:
                 self._send_json(self.state.guidance(scan_id))
+            except FileNotFoundError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+            except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        elif path.startswith("/api/decision-support/"):
+            scan_id = unquote(path.removeprefix("/api/decision-support/")).strip("/")
+            try:
+                self._send_json(self.state.decision_support(scan_id))
             except FileNotFoundError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
             except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
@@ -819,6 +896,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
+        if path == "/api/investigation-summary":
+            try:
+                payload = self._read_json_body(4096)
+                self._send_json(self.state.export_investigation_summary(str(payload.get("scan_id", ""))), HTTPStatus.CREATED)
+            except PermissionError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+            except FileNotFoundError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+            except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         if path.startswith("/api/scans/") and path.endswith("/cancel"):
             if self.headers.get("X-MacOS-Inspector") != "1":
                 self._send_json({"error": "Invalid local request."}, HTTPStatus.FORBIDDEN)
@@ -831,7 +919,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except RuntimeError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
             return
-        if path in {"/api/settings", "/api/cases", "/api/ioc-packs", "/api/yara-rules", "/api/osint-cache/clear", "/api/signing/generate", "/api/threatfox/lookup"}:
+        if path in {"/api/settings", "/api/cases", "/api/ioc-packs", "/api/yara-rules", "/api/osint-cache/clear", "/api/signing/generate", "/api/threatfox/lookup", "/api/reputation/hash"}:
             try:
                 payload = self._read_json_body(6 * 1024 * 1024)
                 if path == "/api/settings":
@@ -846,6 +934,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     result = self.state.generate_signing_key(bool(payload.get("replace", False)))
                 elif path == "/api/threatfox/lookup":
                     result = lookup_threatfox(str(payload.get("indicator", "")))
+                elif path == "/api/reputation/hash":
+                    result = lookup_hash_reputation(str(payload.get("sha256", "")))
                 else:
                     result = {"cleared": clear_intelligence_cache()}
                 self._send_json(result, HTTPStatus.CREATED if path in {"/api/cases", "/api/ioc-packs", "/api/yara-rules"} else HTTPStatus.OK)

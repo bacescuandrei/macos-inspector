@@ -95,11 +95,15 @@
               <label class="toggle-row"><span><strong>FIRST EPSS</strong><small data-i18n="publicNoKey">Public source | no key</small></span><input data-provider="epss" type="checkbox"></label>
               <label class="toggle-row"><span><strong>NIST NVD</strong><small data-i18n="optionalKey">Public API | optional key</small></span><input data-provider="nvd" type="checkbox"></label>
               <label class="toggle-row"><span><strong>ThreatFox</strong><small data-i18n="optionalFreeKey">Optional | free Auth-Key</small></span><input data-provider="threatfox" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>VirusTotal hash reputation</strong><small>Optional | community API key</small></span><input data-provider="virustotal" type="checkbox"></label>
+              <label class="toggle-row"><span><strong>MalwareBazaar hash reputation</strong><small>Optional | free Auth-Key</small></span><input data-provider="malwarebazaar" type="checkbox"></label>
             </div>
             <div class="form-grid two-columns">
               <label><span data-i18n="cacheHours">Cache (hours)</span><input id="cache-hours" class="field" type="number" min="1" max="168"></label>
               <label><span>NVD API key <small id="nvd-key-state"></small></span><input id="nvd-api-key" class="field" type="password" autocomplete="off" placeholder="optional" data-i18n-placeholder="optional"></label>
               <label><span>ThreatFox Auth-Key <small id="threatfox-key-state"></small></span><input id="threatfox-auth-key" class="field" type="password" autocomplete="off" placeholder="optional" data-i18n-placeholder="optional"></label>
+              <label><span>VirusTotal API key <small id="virustotal-key-state"></small></span><input id="virustotal-api-key" class="field" type="password" autocomplete="off" placeholder="optional" data-i18n-placeholder="optional"></label>
+              <label><span>MalwareBazaar Auth-Key <small id="malwarebazaar-key-state"></small></span><input id="malwarebazaar-auth-key" class="field" type="password" autocomplete="off" placeholder="optional" data-i18n-placeholder="optional"></label>
             </div>
             <div class="explicit-lookup">
               <label><span data-i18n="explicitLookup">Explicit ThreatFox IOC lookup</span><input id="threatfox-indicator" class="field" maxlength="2048" placeholder="IP, domain, URL or hash"></label>
@@ -156,8 +160,8 @@
           <div><p class="eyebrow">01 / SCOPE</p><h2 id="controls-title" data-i18n="auditSections">Audit sections</h2></div>
           <div class="scope-actions"><button id="select-all" class="text-button" type="button" data-i18n="all">All</button><button id="clear-selection" class="text-button" type="button" data-i18n="clear">Clear</button></div>
         </div>
-        <p class="scope-label" data-i18n="scanProfiles">Scan profiles</p>
-        <div id="scan-profiles" class="profile-grid" aria-label="Scan profiles"><p class="muted">Loading profiles...</p></div>
+        <p class="scope-label" data-i18n="scanProfiles">What do you want to investigate?</p>
+        <div id="scan-profiles" class="profile-groups" aria-label="Investigation goals and scan profiles"><p class="muted">Loading profiles...</p></div>
         <p class="scope-label sections-label" data-i18n="individualSections">Individual sections</p>
         <div id="collectors" class="collector-list" aria-live="polite"><p class="muted">Loading audit sections...</p></div>
 
@@ -198,6 +202,7 @@
         <div id="case-banner" class="case-banner hidden"></div>
         <div id="summary" class="summary-grid hidden"></div>
         <section id="guided-summary" class="guided-summary hidden" aria-labelledby="guided-summary-title"></section>
+        <section id="decision-support" class="decision-support hidden" aria-labelledby="decision-support-title"></section>
         <section id="comparison-panel" class="comparison-panel hidden" aria-labelledby="comparison-title"><div class="comparison-heading"><div><span class="eyebrow">BASELINE DIFF</span><h3 id="comparison-title" data-i18n="scanComparison">Scan comparison</h3></div><button id="close-comparison" class="text-button" type="button" data-i18n="close">Close</button></div><div id="comparison-summary" class="comparison-summary"></div><div id="comparison-results" class="comparison-results"></div></section>
         <div id="report-links" class="report-links hidden"></div>
         <details id="timeline-panel" class="timeline-panel hidden"><summary>Timeline | <span id="timeline-count">0</span> events</summary><div id="timeline" class="timeline-list"></div></details>

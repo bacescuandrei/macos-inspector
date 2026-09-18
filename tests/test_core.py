@@ -63,10 +63,20 @@ from macos_inspector.collectors.live_triage import (
     suspicious_processes,
 )
 from macos_inspector.collectors.yara_rules import discover_yara_rules, parse_yara_matches
-from macos_inspector.core.intelligence import IntelligenceResource, fetch_cached_json, parse_apple_security_releases, validate_epss, validate_nvd
+from macos_inspector.core.intelligence import (
+    IntelligenceResource,
+    fetch_cached_json,
+    lookup_hash_reputation,
+    lookup_malwarebazaar_hash,
+    lookup_virustotal_hash,
+    parse_apple_security_releases,
+    validate_epss,
+    validate_nvd,
+)
 from macos_inspector.core.io import read_json_limited
 from macos_inspector.core.storage import CaseStore, InvestigationStore, SettingsStore
 from macos_inspector.core.guidance import build_guidance, finding_fingerprint
+from macos_inspector.core.decision_support import build_decision_support, confidence_for_finding, write_investigation_summary
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.process_control import review_process_candidates, terminate_reported_process
@@ -249,12 +259,20 @@ class CoreTests(unittest.TestCase):
             settings = SettingsStore(root)
             public = settings.update({
                 "cache_hours": 12,
-                "providers": {"nvd": {"enabled": True, "api_key": "nvd-secret"}, "threatfox": {"enabled": True, "auth_key": "fox-secret"}},
+                "providers": {
+                    "nvd": {"enabled": True, "api_key": "nvd-secret"},
+                    "threatfox": {"enabled": True, "auth_key": "fox-secret"},
+                    "virustotal": {"enabled": True, "api_key": "vt-secret"},
+                    "malwarebazaar": {"enabled": True, "auth_key": "bazaar-secret"},
+                },
                 "yara": {"enabled": True, "targets": ["~/Downloads"]},
             })
             self.assertNotIn("language", public)
             self.assertTrue(public["providers"]["nvd"]["api_key_configured"])
-            self.assertNotIn("nvd-secret", json.dumps(public))
+            self.assertTrue(public["providers"]["virustotal"]["api_key_configured"])
+            self.assertTrue(public["providers"]["malwarebazaar"]["auth_key_configured"])
+            for secret in ("nvd-secret", "fox-secret", "vt-secret", "bazaar-secret"):
+                self.assertNotIn(secret, json.dumps(public))
             self.assertEqual(settings.path.stat().st_mode & 0o777, 0o600)
 
             cases = CaseStore(root)
@@ -348,6 +366,177 @@ class CoreTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
+
+    def test_decision_support_separates_confidence_changes_and_correlations(self):
+        def application(sha256):
+            return {
+                "finding_id": "APP-TRUST-EXAMPLE", "category": "Application Trust",
+                "title": "Application trust: Example", "severity": "High", "status": "Review",
+                "description": "Checks application trust.", "observed_result": "The application needs review.",
+                "evidence": [
+                    {"kind": "application_bundle", "source": "/Applications/Example.app", "value": {"name": "Example", "version": "1.0", "bundle_identifier": "test.example", "executable": "/Applications/Example.app/Contents/MacOS/Example"}},
+                    {"kind": "code_signature", "source": "/Applications/Example.app", "value": {"valid": True, "team_identifier": "TEAM123"}},
+                    {"kind": "executable_integrity", "source": "/Applications/Example.app/Contents/MacOS/Example", "value": {"sha256": sha256}},
+                    {"kind": "gatekeeper_assessment", "source": "/Applications/Example.app", "value": {"accepted": True}},
+                ],
+            }
+        baseline = {
+            "metadata": {"scan_id": "baseline", "collectors": ["application-trust", "live-triage"], "completed_at": "2026-01-01T00:00:00+00:00"},
+            "summary": {}, "findings": [application("a" * 64)],
+        }
+        current_app = application("b" * 64)
+        process = {
+            "finding_id": "LIVE-PROCESS-TREE", "category": "Live Triage", "title": "Running process tree snapshot",
+            "severity": "Low", "status": "Review", "description": "Live process review.", "observed_result": "One candidate.",
+            "evidence": [{"kind": "process_snapshot", "source": "local", "value": {"review_candidates": [{
+                "pid": 42, "uid": 501, "user": "owner", "executable": "/Applications/Example.app/Contents/MacOS/Example", "reason": "test", "priority": "low",
+            }]}}],
+        }
+        current = {
+            "metadata": {"scan_id": "current", "hostname": "fixture", "collectors": ["application-trust", "live-triage"], "completed_at": "2026-01-02T00:00:00+00:00"},
+            "summary": {}, "findings": [current_app, process],
+        }
+        result = build_decision_support(current, baseline)
+        app_guidance = result["guidance"]["findings"]["APP-TRUST-EXAMPLE"]
+        self.assertEqual(app_guidance["confidence"]["level"], "high")
+        self.assertEqual(result["changes"]["counts"]["changed_applications"], 1)
+        self.assertEqual(result["changes"]["highlights"][0]["label"], "Application changed")
+        self.assertEqual(len(result["stories"]), 1)
+        self.assertIn("application", result["stories"][0]["title"])
+        self.assertEqual(confidence_for_finding({"status": "Unknown", "evidence": []})["level"], "low")
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_investigation_summary(current, result, Path(directory))
+            html = path.read_text(encoding="utf-8")
+            self.assertIn("Changes since the previous comparable scan", html)
+            self.assertIn("Example", html)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_decision_support_and_summary_export_use_comparable_baseline(self):
+        baseline = {
+            "metadata": {"scan_id": "decision-old", "collectors": ["security"], "completed_at": "2026-01-01T00:00:00+00:00"},
+            "summary": {"overall_score": 100}, "findings": [],
+        }
+        current = {
+            "metadata": {"scan_id": "decision-new", "hostname": "fixture", "collectors": ["security"], "completed_at": "2026-01-02T00:00:00+00:00"},
+            "summary": {"overall_score": 80}, "findings": [{
+                "finding_id": "SECURITY-TEST", "category": "System Hardening", "title": "Security control",
+                "severity": "High", "status": "Fail", "description": "Control check", "observed_result": "Disabled", "evidence": [],
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            for report in (baseline, current):
+                scan_id = report["metadata"]["scan_id"]
+                (state.output / f"macos-inspector-{scan_id}.json").write_text(json.dumps(report), encoding="utf-8")
+            server = DashboardServer(("127.0.0.1", 0), state)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host = f"127.0.0.1:{server.server_port}"
+                status, _, body = dashboard_request(server, "GET", "/api/decision-support/decision-new", host)
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(body)["changes"]["baseline_scan_id"], "decision-old")
+                status, _, _ = dashboard_request(server, "POST", "/api/investigation-summary", host, payload={"scan_id": "decision-new"}, write_header=False)
+                self.assertEqual(status, 403)
+                status, _, body = dashboard_request(server, "POST", "/api/investigation-summary", host, payload={"scan_id": "decision-new"})
+                self.assertEqual(status, 201)
+                exported = json.loads(body)
+                self.assertTrue((state.output / exported["filename"]).is_file())
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+    def test_hash_reputation_is_explicit_hash_only_and_provider_controlled(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"MACOS_INSPECTOR_DATA_DIR": directory}, clear=False):
+            SettingsStore().update({"providers": {"virustotal": {"enabled": True, "api_key": "test-key"}}})
+            with patch("macos_inspector.core.intelligence.lookup_virustotal_hash", return_value={"status": "not_found", "provider": "VirusTotal"}) as lookup:
+                result = lookup_hash_reputation("a" * 64)
+            lookup.assert_called_once_with("a" * 64)
+            self.assertEqual(result["sha256_transmitted"], "a" * 64)
+            self.assertFalse(result["automatic_submission"])
+            self.assertFalse(result["file_uploaded"])
+            with self.assertRaises(ValueError):
+                lookup_hash_reputation("not-a-hash")
+
+    def test_hash_reputation_provider_requests_send_only_the_digest(self):
+        class Response:
+            def __init__(self, url, payload):
+                self.url = url
+                self.payload = json.dumps(payload).encode()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def geturl(self):
+                return self.url
+
+            def read(self, _limit):
+                return self.payload
+
+        vt_digest, bazaar_digest = "1" * 64, "2" * 64
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"MACOS_INSPECTOR_DATA_DIR": directory}, clear=False):
+            SettingsStore().update({"providers": {
+                "virustotal": {"enabled": True, "api_key": "vt-key"},
+                "malwarebazaar": {"enabled": True, "auth_key": "bazaar-key"},
+            }})
+            vt_payload = {"data": {"attributes": {"last_analysis_stats": {"malicious": 1}, "type_description": "Mach-O"}}}
+            with patch("macos_inspector.core.intelligence.urlopen", return_value=Response(
+                f"https://www.virustotal.com/api/v3/files/{vt_digest}", vt_payload,
+            )) as request_call:
+                result = lookup_virustotal_hash(vt_digest)
+            request = request_call.call_args.args[0]
+            self.assertEqual(request.full_url, f"https://www.virustotal.com/api/v3/files/{vt_digest}")
+            self.assertIsNone(request.data)
+            self.assertEqual(result["analysis_stats"]["malicious"], 1)
+            self.assertTrue(result["provenance"]["host_data_transmitted"])
+            self.assertEqual(result["provenance"]["transmitted_fields"], ["sha256"])
+            with patch("macos_inspector.core.intelligence.urlopen", side_effect=AssertionError("cache miss")):
+                cached = lookup_virustotal_hash(vt_digest)
+            self.assertEqual(cached["provenance"]["cache_status"], "cache")
+
+            bazaar_payload = {"query_status": "ok", "data": [{"signature": "Fixture", "file_type": "mach-o"}]}
+            with patch("macos_inspector.core.intelligence.urlopen", return_value=Response(
+                "https://mb-api.abuse.ch/api/v1/", bazaar_payload,
+            )) as request_call:
+                result = lookup_malwarebazaar_hash(bazaar_digest)
+            request = request_call.call_args.args[0]
+            self.assertEqual(request.full_url, "https://mb-api.abuse.ch/api/v1/")
+            self.assertEqual(request.data.decode(), f"query=get_info&hash={bazaar_digest}")
+            self.assertNotIn("path", request.data.decode())
+            self.assertEqual(result["signature"], "Fixture")
+
+    def test_change_analysis_detects_aggregate_startup_item_changes(self):
+        def report(scan_id, entries):
+            return {
+                "metadata": {"scan_id": scan_id, "collectors": ["background-items"], "completed_at": f"2026-01-0{1 if scan_id == 'old' else 2}T00:00:00+00:00"},
+                "summary": {},
+                "findings": [{
+                    "finding_id": "BACKGROUND-SYSTEM", "category": "Background Items",
+                    "title": "ServiceManagement disabled map: system", "severity": "Medium", "status": "Review",
+                    "description": "Service state", "observed_result": "Service state collected.",
+                    "evidence": [{"kind": "launchctl_services", "source": "launchctl", "value": {"scope": "system", "entries": entries}}],
+                }],
+            }
+
+        baseline = report("old", [{"label": "com.example.old", "state": "disabled"}])
+        current = report("new", [
+            {"label": "com.example.old", "state": "enabled"},
+            {"label": "com.example.new", "state": "enabled"},
+        ])
+        changes = build_decision_support(current, baseline)["changes"]
+        self.assertEqual(changes["counts"]["new_startup_items"], 1)
+        self.assertEqual(changes["counts"]["changed_startup_items"], 1)
+        self.assertIn("New startup item", {item["label"] for item in changes["highlights"]})
+        self.assertIn("Startup item changed", {item["label"] for item in changes["highlights"]})
+
+    def test_goal_profiles_are_local_and_problem_oriented(self):
+        goals = {profile["id"]: profile for profile in SCAN_PROFILES if profile.get("goal")}
+        self.assertEqual(set(goals), {"unexpected-app", "remote-access", "browser-problem", "performance"})
+        self.assertTrue(all(set(profile["collectors"]) <= set(LOCAL_COLLECTORS) for profile in goals.values()))
 
     def test_intelligence_cache_uses_validated_last_known_good_data(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"MACOS_INSPECTOR_DATA_DIR": directory}, clear=False):

@@ -49,6 +49,12 @@ Manifests record SHA-256 digests for normalized evidence and generated reports. 
 
 Online providers are optional. A provider result supplies context and does not prove compromise or local exposure. The application validates provider responses and records cache provenance.
 
+Hash reputation providers are disabled by default. A request requires a local confirmation and sends only the displayed SHA-256 to the enabled VirusTotal, MalwareBazaar, or ThreatFox API. It does not upload the executable, application bundle, local path, hostname, case data, or report. Provider keys remain in the owner-only settings store. A provider match is context that still requires validation, and a missing record is never presented as proof that a file is safe.
+
+### Derived decision support
+
+Changes, confidence labels, and investigation stories are derived from completed local reports. Automatic baseline selection requires the same collector set. Correlations require an exact application-path relationship and are labeled as investigation aids rather than compromise conclusions. The derived output cannot alter the source report or its evidence manifest.
+
 ## Out of scope
 
 macOS Inspector is not an EDR, anti-malware engine, memory acquisition tool, or complete forensic imaging system. It does not continuously monitor or automatically remediate a host. It does not defend a compromised operating system from falsifying command output. It does not guarantee legal admissibility or chain of custody for every jurisdiction.

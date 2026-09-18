@@ -49,6 +49,8 @@ class SettingsStore:
             "epss": {"enabled": True},
             "nvd": {"enabled": True, "api_key": ""},
             "threatfox": {"enabled": False, "auth_key": ""},
+            "virustotal": {"enabled": False, "api_key": ""},
+            "malwarebazaar": {"enabled": False, "auth_key": ""},
         },
         "yara": {
             "enabled": False,

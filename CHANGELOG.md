@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.7 - Unreleased
+
+- Added automatic **Changes since last comparable scan** analysis for applications, executable identity, startup items, network listeners, security controls, new findings, and resolved findings.
+- Added deterministic investigation stories that connect application, process, network, and persistence evidence only when an exact application path relationship is present.
+- Added evidence confidence as a separate concept from severity, with a rationale and visible missing-evidence list for each finding.
+- Added problem-oriented local scan goals for an unfamiliar application, suspected remote access, unusual browser behavior, and unexpected Mac performance.
+- Added explicit hash-only reputation checks for VirusTotal, MalwareBazaar, and ThreatFox. Providers are disabled by default, require user configuration, never receive the file, and run only after confirmation.
+- Added a simplified, responsive investigation summary that can be exported to standalone HTML without changing the original scan evidence.
+- Added protected decision-support and summary-export APIs, local reputation caching, and regression coverage for baseline selection, correlations, confidence, export protection, and hash-only privacy behavior.
+
 ## 1.2.6 - 2026-09-18
 
 - Added a first-run **Check this Mac** workflow that starts the recommended offline Quick triage profile without requiring security knowledge.

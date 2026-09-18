@@ -19,6 +19,22 @@ Use investigation states to record progress:
 
 Investigation notes are stored locally and do not change the signed or exported scan report. An `Expected` decision is not a permanent allowlist. If the underlying application identity, hash, signature, Gatekeeper result, process identity, or other security evidence changes, the dashboard returns the finding to `New` and shows the previous decision as stale.
 
+## Changes and investigation stories
+
+After a scan, **Changes since last comparable scan** automatically selects the newest earlier report with the same audit sections. It highlights new or changed applications, new startup items, new listeners, changed security controls, and resolved findings. If no equivalent earlier report exists, the current scan becomes the starting point for the next comparison.
+
+Investigation stories connect findings only when the evidence shares an exact application path. For example, an Application Trust finding can be connected to a running process, listener, or startup mechanism inside the same application bundle. A story is an investigation aid, not a malware verdict.
+
+Confidence describes how complete and direct the supporting evidence is. It does not describe impact. A high-severity finding can have low confidence when collection failed, and a normal observation can have high confidence when several local checks agree.
+
+## Hash reputation
+
+VirusTotal, MalwareBazaar, and ThreatFox are disabled by default. Configure only the providers you intend to use. Select **Check hash reputation** inside an application finding and confirm the exact SHA-256 before the request is sent. Only the hash is transmitted; the application file is never uploaded. Results are cached locally with provider provenance. A result of `not found` means only that the provider returned no record.
+
+## Investigation summary
+
+Select **Export investigation summary** to create a standalone HTML overview with current priorities, high-signal changes, correlated stories, and investigation-state counts. The summary links conclusions back to observations while leaving the original report unchanged.
+
 ## Start with readiness
 
 Open **Collection readiness** before the first scan. It checks the macOS and Python environment, trusted command availability, report storage, visible applications, TCC and browser database access, PDF support, and optional asymmetric signing support.

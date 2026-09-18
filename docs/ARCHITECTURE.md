@@ -26,11 +26,11 @@ Collectors do not write reports. Reporters do not run host commands. This bounda
 
 Host commands, local files, imported rules, intelligence responses, and browser requests are treated as untrusted input. Values are parsed, bounded, escaped, or validated before they are stored or rendered. Persisted JSON stores, imported packs, manifests, and scan reports use explicit read limits. Downloadable reports are streamed instead of being copied into server memory. The web boundary validates each `Host` and any browser `Origin` against the active loopback server port before routing a request.
 
-Online intelligence is separate from local collection. Providers receive public vulnerability identifiers or an indicator entered by the analyst. Collected host evidence is not uploaded.
+Online intelligence is separate from local collection. Providers receive public vulnerability identifiers or an indicator entered by the analyst. Collected host evidence is not uploaded. Explicit hash reputation sends only a confirmed SHA-256 to enabled providers and never uploads the application file.
 
 Process response is separate from collection. The web API loads a managed report, accepts only candidates produced by two Live Triage findings, and delegates identity revalidation and signaling to `core.process_control`. The response module cannot accept an arbitrary command line. It exposes only `SIGTERM` and `SIGKILL`, after an exact UID and executable match, and the dashboard records the result locally.
 
-Guided interpretation is also separate from collection. It maps existing finding fields to plain-language verdicts and recommended investigation steps. Local investigation states and notes are stored outside the report with owner-only permissions. Each decision is tied to a fingerprint of the security-relevant evidence, so an `Expected` decision returns to `New` when that evidence changes.
+Guided interpretation is also separate from collection. It maps existing finding fields to plain-language verdicts, evidence confidence, recommended investigation steps, comparable-scan changes, and exact-path correlations. Local investigation states and notes are stored outside the report with owner-only permissions. Each decision is tied to a fingerprint of the security-relevant evidence, so an `Expected` decision returns to `New` when that evidence changes. Decision-support output is derived from completed reports and never changes the original evidence.
 
 ## Extension rules
 

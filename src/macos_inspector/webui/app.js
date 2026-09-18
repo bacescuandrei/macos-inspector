@@ -1,8 +1,8 @@
-const state = { config: null, settings: null, cases: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, processCandidates: new Map() };
+const state = { config: null, settings: null, cases: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, decisionSupport: null, processCandidates: new Map() };
 
 const COPY = {
     manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, inspect findings, and explicitly contain a reported process when necessary.', safety:'Local-first | online OSINT is opt-in | containment requires confirmation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings | private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets | one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password | minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
-    publicNoKey:'Public source | no key', optionalKey:'Public API | optional key', optionalFreeKey:'Optional | free Auth-Key', optional:'optional', explicitLookup:'Explicit ThreatFox IOC lookup', lookup:'Lookup', threatfoxPrivacy:'Only the indicator entered above is sent to ThreatFox after you press Lookup. Nothing is submitted automatically.', iocPacks:'IOC packs', yaraRules:'YARA rules', readinessTitle:'Collection readiness', recheck:'Recheck', checkingAccess:'Checking local access...', runningDiagnostics:'Running read-only diagnostics...', auditSections:'Audit sections', all:'All', clear:'Clear', scanProfiles:'Scan profiles', individualSections:'Individual sections', reportFormats:'Report formats', caseReferenceOptional:'Case reference', analystOptional:'Analyst', optionalLabel:'optional', casePlaceholder:'Incident or case ID', analystPlaceholder:'Name or team', minimumSeverity:'Minimum severity shown', severityAll:'All findings', severityLow:'Low and above', severityMedium:'Medium and above', severityHigh:'High and above', severityCritical:'Critical only', runSelected:'Run selected audit', cancelScan:'Cancel running scan', scanResults:'Scan results', ready:'Ready', readyTitle:'Ready when you are.', readyHelp:'Select a section and start an audit.', scanComparison:'Scan comparison', close:'Close', searchFindings:'Search findings', searchFindingsPlaceholder:'Title, ID, evidence...', status:'Status', allStatuses:'All statuses', category:'Category', allCategories:'All categories', previous:'Previous', next:'Next', noScan:'No scan selected', noScanHelp:'Your findings will appear here with evidence, commands and recommendations.', previousScans:'Previous scans', refresh:'Refresh', findScan:'Find a scan', findScanPlaceholder:'Case, analyst, collector or scan ID', interfaceLanguage:'Interface language', onlineOptIn:'Online opt-in', run:'Run', sections:'sections', unavailable:'Unavailable'
+    publicNoKey:'Public source | no key', optionalKey:'Public API | optional key', optionalFreeKey:'Optional | free Auth-Key', optional:'optional', explicitLookup:'Explicit ThreatFox IOC lookup', lookup:'Lookup', threatfoxPrivacy:'Only the indicator entered above is sent to ThreatFox after you press Lookup. Nothing is submitted automatically.', iocPacks:'IOC packs', yaraRules:'YARA rules', readinessTitle:'Collection readiness', recheck:'Recheck', checkingAccess:'Checking local access...', runningDiagnostics:'Running read-only diagnostics...', auditSections:'Audit sections', all:'All', clear:'Clear', scanProfiles:'What do you want to investigate?', individualSections:'Individual sections', reportFormats:'Report formats', caseReferenceOptional:'Case reference', analystOptional:'Analyst', optionalLabel:'optional', casePlaceholder:'Incident or case ID', analystPlaceholder:'Name or team', minimumSeverity:'Minimum severity shown', severityAll:'All findings', severityLow:'Low and above', severityMedium:'Medium and above', severityHigh:'High and above', severityCritical:'Critical only', runSelected:'Run selected audit', cancelScan:'Cancel running scan', scanResults:'Scan results', ready:'Ready', readyTitle:'Ready when you are.', readyHelp:'Select a section and start an audit.', scanComparison:'Scan comparison', close:'Close', searchFindings:'Search findings', searchFindingsPlaceholder:'Title, ID, evidence...', status:'Status', allStatuses:'All statuses', category:'Category', allCategories:'All categories', previous:'Previous', next:'Next', noScan:'No scan selected', noScanHelp:'Your findings will appear here with evidence, commands and recommendations.', previousScans:'Previous scans', refresh:'Refresh', findScan:'Find a scan', findScanPlaceholder:'Case, analyst, collector or scan ID', interfaceLanguage:'Interface language', onlineOptIn:'Online opt-in', run:'Run', sections:'sections', unavailable:'Unavailable'
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -65,7 +65,7 @@ function setGuideVisible(visible) {
 }
 
 function dismissGuide() {
-  try { window.localStorage.setItem('macos-inspector-guide-1.2.6', 'dismissed'); } catch (error) { /* Local preferences are optional. */ }
+  try { window.localStorage.setItem('macos-inspector-guide-1.2.7', 'dismissed'); } catch (error) { /* Local preferences are optional. */ }
   setGuideVisible(false);
 }
 
@@ -112,7 +112,10 @@ function renderCollectors(preserve = false) {
 
 function renderProfiles(preserve = false) {
   const profiles = state.config.profiles || [];
-  $('#scan-profiles').innerHTML = profiles.map((profile) => `<button type="button" class="profile-card" data-profile="${escapeHtml(profile.id)}" title="${escapeHtml(profile.description)}"><strong>${escapeHtml(profile.title)}</strong><small>${escapeHtml(profile.description)}</small><span>${escapeHtml(profile.collectors.length)} ${escapeHtml(t('sections'))}</span></button>`).join('');
+  const cards = (items) => items.map((profile) => `<button type="button" class="profile-card${profile.goal ? ' goal-card' : ''}" data-profile="${escapeHtml(profile.id)}" title="${escapeHtml(profile.description)}"><strong>${escapeHtml(profile.title)}</strong><small>${escapeHtml(profile.description)}</small><span>${escapeHtml(profile.collectors.length)} ${escapeHtml(t('sections'))}</span></button>`).join('');
+  const goals = profiles.filter((profile) => profile.goal);
+  const presets = profiles.filter((profile) => !profile.goal);
+  $('#scan-profiles').innerHTML = `<section><span class="profile-group-label">START WITH WHAT YOU NOTICED</span><div class="profile-grid">${cards(goals)}</div></section><section><span class="profile-group-label">SCAN PRESETS</span><div class="profile-grid">${cards(presets)}</div></section>`;
   document.querySelectorAll('[data-profile]').forEach((button) => button.addEventListener('click', () => selectProfile(button.dataset.profile, true)));
   if (preserve) syncActiveProfile();
   else {
@@ -322,17 +325,50 @@ async function loadReport(job) {
     const payload = await api(job.reports.json);
     state.currentScanId = payload.metadata?.scan_id || '';
     try {
-      state.guidance = state.currentScanId ? await api(`/api/guidance/${encodeURIComponent(state.currentScanId)}`) : null;
+      state.decisionSupport = state.currentScanId ? await api(`/api/decision-support/${encodeURIComponent(state.currentScanId)}`) : null;
+      state.guidance = state.decisionSupport?.guidance || null;
     } catch (error) {
+      state.decisionSupport = null;
       state.guidance = null;
-      setMessage(`The report loaded, but guided interpretation is unavailable: ${error.message}`, true);
+      setMessage(`The report loaded, but decision support is unavailable: ${error.message}`, true);
     }
     renderCaseMetadata(payload.metadata || {});
     renderSummary(payload.summary);
     renderGuidance(state.guidance);
+    renderDecisionSupport(state.decisionSupport);
     renderTimeline(payload.timeline || []);
     renderFindings(payload.findings || []);
   } catch (error) { setMessage(`Could not load report data: ${error.message}`, true); }
+}
+
+function renderDecisionSupport(decision) {
+  const panel = $('#decision-support');
+  if (!decision) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+  const changes = decision.changes || {};
+  const counts = changes.counts || {};
+  const changeMetrics = changes.available ? [
+    ['New apps', counts.new_applications || 0], ['Changed apps', counts.changed_applications || 0],
+    ['New startup items', counts.new_startup_items || 0], ['Changed startup items', counts.changed_startup_items || 0],
+    ['New listeners', counts.new_network_listeners || 0], ['Resolved findings', counts.resolved_findings || 0],
+  ] : [];
+  const highlights = (changes.highlights || []).slice(0, 8).map((item) => `<button type="button" class="decision-row" data-review-finding="${escapeHtml(item.finding_id || '')}"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></button>`).join('');
+  const stories = (decision.stories || []).map((story) => `<article class="story-card"><span>${escapeHtml(story.confidence)} confidence correlation</span><h4>${escapeHtml(story.title)}</h4><p>${escapeHtml(story.narrative)}</p><details><summary>Signals and next steps</summary><ul>${(story.signals || []).map((signal) => `<li>${escapeHtml(signal.type)} | ${escapeHtml(signal.detail)}</li>`).join('')}</ul><ol>${(story.next_actions || []).map((action) => `<li>${escapeHtml(action)}</li>`).join('')}</ol></details></article>`).join('');
+  panel.innerHTML = `<div class="decision-heading"><div><p class="eyebrow">DECISION SUPPORT</p><h3 id="decision-support-title">What changed and how the evidence connects</h3><p>${escapeHtml(changes.message || '')}</p></div><button type="button" class="secondary-button" id="export-investigation-summary">Export investigation summary</button></div>${changeMetrics.length ? `<div class="change-metrics">${changeMetrics.map(([label,value]) => `<span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>`).join('')}</div>` : ''}<div class="decision-columns"><section><h4>Changes since last comparable scan</h4>${highlights || `<p class="muted">${escapeHtml(changes.message || 'No high-signal changes were identified.')}</p>`}</section><section><h4>Correlated investigation stories</h4>${stories || '<p class="muted">No finding is currently connected across multiple evidence types.</p>'}</section></div>`;
+  panel.classList.remove('hidden');
+  panel.querySelectorAll('[data-review-finding]').forEach((button) => button.addEventListener('click', () => focusFinding(button.dataset.reviewFinding)));
+  $('#export-investigation-summary').addEventListener('click', exportInvestigationSummary);
+}
+
+async function exportInvestigationSummary() {
+  if (!state.currentScanId) return;
+  const button = $('#export-investigation-summary');
+  button.disabled = true;
+  try {
+    const result = await api('/api/investigation-summary', writeOptions('POST', {scan_id:state.currentScanId}));
+    window.open(result.report, '_blank', 'noopener,noreferrer');
+    setMessage(`Investigation summary created: ${result.filename}`);
+  } catch (error) { setMessage(error.message, true); }
+  finally { button.disabled = false; }
 }
 
 function renderCaseMetadata(metadata) {
@@ -434,16 +470,19 @@ function renderFindingPage() {
     const responseControls = renderProcessResponseControls(finding);
     const guide = state.guidance?.findings?.[finding.finding_id];
     const verdict = guide ? `<span class="verdict verdict-${escapeHtml(guide.verdict)}">${escapeHtml(guide.label)}</span>` : '';
+    const confidence = guide?.confidence ? `<span class="confidence confidence-${escapeHtml(guide.confidence.level)}" title="${escapeHtml(guide.confidence.rationale)}">${escapeHtml(guide.confidence.label)}</span>` : '';
     const explanation = guide?.simple_explanation || finding.observed_result;
     const actions = (guide?.next_actions || []).map((action) => `<li>${escapeHtml(action)}</li>`).join('');
     const context = renderInvestigationContext(guide?.context);
     const investigation = renderInvestigationControls(finding, guide?.investigation);
-    return `<article class="finding" data-finding-index="${start + index}" data-finding-id="${escapeHtml(finding.finding_id)}"><div class="finding-head"><span class="severity severity-${severity}">${escapeHtml(finding.severity)}</span><span class="finding-status">${escapeHtml(finding.status)}</span>${verdict}<span class="finding-title">${escapeHtml(finding.title)}</span><span class="finding-id">${escapeHtml(finding.finding_id)}</span><button type="button" class="finding-toggle">Details</button></div><p class="finding-observed">${escapeHtml(explanation)}</p>${actions ? `<div class="next-action"><strong>What to do next</strong><ol>${actions}</ol></div>` : ''}<div class="finding-details">${investigation}${context}<p><strong>Technical observation</strong><br>${escapeHtml(finding.observed_result)}</p><p><strong>Why it matters</strong><br>${escapeHtml(finding.why_it_matters)}</p><p><strong>Recommendation</strong><br>${escapeHtml(finding.recommendation)}</p>${responseControls}<p><strong>Commands used</strong></p><ul>${commands}</ul><p><strong>References</strong></p><ul>${references}</ul><p><strong>Evidence</strong></p><pre>${evidence}</pre></div></article>`;
+    const confidenceDetail = guide?.confidence ? `<section class="confidence-detail"><strong>${escapeHtml(guide.confidence.label)}</strong><p>${escapeHtml(guide.confidence.rationale)}</p>${(guide.confidence.missing || []).length ? `<small>Missing: ${escapeHtml(guide.confidence.missing.join(', '))}</small>` : '<small>No important evidence gap was identified for this observation.</small>'}</section>` : '';
+    return `<article class="finding" data-finding-index="${start + index}" data-finding-id="${escapeHtml(finding.finding_id)}"><div class="finding-head"><span class="severity severity-${severity}">${escapeHtml(finding.severity)}</span><span class="finding-status">${escapeHtml(finding.status)}</span>${verdict}${confidence}<span class="finding-title">${escapeHtml(finding.title)}</span><span class="finding-id">${escapeHtml(finding.finding_id)}</span><button type="button" class="finding-toggle">Details</button></div><p class="finding-observed">${escapeHtml(explanation)}</p>${actions ? `<div class="next-action"><strong>What to do next</strong><ol>${actions}</ol></div>` : ''}<div class="finding-details">${investigation}${context}${confidenceDetail}<p><strong>Technical observation</strong><br>${escapeHtml(finding.observed_result)}</p><p><strong>Why it matters</strong><br>${escapeHtml(finding.why_it_matters)}</p><p><strong>Recommendation</strong><br>${escapeHtml(finding.recommendation)}</p>${responseControls}<p><strong>Commands used</strong></p><ul>${commands}</ul><p><strong>References</strong></p><ul>${references}</ul><p><strong>Evidence</strong></p><pre>${evidence}</pre></div></article>`;
     }).join('');
   }
   document.querySelectorAll('.finding-toggle').forEach((button) => button.addEventListener('click', () => button.closest('.finding').classList.toggle('open')));
   document.querySelectorAll('[data-process-action]').forEach((button) => button.addEventListener('click', () => respondToProcess(button)));
   document.querySelectorAll('[data-save-investigation]').forEach((button) => button.addEventListener('click', () => saveInvestigation(button)));
+  document.querySelectorAll('[data-hash-reputation]').forEach((button) => button.addEventListener('click', () => lookupHashReputation(button)));
   $('#finding-range').textContent = total ? `${start + 1}-${Math.min(start + state.findingPageSize, total)} of ${total}` : '0 findings';
   $('#findings-prev').disabled = state.findingPage <= 1;
   $('#findings-next').disabled = start + state.findingPageSize >= total;
@@ -459,7 +498,8 @@ function renderInvestigationContext(context) {
       ['Gatekeeper', context.gatekeeper_accepted === true ? 'Accepted' : context.gatekeeper_accepted === false ? 'Rejected' : 'Unknown'],
       ['Executable SHA-256', context.executable_sha256],
     ].filter(([, value]) => value !== null && value !== undefined && value !== '');
-    return `<section class="investigation-context"><strong>Application investigation</strong><div>${values.map(([label, value]) => `<span><small>${escapeHtml(label)}</small><code>${escapeHtml(value)}</code></span>`).join('')}</div></section>`;
+    const reputation = context.executable_sha256 ? `<div class="reputation-action"><button type="button" class="secondary-button" data-hash-reputation="${escapeHtml(context.executable_sha256)}">Check hash reputation</button><span data-reputation-result></span><small>Manual opt-in. Only the SHA-256 is sent to enabled providers; the file is never uploaded.</small></div>` : '';
+    return `<section class="investigation-context"><strong>Application investigation</strong><div>${values.map(([label, value]) => `<span><small>${escapeHtml(label)}</small><code>${escapeHtml(value)}</code></span>`).join('')}</div>${reputation}</section>`;
   }
   if (context.kind === 'process') {
     return `<section class="investigation-context"><strong>Process investigation</strong><p>Review the executable, owner, parent relationship, signature, persistence, and network activity before containment. Current actionable candidates are listed below.</p></section>`;
@@ -488,8 +528,10 @@ async function saveInvestigation(button) {
       status: box.querySelector('[data-investigation-status]').value,
       note: box.querySelector('[data-investigation-note]').value,
     }));
-    state.guidance = result.guidance;
+    state.decisionSupport = await api(`/api/decision-support/${encodeURIComponent(state.currentScanId)}`);
+    state.guidance = state.decisionSupport.guidance || result.guidance;
     renderGuidance(state.guidance);
+    renderDecisionSupport(state.decisionSupport);
     renderFindingPage();
     setMessage('Investigation state saved locally. Scan evidence was not changed.');
   } catch (error) {
@@ -497,6 +539,25 @@ async function saveInvestigation(button) {
     message.classList.add('error');
     button.disabled = false;
   }
+}
+
+async function lookupHashReputation(button) {
+  const digest = button.dataset.hashReputation;
+  if (!window.confirm(`Send only this SHA-256 to the enabled reputation providers?\n\n${digest}\n\nThe application file will not be uploaded.`)) return;
+  const resultBox = button.closest('.reputation-action').querySelector('[data-reputation-result]');
+  button.disabled = true;
+  resultBox.textContent = 'Checking enabled providers...';
+  try {
+    const response = await api('/api/reputation/hash', writeOptions('POST', {sha256:digest}));
+    resultBox.innerHTML = (response.providers || []).map((provider) => {
+      if (provider.status === 'error') return `<span class="reputation-provider error"><strong>${escapeHtml(provider.provider)}</strong>${escapeHtml(provider.error)}</span>`;
+      if (provider.status === 'not_found') return `<span class="reputation-provider"><strong>${escapeHtml(provider.provider)}</strong>No matching record. This does not prove the file is safe.</span>`;
+      const stats = provider.analysis_stats || {};
+      const detail = provider.provider === 'VirusTotal' ? `${stats.malicious || 0} malicious | ${stats.suspicious || 0} suspicious | ${stats.harmless || 0} harmless` : provider.signature ? `Known sample | ${provider.signature}` : provider.matches !== undefined ? `${provider.matches} ThreatFox match(es)` : 'Known sample';
+      return `<span class="reputation-provider alert"><strong>${escapeHtml(provider.provider)}</strong>${escapeHtml(detail)}</span>`;
+    }).join('');
+  } catch (error) { resultBox.textContent = error.message; resultBox.classList.add('error'); }
+  finally { button.disabled = false; }
 }
 
 function processCandidates(finding) {
@@ -654,6 +715,8 @@ function renderSettings() {
   $('#cache-hours').value = settings.cache_hours || 24;
   $('#nvd-key-state').textContent = settings.providers?.nvd?.api_key_configured ? `| ${t('configured')}` : `| ${t('notConfigured')}`;
   $('#threatfox-key-state').textContent = settings.providers?.threatfox?.auth_key_configured ? `| ${t('configured')}` : `| ${t('notConfigured')}`;
+  $('#virustotal-key-state').textContent = settings.providers?.virustotal?.api_key_configured ? `| ${t('configured')}` : `| ${t('notConfigured')}`;
+  $('#malwarebazaar-key-state').textContent = settings.providers?.malwarebazaar?.auth_key_configured ? `| ${t('configured')}` : `| ${t('notConfigured')}`;
   $('#yara-enabled').checked = Boolean(settings.yara?.enabled);
   $('#yara-targets').value = (settings.yara?.targets || []).join('\n');
   $('#signing-enabled').checked = Boolean(settings.signing?.enabled);
@@ -671,10 +734,14 @@ async function saveOsintSettings() {
   document.querySelectorAll('[data-provider]').forEach((input) => { providers[input.dataset.provider] = {enabled: input.checked}; });
   if ($('#nvd-api-key').value) providers.nvd.api_key = $('#nvd-api-key').value;
   if ($('#threatfox-auth-key').value) providers.threatfox.auth_key = $('#threatfox-auth-key').value;
+  if ($('#virustotal-api-key').value) providers.virustotal.api_key = $('#virustotal-api-key').value;
+  if ($('#malwarebazaar-auth-key').value) providers.malwarebazaar.auth_key = $('#malwarebazaar-auth-key').value;
   try {
     state.settings = await api('/api/settings', writeOptions('POST', {cache_hours:Number($('#cache-hours').value), providers}));
     $('#nvd-api-key').value = '';
     $('#threatfox-auth-key').value = '';
+    $('#virustotal-api-key').value = '';
+    $('#malwarebazaar-auth-key').value = '';
     renderSettings();
     setInline('#osint-settings-message', 'Settings saved locally.');
   } catch (error) { setInline('#osint-settings-message', error.message, true); }
@@ -908,7 +975,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#findings-next').addEventListener('click', () => { if (state.findingPage * state.findingPageSize < state.filteredFindings.length) { state.findingPage += 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   setConnection('checking');
   applyEnglishCopy();
-  try { if (window.localStorage.getItem('macos-inspector-guide-1.2.6') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
+  try { if (window.localStorage.getItem('macos-inspector-guide-1.2.7') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
   const health = await checkHealth();
   if (!health) setMessage('Dashboard server unavailable. Retrying automatically...', true);
   state.healthPoll = setInterval(checkHealth, 4000);

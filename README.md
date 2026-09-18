@@ -10,7 +10,7 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current release: `v1.2.6`
+Current development version: `v1.2.7`
 
 ## What it can help answer
 
@@ -19,7 +19,8 @@ Current release: `v1.2.6`
 - Which processes own listeners or established connections, and what local context makes them higher priority?
 - Does the installed macOS version require review against current Apple, CISA KEV, FIRST EPSS, or NIST NVD information?
 - Did a bounded local IOC or YARA rule match the files explicitly selected by the analyst?
-- What changed between two scans, and can the exported evidence still be verified?
+- What changed since the last scan with the same scope, and which observations are connected by the same application path?
+- How complete is the evidence behind a result, independently from its severity?
 
 macOS Inspector reports observations and rule outcomes. A `Review`, `Fail`, or `Match` result is not by itself proof of malware, exploitation, or compromise.
 
@@ -27,6 +28,7 @@ macOS Inspector reports observations and rule outcomes. A `Review`, `Fail`, or `
 
 | Dashboard workflow | Primary purpose | Network use |
 | --- | --- | --- |
+| Problem-oriented goals | Focused local checks for an unfamiliar app, suspected remote access, strange browser behavior, or an unusually slow Mac | None |
 | Quick triage | Accounts, live activity, persistence, security controls, profiles, extensions, network configuration, and IOCs | None |
 | Application Trust | Signatures, notarization, Gatekeeper context, entitlements, metadata, bundle layout, and file integrity | None |
 | Privacy and browsers | TCC permissions and bounded browser history, download, and extension artifacts | None |
@@ -59,11 +61,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.2.6-macos.zip` and `SHA256SUMS` from the GitHub release.
+1. Download `macos-inspector-1.2.7-macos.zip` and `SHA256SUMS` from the GitHub release.
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.2.6-macos.zip
+   shasum -a 256 macos-inspector-1.2.7-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
@@ -86,6 +88,8 @@ See [Installation](docs/INSTALLATION.md) for source installation, permission beh
 4. Follow the recommended next steps and expand **Details** when technical evidence is needed.
 5. Record the investigation state as `Expected`, `Suspicious`, `Contained`, or `Resolved`. Notes remain local and do not modify scan evidence.
 6. Run the same profile again after containment or remediation and compare it with the earlier scan.
+
+After a report loads, **Changes since last comparable scan** selects the newest earlier report with the same audit sections. Evidence confidence explains how complete the supporting data is without changing the severity. Correlated investigation stories appear only when an application path connects trust, process, network, or persistence evidence. Use **Export investigation summary** for a compact standalone HTML handoff; the original scan evidence remains unchanged.
 
 Routine use does not require terminal commands. The CLI remains available for automation and reproducible collections.
 
@@ -156,7 +160,7 @@ More workflows, including privacy grants, persistence, IOC/YARA matches, scan co
 - The tool does not delete or quarantine files, install software, invoke `sudo`, elevate privileges, or change macOS configuration.
 - Local profiles and the default CLI collection do not contact intelligence providers.
 - The online profile is opt-in. It sends only public Apple CVE identifiers to the enabled Apple, CISA, FIRST, and NIST endpoints.
-- ThreatFox is disabled by default and is separate from scans. It sends only an indicator typed and confirmed by the analyst.
+- VirusTotal, MalwareBazaar, and ThreatFox are disabled by default and are separate from scans. An application hash lookup runs only after confirmation and sends only the displayed SHA-256 to enabled providers. It never uploads the application file. A missing provider record is not proof that a file is safe.
 - Imported IOC packs and YARA rules remain local. YARA scans at most ten explicit targets and rejects `/` and the entire home directory.
 - Report files, case records, settings, cache entries, signing secrets, and unfinished job journals remain on the Mac. Private local stores use owner-only permissions.
 - Common secret-bearing command arguments are redacted from collected process context. This reduces exposure but cannot guarantee that every sensitive value is recognized.
