@@ -30,6 +30,8 @@ Online intelligence is separate from local collection. Providers receive public 
 
 Process response is separate from collection. The web API loads a managed report, accepts only candidates produced by two Live Triage findings, and delegates identity revalidation and signaling to `core.process_control`. The response module cannot accept an arbitrary command line. It exposes only `SIGTERM` and `SIGKILL`, after an exact UID and executable match, and the dashboard records the result locally.
 
+Targeted Application Trust is also bounded by server-side discovery. The dashboard lists application bundles found under the standard macOS application roots and accepts only an exact path from that current inventory. The browser cannot submit an arbitrary file-system target. Target scope is written into report metadata and participates in comparable-baseline selection.
+
 Guided interpretation is also separate from collection. It maps existing finding fields to plain-language verdicts, evidence confidence, recommended investigation steps, comparable-scan changes, and exact-path correlations. Local investigation states and notes are stored outside the report with owner-only permissions. Each decision is tied to a fingerprint of the security-relevant evidence, so an `Expected` decision returns to `New` when that evidence changes. Decision-support output is derived from completed reports and never changes the original evidence.
 
 ## Extension rules

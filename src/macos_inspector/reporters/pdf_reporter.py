@@ -64,7 +64,7 @@ def write_pdf(result: ScanResult, path: Path) -> None:
             author="macOS Inspector",
         )
         story = [Spacer(1, 32 * mm), Paragraph("macOS Inspector", styles["CoverTitle"]), paragraph("Read-only security and DFIR assessment", "Heading2"), Spacer(1, 10 * mm)]
-        score_table = Table([
+        score_rows = [
             [paragraph("SECURITY SCORE", "Small"), paragraph(f"{result.overall_score}/100", "Heading1")],
             [paragraph("SCAN ID", "Small"), paragraph(result.metadata.scan_id, "Small")],
             [paragraph("CASE REFERENCE", "Small"), paragraph(result.metadata.case_reference or "Not provided", "Small")],
@@ -72,7 +72,10 @@ def write_pdf(result: ScanResult, path: Path) -> None:
             [paragraph("HOST", "Small"), paragraph(result.metadata.hostname, "Small")],
             [paragraph("COMPLETED", "Small"), paragraph(result.metadata.completed_at, "Small")],
             [paragraph("FINDINGS", "Small"), paragraph(f"{len(result.findings)} displayed / {result.total_finding_count or len(result.findings)} total", "Small")],
-        ], colWidths=[42 * mm, 110 * mm])
+        ]
+        if result.metadata.target_application:
+            score_rows.insert(4, [paragraph("TARGET APPLICATION", "Small"), paragraph(result.metadata.target_application, "Small")])
+        score_table = Table(score_rows, colWidths=[42 * mm, 110 * mm])
         score_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), pale), ("BOX", (0, 0), (-1, -1), .5, line),
             ("INNERGRID", (0, 0), (-1, -1), .25, line), ("VALIGN", (0, 0), (-1, -1), "TOP"),

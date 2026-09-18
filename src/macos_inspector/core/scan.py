@@ -6,6 +6,7 @@ import socket
 import uuid
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable
 
 from macos_inspector import __version__
@@ -26,6 +27,7 @@ def run_scan(
     analyst: str = "",
     cancel_event: threading.Event | None = None,
     item_progress: Callable[[str, str | None, int, int], None] | None = None,
+    target_application: Path | None = None,
 ) -> ScanResult:
     """Run collectors and filter only the report view, never the score inputs."""
     started = datetime.now(timezone.utc)
@@ -37,7 +39,10 @@ def run_scan(
         if progress:
             progress(collector_id, index - 1, len(collector_ids))
         try:
-            collector = COLLECTORS[collector_id](command_runner)
+            if collector_id == "application-trust" and target_application is not None:
+                collector = COLLECTORS[collector_id](command_runner, bundles=(target_application,))
+            else:
+                collector = COLLECTORS[collector_id](command_runner)
             set_progress_callback = getattr(collector, "set_progress_callback", None)
             if item_progress and callable(set_progress_callback):
                 set_progress_callback(
@@ -65,6 +70,7 @@ def run_scan(
         hostname=socket.gethostname(), platform=platform.platform(), username=getpass.getuser(),
         collectors=tuple(collector_ids), collection_errors=tuple(errors),
         case_reference=case_reference.strip(), analyst=analyst.strip(),
+        target_application=str(target_application) if target_application is not None else "",
     )
     return ScanResult(
         metadata, tuple(visible_findings), overall, category_scores, category_coverage,

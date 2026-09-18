@@ -21,7 +21,7 @@ Investigation notes are stored locally and do not change the signed or exported 
 
 ## Changes and investigation stories
 
-After a scan, **Changes since last comparable scan** automatically selects the newest earlier report with the same audit sections. It highlights new or changed applications, new startup items, new listeners, changed security controls, and resolved findings. If no equivalent earlier report exists, the current scan becomes the starting point for the next comparison.
+After a scan, **Changes since last comparable scan** automatically selects the newest earlier report with the same collection scope. For a focused application check, that includes the exact target application. It highlights new or changed applications, new startup items, new listeners, changed security controls, and resolved findings. If no equivalent earlier report exists, the current scan becomes the starting point for the next comparison.
 
 Investigation stories connect findings only when the evidence shares an exact application path. For example, an Application Trust finding can be connected to a running process, listener, or startup mechanism inside the same application bundle. A story is an investigation aid, not a malware verdict.
 
@@ -100,10 +100,16 @@ Evaluate visible application bundles using macOS trust and integrity signals.
 
 ### Steps
 
-1. Select **Application Trust**.
-2. Run the scan and wait for all visible bundles to finish.
-3. Filter by application name, status, severity, Team ID, or path.
-4. Review signatures, notarization, Gatekeeper context, hardened runtime, entitlements, quarantine metadata, bundle layout, symlinks, writable components, sealed resources, and executable placement.
+For one unfamiliar application:
+
+1. In **Check one application**, type part of the application name or path.
+2. Select the application from the filtered local list.
+3. Select **Check selected application**.
+4. Review the signature, notarization, Gatekeeper context, hardened runtime, entitlements, quarantine metadata, bundle layout, symlinks, writable components, sealed resources, and executable placement.
+
+For a complete inventory, select **Application Trust**, run the scan, wait for all visible bundles to finish, then filter the results by application name, status, severity, Team ID, or path.
+
+The target path is recorded in the report. Changes since the previous comparable scan use only an earlier scan with the same target and collector scope. The selector includes applications discovered in the standard system, global, and current-user application folders; it does not accept an arbitrary path.
 
 ### Representative result
 

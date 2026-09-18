@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import csv
 import hashlib
 import http.client
 import io
@@ -381,7 +382,7 @@ class CoreTests(unittest.TestCase):
                 ],
             }
         baseline = {
-            "metadata": {"scan_id": "baseline", "collectors": ["application-trust", "live-triage"], "completed_at": "2026-01-01T00:00:00+00:00"},
+            "metadata": {"scan_id": "baseline", "collectors": ["application-trust", "live-triage"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-01T00:00:00+00:00"},
             "summary": {}, "findings": [application("a" * 64)],
         }
         current_app = application("b" * 64)
@@ -393,7 +394,7 @@ class CoreTests(unittest.TestCase):
             }]}}],
         }
         current = {
-            "metadata": {"scan_id": "current", "hostname": "fixture", "collectors": ["application-trust", "live-triage"], "completed_at": "2026-01-02T00:00:00+00:00"},
+            "metadata": {"scan_id": "current", "hostname": "fixture", "collectors": ["application-trust", "live-triage"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-02T00:00:00+00:00"},
             "summary": {}, "findings": [current_app, process],
         }
         result = build_decision_support(current, baseline)
@@ -409,6 +410,7 @@ class CoreTests(unittest.TestCase):
             html = path.read_text(encoding="utf-8")
             self.assertIn("Changes since the previous comparable scan", html)
             self.assertIn("Example", html)
+            self.assertIn("Target application: /Applications/Example.app", html)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_decision_support_and_summary_export_use_comparable_baseline(self):
@@ -1064,7 +1066,7 @@ class CoreTests(unittest.TestCase):
     def test_case_bundle_contains_only_current_scan_reports_and_manifest(self):
         metadata = ScanMetadata(
             "0.1", "bundle-scan", "start", "end", "host", "platform", "user", ("test",),
-            case_reference="CASE-7", analyst="DFIR",
+            case_reference="CASE-7", analyst="DFIR", target_application="/Applications/Example.app",
         )
         result = ScanResult(metadata, (finding(),), 82, {"Persistence": 82})
         with tempfile.TemporaryDirectory() as directory:
@@ -1086,6 +1088,7 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(report_permissions, 0o600)
             self.assertEqual(index["scan_id"], "bundle-scan")
             self.assertEqual(index["case_reference"], "CASE-7")
+            self.assertEqual(index["target_application"], "/Applications/Example.app")
             self.assertIn("macos-inspector-bundle-scan.manifest", names)
             self.assertIn("VERIFY.txt", names)
             self.assertNotIn("macos-inspector-other.json", names)
@@ -1094,6 +1097,8 @@ class CoreTests(unittest.TestCase):
     def test_release_archive_contains_executable_launcher_without_case_data(self):
         with tempfile.TemporaryDirectory() as directory:
             archive_path = build_release(Path(directory) / "release.zip")
+            checksum_line = (Path(directory) / "SHA256SUMS").read_text(encoding="ascii").strip()
+            self.assertEqual(checksum_line, f"{hashlib.sha256(archive_path.read_bytes()).hexdigest()}  release.zip")
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 launcher = next(name for name in names if name.endswith(f"/{LAUNCHER}"))
@@ -1444,6 +1449,97 @@ enabled active teamID bundleID (version) name [state]
                 ["Direct.app", "Nested.app"],
             )
 
+    def test_targeted_application_trust_inspects_only_explicit_bundles(self):
+        class NoCommands:
+            pass
+
+        first = Path("/Applications/One.app")
+        second = Path("/Applications/Two.app")
+        collector = ApplicationTrustCollector(NoCommands(), bundles=(second, first, second))
+        with patch.object(collector, "_inspect", side_effect=lambda path: path):
+            self.assertEqual(collector.collect(), [first, second])
+
+    def test_run_scan_records_and_routes_target_application(self):
+        captured = {}
+
+        class TargetCollector:
+            def __init__(self, runner, bundles=None):
+                captured["bundles"] = bundles
+
+            def collect(self):
+                return []
+
+        target = Path("/Applications/Example.app")
+        with patch.dict("macos_inspector.core.scan.COLLECTORS", {"application-trust": TargetCollector}, clear=True):
+            result = run_scan(["application-trust"], runner=object(), target_application=target)
+        self.assertEqual(captured["bundles"], (target,))
+        self.assertEqual(result.metadata.target_application, str(target))
+        self.assertEqual(result.to_dict()["metadata"]["target_application"], str(target))
+
+    def test_dashboard_application_inventory_rejects_arbitrary_targets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = Path(directory) / "Allowed.app"
+            bundle.mkdir()
+            state = DashboardState(Path(directory) / "reports")
+            with patch("macos_inspector.web.discover_applications", return_value=[bundle]):
+                self.assertEqual(state.applications(), [{"name": "Allowed", "path": str(bundle)}])
+                self.assertEqual(state.validate_target_application(str(bundle)), str(bundle))
+                with self.assertRaisesRegex(ValueError, "local application list"):
+                    state.validate_target_application("/tmp/Unlisted.app")
+                with self.assertRaisesRegex(ValueError, "Application Trust"):
+                    state.create_job(["security"], ["json"], "informational", target_application=str(bundle))
+
+                server = DashboardServer(("127.0.0.1", 0), state)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    host = f"127.0.0.1:{server.server_port}"
+                    status, _, body = dashboard_request(server, "GET", "/api/applications", host)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(json.loads(body)["applications"][0]["path"], str(bundle))
+
+                    status, _, body = dashboard_request(server, "POST", "/api/scans", host, payload={
+                        "collectors": ["application-trust"], "formats": ["json"],
+                        "target_application": "/tmp/Unlisted.app",
+                    })
+                    self.assertEqual(status, 400)
+                    self.assertIn("local application list", json.loads(body)["error"])
+
+                    accepted = ScanJob(
+                        "target-job", ["application-trust"], ["html", "json"],
+                        "informational", target_application=str(bundle),
+                    )
+                    with patch.object(state, "create_job", return_value=accepted) as create:
+                        status, _, body = dashboard_request(server, "POST", "/api/scans", host, payload={
+                            "collectors": ["application-trust"], "formats": ["json"],
+                            "target_application": str(bundle),
+                        })
+                    self.assertEqual(status, 202)
+                    self.assertEqual(json.loads(body)["target_application"], str(bundle))
+                    self.assertEqual(create.call_args.args[-1], str(bundle))
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=2)
+
+    def test_previous_comparable_report_requires_same_application_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            reports = (
+                {"metadata": {"scan_id": "full", "collectors": ["application-trust"], "completed_at": "2026-01-01T00:00:00+00:00"}},
+                {"metadata": {"scan_id": "other", "collectors": ["application-trust"], "target_application": "/Applications/Other.app", "completed_at": "2026-01-02T00:00:00+00:00"}},
+                {"metadata": {"scan_id": "same", "collectors": ["application-trust"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-03T00:00:00+00:00"}},
+            )
+            for report in reports:
+                scan_id = report["metadata"]["scan_id"]
+                (state.output / f"macos-inspector-{scan_id}.json").write_text(json.dumps(report))
+            current = {"metadata": {
+                "scan_id": "current", "collectors": ["application-trust"],
+                "target_application": "/Applications/Example.app",
+                "completed_at": "2026-01-04T00:00:00+00:00",
+            }}
+            self.assertEqual(state._previous_comparable_report(current)["metadata"]["scan_id"], "same")
+
     def test_application_trust_records_stable_executable_hash(self):
         class FakeRunner:
             def run(self, argv):
@@ -1659,6 +1755,28 @@ enabled active teamID bundleID (version) name [state]
         self.assertEqual(payload["version"], "2.1.0")
         self.assertEqual(len(payload["runs"][0]["results"]), 1)
         self.assertEqual(payload["runs"][0]["results"][0]["level"], "error")
+
+    def test_target_application_scope_is_visible_in_export_formats(self):
+        target = "/Applications/Example.app"
+        metadata = ScanMetadata(
+            "1.2.8", "target-exports", "start", "end", "host", "platform", "user",
+            ("application-trust",), target_application=target,
+        )
+        result = ScanResult(metadata, (finding(),), 82, {"Application Trust": 82})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            html_path, markdown_path = root / "report.html", root / "report.md"
+            csv_path, sarif_path = root / "report.csv", root / "report.sarif"
+            REPORTERS["html"](result, html_path)
+            REPORTERS["markdown"](result, markdown_path)
+            REPORTERS["csv"](result, csv_path)
+            REPORTERS["sarif"](result, sarif_path)
+            self.assertIn(f"Target application: {target}", html_path.read_text())
+            self.assertIn(f"**Target application:** {target}", markdown_path.read_text())
+            csv_rows = list(csv.DictReader(io.StringIO(csv_path.read_text())))
+            self.assertEqual(csv_rows[0]["target_application"], target)
+            sarif = json.loads(sarif_path.read_text())
+            self.assertEqual(sarif["runs"][0]["invocations"][0]["properties"]["targetApplication"], target)
 
     def test_evidence_manifest_hashes_and_signature(self):
         metadata = ScanMetadata("0.1", "scan", "start", "end", "host", "platform", "user", ("test",))

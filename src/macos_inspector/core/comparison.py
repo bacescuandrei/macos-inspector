@@ -27,6 +27,8 @@ def compare_scan_payloads(baseline: dict[str, Any], current: dict[str, Any]) -> 
     baseline_summary, current_summary = baseline.get("summary", {}), current.get("summary", {})
     baseline_collectors = set(baseline.get("metadata", {}).get("collectors", []))
     current_collectors = set(current.get("metadata", {}).get("collectors", []))
+    baseline_target = str(baseline.get("metadata", {}).get("target_application", ""))
+    current_target = str(current.get("metadata", {}).get("target_application", ""))
     baseline_score = int(baseline_summary.get("overall_score", 0))
     current_score = int(current_summary.get("overall_score", 0))
     categories = set(baseline_summary.get("category_scores", {})) | set(current_summary.get("category_scores", {}))
@@ -35,17 +37,21 @@ def compare_scan_payloads(baseline: dict[str, Any], current: dict[str, Any]) -> 
         - int(baseline_summary.get("category_scores", {}).get(category, 0))
         for category in sorted(categories)
     }
+    scope = {
+        "changed": baseline_collectors != current_collectors or baseline_target != current_target,
+        "added_collectors": sorted(current_collectors - baseline_collectors),
+        "removed_collectors": sorted(baseline_collectors - current_collectors),
+    }
+    if baseline_target or current_target:
+        scope["baseline_target_application"] = baseline_target or None
+        scope["current_target_application"] = current_target or None
     return {
         "baseline_scan_id": baseline.get("metadata", {}).get("scan_id"),
         "current_scan_id": current.get("metadata", {}).get("scan_id"),
         "baseline_score": baseline_score,
         "current_score": current_score,
         "score_delta": current_score - baseline_score,
-        "scope": {
-            "changed": baseline_collectors != current_collectors,
-            "added_collectors": sorted(current_collectors - baseline_collectors),
-            "removed_collectors": sorted(baseline_collectors - current_collectors),
-        },
+        "scope": scope,
         "counts": {
             "new": len(new), "resolved": len(resolved), "changed": len(changed),
             "unchanged": len(baseline_ids & current_ids) - len(changed),

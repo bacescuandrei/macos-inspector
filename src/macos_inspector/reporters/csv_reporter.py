@@ -13,7 +13,7 @@ def _cell(value: object) -> str:
 
 
 def write_csv(result: ScanResult, path: Path) -> None:
-    fields = ("scan_id", "case_reference", "analyst", "finding_id", "category", "title", "severity", "status", "description", "why_it_matters", "what_was_checked", "expected_result", "observed_result", "recommendation", "commands_used", "mitre_attack", "references", "evidence")
+    fields = ("scan_id", "case_reference", "analyst", "target_application", "finding_id", "category", "title", "severity", "status", "description", "why_it_matters", "what_was_checked", "expected_result", "observed_result", "recommendation", "commands_used", "mitre_attack", "references", "evidence")
     handle = io.StringIO(newline="")
     writer = csv.DictWriter(handle, fieldnames=fields)
     writer.writeheader()
@@ -21,6 +21,7 @@ def write_csv(result: ScanResult, path: Path) -> None:
         data = finding.to_dict()
         row = {
             "scan_id": result.metadata.scan_id, "case_reference": result.metadata.case_reference, "analyst": result.metadata.analyst,
+            "target_application": result.metadata.target_application,
             "finding_id": finding.finding_id, "category": finding.category, "title": finding.title,
             "severity": finding.severity.label(), "status": finding.status, "description": finding.description,
             "why_it_matters": finding.why_it_matters, "what_was_checked": finding.what_was_checked,

@@ -29,7 +29,12 @@ def write_comparison_reports(comparison: dict, output: Path) -> dict[str, Path]:
     if scope.get("changed"):
         added = ", ".join(scope.get("added_collectors", [])) or "none"
         removed = ", ".join(scope.get("removed_collectors", [])) or "none"
-        scope_html = f'<section class="scope"><strong>Collection scope changed.</strong> Added: {html.escape(added)}. Removed: {html.escape(removed)}. Counts may reflect collector coverage rather than a host-state change.</section>'
+        targets = ""
+        if scope.get("baseline_target_application") or scope.get("current_target_application"):
+            before = str(scope.get("baseline_target_application") or "all discovered applications")
+            after = str(scope.get("current_target_application") or "all discovered applications")
+            targets = f" Previous target: {html.escape(before)}. Current target: {html.escape(after)}."
+        scope_html = f'<section class="scope"><strong>Collection scope changed.</strong> Added: {html.escape(added)}. Removed: {html.escape(removed)}.{targets} Counts may reflect collector coverage rather than a host-state change.</section>'
     category_rows = "".join(
         f"<tr><td>{html.escape(category)}</td><td>{'+' if value > 0 else ''}{value}</td></tr>"
         for category, value in comparison.get("category_deltas", {}).items()

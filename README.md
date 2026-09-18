@@ -10,7 +10,7 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current development version: `v1.2.7`
+Current development version: `v1.2.8`
 
 ## What it can help answer
 
@@ -89,7 +89,7 @@ See [Installation](docs/INSTALLATION.md) for source installation, permission beh
 5. Record the investigation state as `Expected`, `Suspicious`, `Contained`, or `Resolved`. Notes remain local and do not modify scan evidence.
 6. Run the same profile again after containment or remediation and compare it with the earlier scan.
 
-After a report loads, **Changes since last comparable scan** selects the newest earlier report with the same audit sections. Evidence confidence explains how complete the supporting data is without changing the severity. Correlated investigation stories appear only when an application path connects trust, process, network, or persistence evidence. Use **Export investigation summary** for a compact standalone HTML handoff; the original scan evidence remains unchanged.
+After a report loads, **Changes since last comparable scan** selects the newest earlier report with the same collection scope. For a focused application check, that includes the exact target application. Evidence confidence explains how complete the supporting data is without changing the severity. Correlated investigation stories appear only when an application path connects trust, process, network, or persistence evidence. Use **Export investigation summary** for a compact standalone HTML handoff; the original scan evidence remains unchanged.
 
 Routine use does not require terminal commands. The CLI remains available for automation and reproducible collections.
 
@@ -99,7 +99,7 @@ Routine use does not require terminal commands. The CLI remains available for au
 
 Goal: determine whether an application has the expected macOS trust signals.
 
-Steps: open **Application Trust**, run the scan, find the application, then review its signature, Team ID, notarization result, hardened runtime, entitlements, quarantine metadata, bundle paths, and executable integrity.
+Steps: use **Check one application** to search the local application list, select the app, and run a focused check. Review its signature, Team ID, notarization result, hardened runtime, entitlements, quarantine metadata, bundle paths, and executable integrity. Use the full **Application Trust** profile when you need an inventory of every visible application.
 
 Representative result:
 

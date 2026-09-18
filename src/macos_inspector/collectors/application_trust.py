@@ -600,12 +600,22 @@ class ApplicationTrustCollector(Collector):
     collector_id = "application-trust"
     title = "Application trust"
 
-    def __init__(self, runner, roots: tuple[Path, ...] | None = None) -> None:
+    def __init__(
+        self,
+        runner,
+        roots: tuple[Path, ...] | None = None,
+        bundles: tuple[Path, ...] | None = None,
+    ) -> None:
         super().__init__(runner)
         self.roots = roots if roots is not None else DEFAULT_APPLICATION_ROOTS
+        self.bundles = bundles
 
     def collect(self) -> list[Finding]:
-        applications = discover_applications(self.roots)
+        applications = (
+            sorted(set(self.bundles), key=lambda path: str(path).casefold())
+            if self.bundles is not None
+            else discover_applications(self.roots)
+        )
         findings = []
         for index, bundle in enumerate(applications, start=1):
             self.report_progress(bundle.name, index - 1, len(applications))

@@ -71,6 +71,7 @@ class ScanMetadata:
     collection_errors: tuple[str, ...] = ()
     case_reference: str = ""
     analyst: str = ""
+    target_application: str = ""
 
 
 @dataclass(frozen=True)

@@ -19,6 +19,8 @@ def write_markdown(result: ScanResult, path: Path) -> None:
         f"**Security score:** **{result.overall_score}/100**", "", "## Category scores", "",
         "| Category | Score | Coverage |", "|---|---:|---:|",
     ]
+    if result.metadata.target_application:
+        lines.insert(7, f"**Target application:** {_safe(result.metadata.target_application)}  ")
     lines.extend(f"| {_safe(category)} | {score} | {result.category_coverage.get(category, 100)}% |" for category, score in result.category_scores.items())
     if result.metadata.collection_errors:
         lines.extend(["", "## Collection errors", ""])

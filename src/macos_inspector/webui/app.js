@@ -1,4 +1,4 @@
-const state = { config: null, settings: null, cases: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, decisionSupport: null, processCandidates: new Map() };
+const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, decisionSupport: null, processCandidates: new Map() };
 
 const COPY = {
     manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, inspect findings, and explicitly contain a reported process when necessary.', safety:'Local-first | online OSINT is opt-in | containment requires confirmation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings | private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets | one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password | minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
@@ -53,6 +53,8 @@ function updateRunAvailability() {
   const guidedButton = $('#check-this-mac');
   if (guidedButton) guidedButton.disabled = disabled;
   document.querySelectorAll('[data-run-one]').forEach((button) => { button.disabled = disabled; });
+  const inspectButton = $('#inspect-application');
+  if (inspectButton) inspectButton.disabled = disabled || !$('#target-application')?.value;
   const cancelButton = $('#cancel-scan');
   if (cancelButton && !cancelButton.classList.contains('hidden')) cancelButton.disabled = !state.online;
 }
@@ -65,7 +67,7 @@ function setGuideVisible(visible) {
 }
 
 function dismissGuide() {
-  try { window.localStorage.setItem('macos-inspector-guide-1.2.7', 'dismissed'); } catch (error) { /* Local preferences are optional. */ }
+  try { window.localStorage.setItem('macos-inspector-guide-1.2.8', 'dismissed'); } catch (error) { /* Local preferences are optional. */ }
   setGuideVisible(false);
 }
 
@@ -186,11 +188,41 @@ async function loadReadiness() {
   }
 }
 
+function renderApplications() {
+  const query = $('#application-search').value.trim().toLowerCase();
+  const selected = $('#target-application').value;
+  const matches = state.applications.filter((application) => !query || `${application.name} ${application.path}`.toLowerCase().includes(query));
+  $('#target-application').innerHTML = `<option value="">${matches.length ? 'Choose an application' : 'No matching applications'}</option>` + matches.map((application) => `<option value="${escapeHtml(application.path)}">${escapeHtml(application.name)} | ${escapeHtml(application.path)}</option>`).join('');
+  if (matches.some((application) => application.path === selected)) $('#target-application').value = selected;
+  $('#target-app-count').textContent = query ? `${matches.length} of ${state.applications.length} applications match. Clear the search to restore the full list.` : `${state.applications.length} applications found in standard macOS application folders.`;
+  updateRunAvailability();
+}
+
+async function loadApplications() {
+  try {
+    const payload = await api('/api/applications');
+    state.applications = payload.applications || [];
+    renderApplications();
+  } catch (error) {
+    state.applications = [];
+    $('#target-application').innerHTML = '<option value="">Application list unavailable</option>';
+    $('#target-app-count').textContent = error.message;
+    updateRunAvailability();
+  }
+}
+
+async function inspectSelectedApplication() {
+  const target = $('#target-application').value;
+  if (!target) return setMessage('Choose an application to inspect.', true);
+  setMessage(`Preparing a focused trust check for ${target.split('/').pop()}...`);
+  await startScan(['application-trust'], target);
+}
+
 function selectedValues(attribute) {
   return [...document.querySelectorAll(`[data-${attribute}]:checked`)].map((element) => element.dataset[attribute]);
 }
 
-async function startScan(collectorOverride = null) {
+async function startScan(collectorOverride = null, targetApplication = '') {
   const collectors = collectorOverride || selectedCollectors();
   const formats = selectedValues('format');
   if (!collectors.length) return setMessage('Select at least one audit section.', true);
@@ -204,7 +236,7 @@ async function startScan(collectorOverride = null) {
   $('#cancel-scan').disabled = false;
   setMessage('Starting read-only collection...');
   try {
-    const job = await api('/api/scans', writeOptions('POST', { collectors, formats, minimum: $('#minimum').value, case_reference: $('#case-reference').value, analyst: $('#analyst').value, bundle_password: $('#bundle-password').value }));
+    const job = await api('/api/scans', writeOptions('POST', { collectors, formats, minimum: $('#minimum').value, case_reference: $('#case-reference').value, analyst: $('#analyst').value, bundle_password: $('#bundle-password').value, target_application: targetApplication }));
     state.activeJob = job.job_id;
     state.starting = false;
     updateRunAvailability();
@@ -843,6 +875,7 @@ async function loadDashboardData() {
     state.config = await api('/api/config');
     renderCollectors();
     renderFormats();
+    await loadApplications();
     await loadOperationsData();
     await loadReadiness();
     await loadHistory();
@@ -876,14 +909,15 @@ async function checkHealth() {
 
 function renderHistory() {
   const query = $('#history-search').value.trim().toLowerCase();
-  const matching = state.historyScans.filter((job) => !query || [job.scan_id, job.case_reference, job.analyst, job.state, ...(job.collectors || [])].join(' ').toLowerCase().includes(query));
+  const matching = state.historyScans.filter((job) => !query || [job.scan_id, job.case_reference, job.analyst, job.target_application, job.state, ...(job.collectors || [])].join(' ').toLowerCase().includes(query));
   const visible = matching.slice(0, 50);
   $('#history-count').textContent = matching.length === state.historyScans.length ? `${matching.length} scan${matching.length === 1 ? '' : 's'}` : `${matching.length} of ${state.historyScans.length}`;
   if (!state.historyScans.length) { $('#history').innerHTML = '<p class="muted">No previous scans in this output directory.</p>'; return; }
   if (!visible.length) { $('#history').innerHTML = '<p class="muted">No scans match this search.</p>'; return; }
   $('#history').innerHTML = visible.map((job) => {
     const actions = job.reports?.json ? `<button type="button" class="history-baseline${state.baselineJob?.job_id === job.job_id ? ' selected' : ''}" data-baseline-id="${escapeHtml(job.job_id)}">Baseline</button><button type="button" class="history-compare" data-compare-id="${escapeHtml(job.job_id)}">Compare</button><button type="button" class="history-open" data-history-id="${escapeHtml(job.job_id)}">View</button>` : '';
-    return `<div class="history-row"><div class="history-main"><strong>${job.case_reference ? `<span class="case-tag">${escapeHtml(job.case_reference)}</span> ` : ''}${escapeHtml((job.collectors || []).join(' | '))}</strong><small>${escapeHtml(job.completed_at || job.created_at || '')} | score ${escapeHtml(job.summary?.overall_score ?? 'N/A')}${job.analyst ? ` | ${escapeHtml(job.analyst)}` : ''}${job.error ? ` | ${escapeHtml(job.error)}` : ''}<code>${escapeHtml(job.scan_id || '')}</code></small></div><span class="status-pill status-${escapeHtml(job.state)}">${escapeHtml(job.state)}</span>${actions}</div>`;
+    const target = job.target_application ? ` | target ${job.target_application.split('/').pop()}` : '';
+    return `<div class="history-row"><div class="history-main"><strong>${job.case_reference ? `<span class="case-tag">${escapeHtml(job.case_reference)}</span> ` : ''}${escapeHtml((job.collectors || []).join(' | '))}</strong><small>${escapeHtml(job.completed_at || job.created_at || '')} | score ${escapeHtml(job.summary?.overall_score ?? 'N/A')}${escapeHtml(target)}${job.analyst ? ` | ${escapeHtml(job.analyst)}` : ''}${job.error ? ` | ${escapeHtml(job.error)}` : ''}<code>${escapeHtml(job.scan_id || '')}</code></small></div><span class="status-pill status-${escapeHtml(job.state)}">${escapeHtml(job.state)}</span>${actions}</div>`;
   }).join('') + (matching.length > 50 ? `<p class="muted">Showing the 50 most recent matches.</p>` : '');
   document.querySelectorAll('[data-history-id]').forEach((button) => button.addEventListener('click', () => loadHistoryJob(state.historyScans.find((item) => item.job_id === button.dataset.historyId))));
   document.querySelectorAll('[data-baseline-id]').forEach((button) => button.addEventListener('click', () => setBaseline(state.historyScans.find((item) => item.job_id === button.dataset.baselineId))));
@@ -918,7 +952,8 @@ function renderComparison(comparison) {
     ...comparison.resolved.map((finding) => ({kind: 'Resolved', id: finding.finding_id, title: finding.title, detail: `${finding.severity} | ${finding.status}`})),
     ...comparison.changed.map((finding) => ({kind: 'Changed', id: finding.finding_id, title: finding.title, detail: Object.entries(finding.changes).map(([field, values]) => `${field}: ${values.before} -> ${values.after}`).join(' | ')})),
   ];
-  const scopeWarning = comparison.scope?.changed ? `<div class="comparison-warning"><strong>Collection scope changed.</strong> Added: ${escapeHtml(comparison.scope.added_collectors.join(', ') || 'none')}. Removed: ${escapeHtml(comparison.scope.removed_collectors.join(', ') || 'none')}. New and resolved counts may reflect collector coverage rather than a host-state change.</div>` : '';
+  const targetChange = comparison.scope?.baseline_target_application || comparison.scope?.current_target_application ? ` Previous target: ${escapeHtml(comparison.scope.baseline_target_application || 'all applications')}. Current target: ${escapeHtml(comparison.scope.current_target_application || 'all applications')}.` : '';
+  const scopeWarning = comparison.scope?.changed ? `<div class="comparison-warning"><strong>Collection scope changed.</strong> Added: ${escapeHtml(comparison.scope.added_collectors.join(', ') || 'none')}. Removed: ${escapeHtml(comparison.scope.removed_collectors.join(', ') || 'none')}.${targetChange} New and resolved counts may reflect collection coverage rather than a host-state change.</div>` : '';
   const exports = comparison.reports ? `<div class="comparison-exports"><strong>Comparison reports</strong><a href="${escapeHtml(comparison.reports.comparison_html)}" target="_blank" rel="noreferrer">Open HTML</a><a href="${escapeHtml(comparison.reports.comparison_json)}" target="_blank" rel="noreferrer">Open JSON</a></div>` : '';
   $('#comparison-results').innerHTML = exports + scopeWarning + (rows.length ? rows.slice(0, 200).map((row) => `<div class="comparison-row"><span class="comparison-kind comparison-${row.kind.toLowerCase()}">${escapeHtml(row.kind)}</span><div><strong>${escapeHtml(row.title)}</strong><code>${escapeHtml(row.id)}</code><small>${escapeHtml(row.detail)}</small></div></div>`).join('') + (rows.length > 200 ? `<p class="muted">Showing 200 of ${rows.length} changes.</p>` : '') : '<p class="muted">No finding-level changes were detected.</p>');
   $('#comparison-panel').classList.remove('hidden');
@@ -948,6 +983,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     setMessage('Audit scope cleared. Select a profile or individual sections.');
   });
   $('#run-selected').addEventListener('click', () => startScan());
+  $('#inspect-application').addEventListener('click', inspectSelectedApplication);
+  $('#application-search').addEventListener('input', renderApplications);
+  $('#target-application').addEventListener('change', updateRunAvailability);
   $('#check-this-mac').addEventListener('click', startGuidedCheck);
   $('#dismiss-guide').addEventListener('click', dismissGuide);
   $('#show-guide').addEventListener('click', () => setGuideVisible(true));
@@ -975,7 +1013,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#findings-next').addEventListener('click', () => { if (state.findingPage * state.findingPageSize < state.filteredFindings.length) { state.findingPage += 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   setConnection('checking');
   applyEnglishCopy();
-  try { if (window.localStorage.getItem('macos-inspector-guide-1.2.7') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
+  try { if (window.localStorage.getItem('macos-inspector-guide-1.2.8') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
   const health = await checkHealth();
   if (!health) setMessage('Dashboard server unavailable. Retrying automatically...', true);
   state.healthPoll = setInterval(checkHealth, 4000);

@@ -41,6 +41,7 @@ def write_bundle(result: ScanResult, path: Path) -> None:
         "scan_id": result.metadata.scan_id,
         "case_reference": result.metadata.case_reference,
         "analyst": result.metadata.analyst,
+        "target_application": result.metadata.target_application,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "digest_algorithm": "SHA-256",
         "artifacts": entries,

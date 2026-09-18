@@ -95,6 +95,7 @@ def write_sarif(result: ScanResult, path: Path) -> None:
                     "caseReference": result.metadata.case_reference,
                     "analyst": result.metadata.analyst,
                     "collectors": list(result.metadata.collectors),
+                    "targetApplication": result.metadata.target_application,
                     "collectionErrors": list(result.metadata.collection_errors),
                     "overallScore": result.overall_score,
                 },

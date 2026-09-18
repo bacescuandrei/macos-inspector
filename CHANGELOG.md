@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.8 - 2026-09-18
+
+- Added a focused Application Trust workflow that lets a user search the locally discovered application inventory and inspect one selected app without waiting for a full inventory scan.
+- Restricted targeted scans to exact application paths found under the standard macOS application folders; the dashboard does not accept an arbitrary file-system path.
+- Recorded the target application in JSON, HTML, Markdown, SARIF, job history, and comparison scope.
+- Limited automatic change analysis to earlier scans with the same collectors and the same target application, preventing focused and full scans from being treated as equivalent baselines.
+- Made portable builds write and refresh their adjacent `SHA256SUMS` file automatically.
+
 ## 1.2.7 - 2026-09-18
 
 - Added automatic **Changes since last comparable scan** analysis for applications, executable identity, startup items, network listeners, security controls, new findings, and resolved findings.

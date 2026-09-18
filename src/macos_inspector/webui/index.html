@@ -162,6 +162,16 @@
         </div>
         <p class="scope-label" data-i18n="scanProfiles">What do you want to investigate?</p>
         <div id="scan-profiles" class="profile-groups" aria-label="Investigation goals and scan profiles"><p class="muted">Loading profiles...</p></div>
+        <section class="target-app-card" aria-labelledby="target-app-title">
+          <div><span class="target-app-kicker">FOCUSED CHECK</span><h3 id="target-app-title">Check one application</h3></div>
+          <p>Choose an installed app for a faster identity, signature, Gatekeeper, entitlement and integrity review.</p>
+          <label class="field-label" for="application-search">Find an application</label>
+          <input id="application-search" class="field" type="search" placeholder="Type an app name or path" autocomplete="off">
+          <label class="field-label" for="target-application">Application</label>
+          <select id="target-application" class="field"><option value="">Loading installed applications...</option></select>
+          <button id="inspect-application" class="target-app-button" type="button" disabled>Check selected application</button>
+          <small id="target-app-count">Only applications discovered in standard macOS application folders can be selected.</small>
+        </section>
         <p class="scope-label sections-label" data-i18n="individualSections">Individual sections</p>
         <div id="collectors" class="collector-list" aria-live="polite"><p class="muted">Loading audit sections...</p></div>
 

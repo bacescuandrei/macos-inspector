@@ -193,14 +193,17 @@ def write_portable_pdf(result: ScanResult, path: Path) -> None:
     document.text(f"{result.overall_score}", MARGIN, A4_HEIGHT - 213, 46, "F2", WHITE)
     document.text("/ 100 SECURITY SCORE", MARGIN + 74, A4_HEIGHT - 203, 10, "F2", WHITE)
     document.y = A4_HEIGHT - 305
-    for label, value in (
+    metadata_rows = [
         ("Scan ID", result.metadata.scan_id),
         ("Case reference", result.metadata.case_reference),
         ("Analyst", result.metadata.analyst),
         ("Host", result.metadata.hostname),
         ("Completed", result.metadata.completed_at),
         ("Findings", f"{len(result.findings)} displayed / {result.total_finding_count or len(result.findings)} total"),
-    ):
+    ]
+    if result.metadata.target_application:
+        metadata_rows.insert(3, ("Target application", result.metadata.target_application))
+    for label, value in metadata_rows:
         document.label_value(label, value)
 
     document.new_page()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import stat
 import zipfile
 from pathlib import Path
@@ -50,6 +51,10 @@ def build_release(destination: Path | None = None) -> Path:
             info.external_attr = (stat.S_IFREG | permissions) << 16
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, path.read_bytes(), compresslevel=9)
+    checksum = hashlib.sha256(destination.read_bytes()).hexdigest()
+    (destination.parent / "SHA256SUMS").write_text(
+        f"{checksum}  {destination.name}\n", encoding="ascii",
+    )
     return destination
 
 

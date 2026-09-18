@@ -20,6 +20,7 @@ from urllib.parse import unquote, urlparse
 
 from macos_inspector import __version__
 from macos_inspector.collectors import COLLECTORS, LOCAL_COLLECTORS
+from macos_inspector.collectors.application_trust import discover_applications
 from macos_inspector.collectors.ioc import MAX_PACK_BYTES, load_ioc_pack
 from macos_inspector.core.io import read_json_limited, read_text_limited
 from macos_inspector.core.models import Severity
@@ -190,6 +191,7 @@ class ScanJob:
     minimum: str
     case_reference: str = ""
     analyst: str = ""
+    target_application: str = ""
     state: str = "queued"
     current_collector: str | None = None
     completed_collectors: int = 0
@@ -264,13 +266,44 @@ class DashboardState:
         )[-100:]
         secure_write_text(self.journal_path, json.dumps({"schema_version": 1, "jobs": retained}, indent=2, ensure_ascii=False) + "\n")
 
-    def create_job(self, collectors: list[str], formats: list[str], minimum: str, case_reference: str = "", analyst: str = "", bundle_password: str = "") -> ScanJob:
+    def applications(self) -> list[dict[str, str]]:
+        return [
+            {"name": path.stem, "path": str(path)}
+            for path in discover_applications()
+        ]
+
+    def validate_target_application(self, supplied: str) -> str:
+        value = supplied.strip()
+        if not value:
+            return ""
+        available = {item["path"] for item in self.applications()}
+        if value not in available:
+            raise ValueError("Select an application from the local application list.")
+        return value
+
+    def create_job(
+        self,
+        collectors: list[str],
+        formats: list[str],
+        minimum: str,
+        case_reference: str = "",
+        analyst: str = "",
+        bundle_password: str = "",
+        target_application: str = "",
+    ) -> ScanJob:
         requested_formats = list(dict.fromkeys(["html", "json", *formats]))
         require_report_formats(requested_formats)
+        if target_application and "application-trust" not in collectors:
+            raise ValueError("A targeted application scan requires the Application Trust section.")
+        target_application = self.validate_target_application(target_application)
         with self.lock:
             if any(job.state in {"queued", "running"} for job in self.jobs.values()):
                 raise RuntimeError("A scan is already running.")
-            job = ScanJob(str(uuid.uuid4()), collectors, requested_formats, minimum, case_reference, analyst, total_collectors=len(collectors), _bundle_password=bundle_password)
+            job = ScanJob(
+                str(uuid.uuid4()), collectors, requested_formats, minimum,
+                case_reference, analyst, target_application,
+                total_collectors=len(collectors), _bundle_password=bundle_password,
+            )
             self.jobs[job.job_id] = job
             self.cancel_events[job.job_id] = threading.Event()
             self._persist_jobs_locked()
@@ -325,6 +358,7 @@ class DashboardState:
                 job.collectors, Severity.parse(job.minimum), progress=progress,
                 case_reference=job.case_reference, analyst=job.analyst, cancel_event=cancel_event,
                 item_progress=item_progress,
+                target_application=Path(job.target_application) if job.target_application else None,
             )
             if cancel_event.is_set():
                 raise ScanCancelled("Scan cancelled by user.")
@@ -423,6 +457,7 @@ class DashboardState:
                     "job_id": f"history-{scan_id}", "state": "completed", "scan_id": scan_id,
                     "collectors": metadata.get("collectors", []), "created_at": metadata.get("started_at"),
                     "case_reference": metadata.get("case_reference", ""), "analyst": metadata.get("analyst", ""),
+                    "target_application": metadata.get("target_application", ""),
                     "completed_at": metadata.get("completed_at"), "summary": summary, "reports": reports,
                 })
             except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
@@ -499,13 +534,18 @@ class DashboardState:
         metadata = current.get("metadata", {})
         current_id = metadata.get("scan_id")
         current_scope = set(metadata.get("collectors", []))
+        current_target = str(metadata.get("target_application", ""))
         current_completed = str(metadata.get("completed_at", ""))
         candidates: list[tuple[str, dict[str, Any]]] = []
         for path in self.output.glob("macos-inspector-*.json"):
             try:
                 report = read_json_limited(path, MAX_REPORT_JSON_BYTES)
                 previous = report.get("metadata", {}) if isinstance(report, dict) else {}
-                if previous.get("scan_id") == current_id or set(previous.get("collectors", [])) != current_scope:
+                if (
+                    previous.get("scan_id") == current_id
+                    or set(previous.get("collectors", [])) != current_scope
+                    or str(previous.get("target_application", "")) != current_target
+                ):
                     continue
                 completed = str(previous.get("completed_at", ""))
                 if not completed or (current_completed and completed >= current_completed):
@@ -773,6 +813,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json(self.state.health())
         elif path == "/api/readiness":
             self._send_json(self.state.readiness())
+        elif path == "/api/applications":
+            self._send_json({"applications": self.state.applications()})
         elif path == "/api/settings":
             self._send_json(self.state.settings.public())
         elif path == "/api/cases":
@@ -957,6 +999,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             case_reference = str(payload.get("case_reference", "")).strip()
             analyst = str(payload.get("analyst", "")).strip()
             bundle_password = str(payload.get("bundle_password", ""))
+            target_application = str(payload.get("target_application", "")).strip()
             if not collectors or any(item not in COLLECTORS for item in collectors):
                 raise ValueError("Select at least one valid audit section.")
             if any(item not in REPORTERS for item in formats):
@@ -968,7 +1011,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError("Encrypted case bundle password must contain 12 to 256 characters.")
             if "encrypted-bundle" not in formats:
                 bundle_password = ""
-            job = self.state.create_job(collectors, formats, minimum, case_reference, analyst, bundle_password)
+            job = self.state.create_job(
+                collectors, formats, minimum, case_reference, analyst,
+                bundle_password, target_application,
+            )
             self._send_json(job.to_dict(), HTTPStatus.ACCEPTED)
         except RuntimeError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
