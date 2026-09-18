@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.7 - Unreleased
+## 1.2.7 - 2026-09-18
 
 - Added automatic **Changes since last comparable scan** analysis for applications, executable identity, startup items, network listeners, security controls, new findings, and resolved findings.
 - Added deterministic investigation stories that connect application, process, network, and persistence evidence only when an exact application path relationship is present.
