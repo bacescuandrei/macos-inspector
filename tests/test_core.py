@@ -65,7 +65,8 @@ from macos_inspector.collectors.live_triage import (
 from macos_inspector.collectors.yara_rules import discover_yara_rules, parse_yara_matches
 from macos_inspector.core.intelligence import IntelligenceResource, fetch_cached_json, parse_apple_security_releases, validate_epss, validate_nvd
 from macos_inspector.core.io import read_json_limited
-from macos_inspector.core.storage import CaseStore, SettingsStore
+from macos_inspector.core.storage import CaseStore, InvestigationStore, SettingsStore
+from macos_inspector.core.guidance import build_guidance, finding_fingerprint
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.process_control import review_process_candidates, terminate_reported_process
@@ -260,6 +261,93 @@ class CoreTests(unittest.TestCase):
             saved = cases.save({"reference": "IR-12", "title": "Suspicious launch item", "analyst": "DFIR", "notes": "Preserve first.", "archived": False})
             self.assertEqual(cases.list()[0]["id"], saved["id"])
             self.assertEqual(cases.path.stat().st_mode & 0o777, 0o600)
+
+    def test_guided_investigation_is_plain_language_and_kept_separate_from_evidence(self):
+        finding_payload = {
+            "finding_id": "APP-TRUST-TEST",
+            "category": "Application Trust",
+            "title": "Application trust: Example",
+            "severity": "High",
+            "status": "Review",
+            "description": "Checks application trust.",
+            "observed_result": "The signature is valid, but the executable is writable by other users.",
+            "evidence": [
+                {"kind": "application_bundle", "source": "/Applications/Example.app", "value": {"name": "Example", "version": "1.0", "bundle_identifier": "test.example", "executable": "/Applications/Example.app/Contents/MacOS/Example"}, "collected_at": "first"},
+                {"kind": "code_signature", "source": "/Applications/Example.app", "value": {"valid": True, "team_identifier": "TEAM123"}, "collected_at": "first"},
+                {"kind": "executable_integrity", "source": "/Applications/Example.app/Contents/MacOS/Example", "value": {"sha256": "a" * 64}, "collected_at": "first"},
+                {"kind": "gatekeeper_assessment", "source": "/Applications/Example.app", "value": {"accepted": True}, "collected_at": "first"},
+            ],
+        }
+        report = {"metadata": {"scan_id": "guided-scan"}, "summary": {}, "findings": [finding_payload]}
+        fingerprint = finding_fingerprint(finding_payload)
+        changed_timestamp = json.loads(json.dumps(finding_payload))
+        changed_timestamp["evidence"][0]["collected_at"] = "second"
+        self.assertEqual(finding_fingerprint(changed_timestamp), fingerprint)
+
+        guidance = build_guidance(report)
+        self.assertEqual(guidance["counts"]["attention"], 1)
+        item = guidance["findings"]["APP-TRUST-TEST"]
+        self.assertEqual(item["label"], "Needs review")
+        self.assertNotIn("executable_sha256", item["simple_explanation"])
+        self.assertEqual(item["context"]["publisher_team_id"], "TEAM123")
+        self.assertIn("not proof of malware", guidance["plain_language_note"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = InvestigationStore(Path(directory))
+            saved = store.save(report, {"finding_id": "APP-TRUST-TEST", "status": "Expected", "note": "Installed by the owner."})
+            self.assertEqual(saved["status"], "Expected")
+            self.assertEqual(store.path.stat().st_mode & 0o777, 0o600)
+            current = store.for_report(report)["APP-TRUST-TEST"]
+            self.assertEqual(current["status"], "Expected")
+            self.assertTrue(current["current"])
+            expected_guidance = build_guidance(report, store.for_report(report))
+            self.assertEqual(expected_guidance["counts"]["attention"], 0)
+
+            changed_binary = json.loads(json.dumps(report))
+            changed_binary["findings"][0]["evidence"][2]["value"]["sha256"] = "b" * 64
+            stale = store.for_report(changed_binary)["APP-TRUST-TEST"]
+            self.assertEqual(stale["status"], "New")
+            self.assertFalse(stale["current"])
+            self.assertEqual(stale["previous_status"], "Expected")
+
+    def test_guidance_and_investigation_endpoints_require_local_protected_requests(self):
+        report = {
+            "metadata": {"scan_id": "guided-endpoint"},
+            "summary": {"overall_score": 80},
+            "findings": [{
+                "finding_id": "TEST-GUIDED", "category": "Security", "title": "Test guided item",
+                "severity": "Medium", "status": "Review", "description": "Description",
+                "observed_result": "An item needs review.", "evidence": [],
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            (state.output / "macos-inspector-guided-endpoint.json").write_text(json.dumps(report), encoding="utf-8")
+            server = DashboardServer(("127.0.0.1", 0), state)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host = f"127.0.0.1:{server.server_port}"
+                status, _, body = dashboard_request(server, "GET", "/api/guidance/guided-endpoint", host)
+                self.assertEqual(status, 200)
+                self.assertEqual(json.loads(body)["counts"]["attention"], 1)
+
+                status, _, _ = dashboard_request(server, "POST", "/api/investigations", host, payload={
+                    "scan_id": "guided-endpoint", "finding_id": "TEST-GUIDED", "status": "Investigating", "note": "Checking ownership.",
+                }, write_header=False)
+                self.assertEqual(status, 403)
+
+                status, _, body = dashboard_request(server, "POST", "/api/investigations", host, payload={
+                    "scan_id": "guided-endpoint", "finding_id": "TEST-GUIDED", "status": "Investigating", "note": "Checking ownership.",
+                })
+                self.assertEqual(status, 200)
+                saved = json.loads(body)
+                self.assertEqual(saved["record"]["status"], "Investigating")
+                self.assertEqual(saved["guidance"]["findings"]["TEST-GUIDED"]["investigation"]["note"], "Checking ownership.")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
 
     def test_intelligence_cache_uses_validated_last_known_good_data(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"MACOS_INSPECTOR_DATA_DIR": directory}, clear=False):

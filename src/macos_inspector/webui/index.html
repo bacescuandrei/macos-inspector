@@ -34,7 +34,7 @@
       <p class="eyebrow">LOCAL DFIR WORKBENCH</p>
       <h1>macOS Inspector</h1>
     </div>
-    <div class="topbar-actions"><a class="topbar-link" href="#operations" data-i18n="manage">Manage</a></div>
+    <div class="topbar-actions"><button id="show-guide" class="topbar-link" type="button">Guide</button><a class="topbar-link" href="#operations" data-i18n="manage">Manage</a></div>
     <span id="connection" class="connection checking" role="status" aria-live="polite">Connecting...</span>
   </header>
 
@@ -46,6 +46,20 @@
         <p class="lede" data-i18n="introText">Choose audit sections, run a read-only scan, inspect findings, and explicitly contain a reported process when necessary.</p>
       </div>
       <div class="safety-note"><span>●</span> <span data-i18n="safety">Local-first | online OSINT is opt-in | no remediation</span></div>
+    </section>
+
+    <section id="welcome-guide" class="welcome-guide" aria-labelledby="welcome-guide-title">
+      <div class="welcome-copy">
+        <p class="eyebrow">START HERE</p>
+        <h2 id="welcome-guide-title">Check this Mac without security jargon</h2>
+        <p>Run a safe local check, see only the items that need attention, and follow clear investigation steps. A warning is a reason to look closer, not proof of malware.</p>
+        <div class="welcome-actions"><button id="check-this-mac" class="guided-primary" type="button">Check this Mac</button><button id="dismiss-guide" class="text-button" type="button">I know where to start</button></div>
+      </div>
+      <div class="welcome-steps" aria-label="Guided investigation steps">
+        <div><strong>1</strong><span>Run the recommended local checks</span></div>
+        <div><strong>2</strong><span>Understand why an item was flagged</span></div>
+        <div><strong>3</strong><span>Validate before you contain or remove anything</span></div>
+      </div>
     </section>
 
     <section id="operations" class="operations-section" aria-labelledby="operations-title">
@@ -183,6 +197,7 @@
         <div id="progress" class="progress-box empty"><strong data-i18n="readyTitle">Ready when you are.</strong><span data-i18n="readyHelp">Select a section and start an audit.</span></div>
         <div id="case-banner" class="case-banner hidden"></div>
         <div id="summary" class="summary-grid hidden"></div>
+        <section id="guided-summary" class="guided-summary hidden" aria-labelledby="guided-summary-title"></section>
         <section id="comparison-panel" class="comparison-panel hidden" aria-labelledby="comparison-title"><div class="comparison-heading"><div><span class="eyebrow">BASELINE DIFF</span><h3 id="comparison-title" data-i18n="scanComparison">Scan comparison</h3></div><button id="close-comparison" class="text-button" type="button" data-i18n="close">Close</button></div><div id="comparison-summary" class="comparison-summary"></div><div id="comparison-results" class="comparison-results"></div></section>
         <div id="report-links" class="report-links hidden"></div>
         <details id="timeline-panel" class="timeline-panel hidden"><summary>Timeline | <span id="timeline-count">0</span> events</summary><div id="timeline" class="timeline-list"></div></details>

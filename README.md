@@ -4,13 +4,13 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-macOS Inspector is a macOS security inspection and DFIR triage tool. It collects local evidence with read-only collectors, evaluates it with documented rules, and presents findings and reports through a local web dashboard. A guarded response control can signal a current-user process that Live Triage has explicitly marked for review.
+macOS Inspector is a macOS security inspection and DFIR triage tool for both everyday Mac users and experienced investigators. It collects local evidence with read-only collectors, evaluates it with documented rules, and explains what needs attention through a guided local dashboard. Technical evidence remains available for analysts, while plain-language summaries and recommended next steps help less experienced users avoid unsafe conclusions.
 
 It was created to make evidence that is normally scattered across command-line tools, property lists, SQLite databases, application bundles, running processes, sockets, and macOS security settings easier to collect and review in one place.
 
-The project is intended for incident responders, forensic analysts, security engineers, system administrators, and technically experienced Mac owners. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
+The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current release: `v1.2.5`
+Current release: `v1.2.6`
 
 ## What it can help answer
 
@@ -59,11 +59,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.2.5-macos.zip` and `SHA256SUMS` from the GitHub release.
+1. Download `macos-inspector-1.2.6-macos.zip` and `SHA256SUMS` from the GitHub release.
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.2.5-macos.zip
+   shasum -a 256 macos-inspector-1.2.6-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
@@ -81,12 +81,11 @@ See [Installation](docs/INSTALLATION.md) for source installation, permission beh
 ## Run a first scan
 
 1. Open the dashboard with the launcher.
-2. Review **Collection readiness**. A limited result identifies reduced coverage, not a failed installation.
-3. Select **Quick triage**.
-4. Keep the default report formats or select the formats required by the case.
-5. Select **Run selected scan**.
-6. Review high-priority findings first, then examine the evidence and collection notes.
-7. Open the HTML report from scan history or export the case bundle.
+2. Select **Check this Mac** in the start guide. This runs the recommended offline Quick triage profile.
+3. Read the guided summary and open the items listed under **Needs review**, **High-risk behavior**, or **Unable to verify**.
+4. Follow the recommended next steps and expand **Details** when technical evidence is needed.
+5. Record the investigation state as `Expected`, `Suspicious`, `Contained`, or `Resolved`. Notes remain local and do not modify scan evidence.
+6. Run the same profile again after containment or remediation and compare it with the earlier scan.
 
 Routine use does not require terminal commands. The CLI remains available for automation and reproducible collections.
 

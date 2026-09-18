@@ -23,11 +23,12 @@ from macos_inspector.collectors.ioc import MAX_PACK_BYTES, load_ioc_pack
 from macos_inspector.core.io import read_json_limited, read_text_limited
 from macos_inspector.core.models import Severity
 from macos_inspector.core.comparison import compare_scan_payloads
+from macos_inspector.core.guidance import build_guidance
 from macos_inspector.core.process_control import terminate_reported_process
 from macos_inspector.core.readiness import collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.runner import CommandRunner, ScanCancelled
-from macos_inspector.core.storage import CaseStore, SettingsStore
+from macos_inspector.core.storage import CaseStore, InvestigationStore, SettingsStore
 from macos_inspector.core.intelligence import clear_intelligence_cache, lookup_threatfox
 from macos_inspector.collectors.yara_rules import MAX_RULE_BYTES, discover_yara_rules
 from macos_inspector.reporters import REPORTERS, report_format_capabilities, require_report_formats
@@ -189,6 +190,7 @@ class DashboardState:
         os.environ["MACOS_INSPECTOR_DATA_DIR"] = str(self.data_root)
         self.settings = SettingsStore(self.data_root)
         self.cases = CaseStore(self.data_root)
+        self.investigations = InvestigationStore(self.data_root)
         self.jobs: dict[str, ScanJob] = {}
         self.cancel_events: dict[str, threading.Event] = {}
         self.item_progress_runtime: dict[str, dict] = {}
@@ -455,6 +457,15 @@ class DashboardState:
         comparison["reports"] = {name: f"/reports/{path.name}" for name, path in paths.items()}
         return comparison
 
+    def guidance(self, scan_id: str) -> dict:
+        report = self._load_scan_report(scan_id)
+        return build_guidance(report, self.investigations.for_report(report))
+
+    def save_investigation(self, scan_id: str, supplied: object) -> dict:
+        report = self._load_scan_report(scan_id)
+        record = self.investigations.save(report, supplied)
+        return {"record": record, "guidance": build_guidance(report, self.investigations.for_report(report))}
+
     def terminate_process(self, scan_id: str, pid: int, mode: str, **controls) -> dict:
         report = self._load_scan_report(scan_id)
         result = terminate_reported_process(report, pid, mode, **controls)
@@ -685,6 +696,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "signing": {"available": True, "reason": "HMAC-SHA256 is built in; Ed25519 is used when the optional signing dependency is available."},
                     "yara": {"available": Path(CommandRunner.ALLOWED["yara"]).is_file(), "reason": "" if Path(CommandRunner.ALLOWED["yara"]).is_file() else "Install YARA with Homebrew to enable local rule execution."},
                     "process_response": {"available": os.geteuid() != 0, "reason": "" if os.geteuid() != 0 else "Process response is disabled when the dashboard runs as root."},
+                    "guided_investigation": {"available": True, "reason": "Plain-language guidance and investigation notes are stored locally and never modify scan evidence."},
                 },
                 "severities": [severity.label() for severity in Severity],
             })
@@ -704,6 +716,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json({"entries": self.state.cache_status()})
         elif path == "/api/scans":
             self._send_json({"scans": self.state.list_jobs()})
+        elif path.startswith("/api/guidance/"):
+            scan_id = unquote(path.removeprefix("/api/guidance/")).strip("/")
+            try:
+                self._send_json(self.state.guidance(scan_id))
+            except FileNotFoundError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+            except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         elif path.startswith("/api/manifests/") and path.endswith("/verify"):
             scan_id = unquote(path.removeprefix("/api/manifests/").removesuffix("/verify")).strip("/")
             try:
@@ -783,6 +803,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except FileNotFoundError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
             except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if path == "/api/investigations":
+            try:
+                payload = self._read_json_body(8192)
+                scan_id = str(payload.pop("scan_id", ""))
+                self._send_json(self.state.save_investigation(scan_id, payload))
+            except PermissionError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+            except FileNotFoundError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+            except KeyError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+            except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         if path.startswith("/api/scans/") and path.endswith("/cancel"):

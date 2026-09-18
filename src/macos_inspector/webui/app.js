@@ -1,4 +1,4 @@
-const state = { config: null, settings: null, cases: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', processCandidates: new Map() };
+const state = { config: null, settings: null, cases: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, processCandidates: new Map() };
 
 const COPY = {
     manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, inspect findings, and explicitly contain a reported process when necessary.', safety:'Local-first | online OSINT is opt-in | containment requires confirmation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings | private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets | one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password | minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
@@ -50,9 +50,31 @@ function updateRunAvailability() {
   const disabled = !state.online || state.starting || Boolean(state.activeJob);
   const runButton = $('#run-selected');
   if (runButton) runButton.disabled = disabled;
+  const guidedButton = $('#check-this-mac');
+  if (guidedButton) guidedButton.disabled = disabled;
   document.querySelectorAll('[data-run-one]').forEach((button) => { button.disabled = disabled; });
   const cancelButton = $('#cancel-scan');
   if (cancelButton && !cancelButton.classList.contains('hidden')) cancelButton.disabled = !state.online;
+}
+
+function setGuideVisible(visible) {
+  const guide = $('#welcome-guide');
+  if (!guide) return;
+  guide.classList.toggle('hidden', !visible);
+  if (visible) guide.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+function dismissGuide() {
+  try { window.localStorage.setItem('macos-inspector-guide-1.2.6', 'dismissed'); } catch (error) { /* Local preferences are optional. */ }
+  setGuideVisible(false);
+}
+
+async function startGuidedCheck() {
+  if (!state.config) return setMessage('The dashboard is still loading. Try again in a moment.', true);
+  selectProfile('quick', false);
+  dismissGuide();
+  document.querySelector('.workspace-grid').scrollIntoView({behavior: 'smooth', block: 'start'});
+  await startScan();
 }
 
 function setConnection(status, health = null) {
@@ -299,8 +321,15 @@ async function loadReport(job) {
   try {
     const payload = await api(job.reports.json);
     state.currentScanId = payload.metadata?.scan_id || '';
+    try {
+      state.guidance = state.currentScanId ? await api(`/api/guidance/${encodeURIComponent(state.currentScanId)}`) : null;
+    } catch (error) {
+      state.guidance = null;
+      setMessage(`The report loaded, but guided interpretation is unavailable: ${error.message}`, true);
+    }
     renderCaseMetadata(payload.metadata || {});
     renderSummary(payload.summary);
+    renderGuidance(state.guidance);
     renderTimeline(payload.timeline || []);
     renderFindings(payload.findings || []);
   } catch (error) { setMessage(`Could not load report data: ${error.message}`, true); }
@@ -327,6 +356,28 @@ function renderSummary(summary) {
   ];
   $('#summary').innerHTML = cards.map(([label, value]) => `<div class="summary-item"><span class="summary-label">${escapeHtml(label)}</span><span class="summary-value">${escapeHtml(value)}</span></div>`).join('');
   $('#summary').classList.remove('hidden');
+}
+
+function renderGuidance(guidance) {
+  const panel = $('#guided-summary');
+  if (!guidance) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+  const counts = guidance.counts || {};
+  const priorities = guidance.priorities || [];
+  const priorityRows = priorities.length ? priorities.map((item) => `<button type="button" class="guided-priority" data-review-finding="${escapeHtml(item.finding_id)}"><span class="verdict verdict-${escapeHtml(item.verdict || 'information')}">${escapeHtml(item.label)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.next_action)}</small></button>`).join('') : '<p class="guided-clear">No result currently requires immediate review.</p>';
+  const workflow = (guidance.workflow || []).map((step, index) => `<span${index === 0 ? ' class="active"' : ''}>${escapeHtml(step)}</span>`).join('');
+  panel.innerHTML = `<div class="guided-heading"><div><p class="eyebrow">GUIDED INVESTIGATION</p><h3 id="guided-summary-title">${escapeHtml(guidance.headline)}</h3><p>${escapeHtml(guidance.plain_language_note)}</p></div><div class="guided-counts"><span><strong>${escapeHtml(counts.attention || 0)}</strong> attention</span><span><strong>${escapeHtml(counts.unable_to_verify || 0)}</strong> not verified</span><span><strong>${escapeHtml(counts.looks_normal_or_resolved || 0)}</strong> normal or resolved</span><span><strong>${escapeHtml(counts.recorded_observations || 0)}</strong> observations</span></div></div><div class="workflow-strip">${workflow}</div><div class="guided-priorities">${priorityRows}</div>`;
+  panel.classList.remove('hidden');
+  panel.querySelectorAll('[data-review-finding]').forEach((button) => button.addEventListener('click', () => focusFinding(button.dataset.reviewFinding)));
+}
+
+function focusFinding(findingId) {
+  $('#finding-search').value = findingId;
+  applyFindingFilters(true);
+  const finding = document.querySelector('.finding');
+  if (finding) {
+    finding.classList.add('open');
+    finding.scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
 }
 
 function renderTimeline(events) {
@@ -381,14 +432,71 @@ function renderFindingPage() {
     const commands = (finding.commands_used || []).map((command) => `<li><code>${escapeHtml(command)}</code></li>`).join('') || '<li>None</li>';
     const references = (finding.references || []).map((reference) => `<li><a href="${escapeHtml(reference)}" target="_blank" rel="noreferrer">${escapeHtml(reference)}</a></li>`).join('') || '<li>None</li>';
     const responseControls = renderProcessResponseControls(finding);
-    return `<article class="finding" data-finding-index="${start + index}"><div class="finding-head"><span class="severity severity-${severity}">${escapeHtml(finding.severity)}</span><span class="finding-status">${escapeHtml(finding.status)}</span><span class="finding-title">${escapeHtml(finding.title)}</span><span class="finding-id">${escapeHtml(finding.finding_id)}</span><button type="button" class="finding-toggle">Details</button></div><p class="finding-observed">${escapeHtml(finding.observed_result)}</p><div class="finding-details"><p><strong>Why it matters</strong><br>${escapeHtml(finding.why_it_matters)}</p><p><strong>Recommendation</strong><br>${escapeHtml(finding.recommendation)}</p>${responseControls}<p><strong>Commands used</strong></p><ul>${commands}</ul><p><strong>References</strong></p><ul>${references}</ul><p><strong>Evidence</strong></p><pre>${evidence}</pre></div></article>`;
+    const guide = state.guidance?.findings?.[finding.finding_id];
+    const verdict = guide ? `<span class="verdict verdict-${escapeHtml(guide.verdict)}">${escapeHtml(guide.label)}</span>` : '';
+    const explanation = guide?.simple_explanation || finding.observed_result;
+    const actions = (guide?.next_actions || []).map((action) => `<li>${escapeHtml(action)}</li>`).join('');
+    const context = renderInvestigationContext(guide?.context);
+    const investigation = renderInvestigationControls(finding, guide?.investigation);
+    return `<article class="finding" data-finding-index="${start + index}" data-finding-id="${escapeHtml(finding.finding_id)}"><div class="finding-head"><span class="severity severity-${severity}">${escapeHtml(finding.severity)}</span><span class="finding-status">${escapeHtml(finding.status)}</span>${verdict}<span class="finding-title">${escapeHtml(finding.title)}</span><span class="finding-id">${escapeHtml(finding.finding_id)}</span><button type="button" class="finding-toggle">Details</button></div><p class="finding-observed">${escapeHtml(explanation)}</p>${actions ? `<div class="next-action"><strong>What to do next</strong><ol>${actions}</ol></div>` : ''}<div class="finding-details">${investigation}${context}<p><strong>Technical observation</strong><br>${escapeHtml(finding.observed_result)}</p><p><strong>Why it matters</strong><br>${escapeHtml(finding.why_it_matters)}</p><p><strong>Recommendation</strong><br>${escapeHtml(finding.recommendation)}</p>${responseControls}<p><strong>Commands used</strong></p><ul>${commands}</ul><p><strong>References</strong></p><ul>${references}</ul><p><strong>Evidence</strong></p><pre>${evidence}</pre></div></article>`;
     }).join('');
   }
   document.querySelectorAll('.finding-toggle').forEach((button) => button.addEventListener('click', () => button.closest('.finding').classList.toggle('open')));
   document.querySelectorAll('[data-process-action]').forEach((button) => button.addEventListener('click', () => respondToProcess(button)));
+  document.querySelectorAll('[data-save-investigation]').forEach((button) => button.addEventListener('click', () => saveInvestigation(button)));
   $('#finding-range').textContent = total ? `${start + 1}-${Math.min(start + state.findingPageSize, total)} of ${total}` : '0 findings';
   $('#findings-prev').disabled = state.findingPage <= 1;
   $('#findings-next').disabled = start + state.findingPageSize >= total;
+}
+
+function renderInvestigationContext(context) {
+  if (!context || context.kind === 'general') return '';
+  if (context.kind === 'application') {
+    const values = [
+      ['Application', context.name], ['Version', context.version], ['Location', context.path],
+      ['Publisher Team ID', context.publisher_team_id || 'Not available'],
+      ['Signature', context.signature_valid === true ? 'Valid' : context.signature_valid === false ? 'Invalid' : 'Unknown'],
+      ['Gatekeeper', context.gatekeeper_accepted === true ? 'Accepted' : context.gatekeeper_accepted === false ? 'Rejected' : 'Unknown'],
+      ['Executable SHA-256', context.executable_sha256],
+    ].filter(([, value]) => value !== null && value !== undefined && value !== '');
+    return `<section class="investigation-context"><strong>Application investigation</strong><div>${values.map(([label, value]) => `<span><small>${escapeHtml(label)}</small><code>${escapeHtml(value)}</code></span>`).join('')}</div></section>`;
+  }
+  if (context.kind === 'process') {
+    return `<section class="investigation-context"><strong>Process investigation</strong><p>Review the executable, owner, parent relationship, signature, persistence, and network activity before containment. Current actionable candidates are listed below.</p></section>`;
+  }
+  return '';
+}
+
+function renderInvestigationControls(finding, investigation = {}) {
+  const statuses = ['New', 'Investigating', 'Expected', 'Suspicious', 'Contained', 'Resolved'];
+  const current = investigation.current !== false;
+  const status = current ? (investigation.status || 'New') : 'New';
+  const stale = current ? '' : `<p class="investigation-stale">This item changed since it was marked ${escapeHtml(investigation.previous_status || 'reviewed')}. Review the new evidence before trusting the previous decision.</p>`;
+  return `<section class="investigation-box"><div><strong>Investigation status</strong><span>Stored locally and kept separate from scan evidence.</span></div>${stale}<label>Status<select class="field" data-investigation-status>${statuses.map((value) => `<option value="${value}"${value === status ? ' selected' : ''}>${value}</option>`).join('')}</select></label><label>Analyst note<textarea class="field textarea" data-investigation-note maxlength="2000" placeholder="Why is this expected or suspicious?">${escapeHtml(current ? investigation.note || '' : '')}</textarea></label><button type="button" class="secondary-button" data-save-investigation="${escapeHtml(finding.finding_id)}">Save investigation state</button><span class="investigation-message" role="status"></span></section>`;
+}
+
+async function saveInvestigation(button) {
+  const box = button.closest('.investigation-box');
+  if (!box || !state.currentScanId) return;
+  button.disabled = true;
+  const message = box.querySelector('.investigation-message');
+  message.textContent = 'Saving locally...';
+  try {
+    const result = await api('/api/investigations', writeOptions('POST', {
+      scan_id: state.currentScanId,
+      finding_id: button.dataset.saveInvestigation,
+      status: box.querySelector('[data-investigation-status]').value,
+      note: box.querySelector('[data-investigation-note]').value,
+    }));
+    state.guidance = result.guidance;
+    renderGuidance(state.guidance);
+    renderFindingPage();
+    setMessage('Investigation state saved locally. Scan evidence was not changed.');
+  } catch (error) {
+    message.textContent = error.message;
+    message.classList.add('error');
+    button.disabled = false;
+  }
 }
 
 function processCandidates(finding) {
@@ -416,7 +524,7 @@ function renderProcessResponseControls(finding) {
     const zombie = Boolean(candidate.zombie) || String(candidate.stat || '').toUpperCase().includes('Z');
     const legacy = !Number.isInteger(candidate.uid);
     const disabled = capability.available === false || zombie || legacy;
-    const note = zombie ? 'Zombie process: it has already exited. Review or restart its parent so it can be reaped.' : legacy ? 'Run Live Triage again with version 1.2.5 before using process response.' : capability.reason;
+    const note = zombie ? 'Zombie process: it has already exited. Review or restart its parent so it can be reaped.' : legacy ? 'Run Live Triage again with the current version before using process response.' : capability.reason;
     const actions = disabled
       ? `<span class="process-action-note">${escapeHtml(note || 'Process response unavailable.')}</span>`
       : `<div class="process-buttons"><button type="button" data-process-key="${escapeHtml(key)}" data-process-action="terminate">Terminate</button><button type="button" class="force" data-process-key="${escapeHtml(key)}" data-process-action="kill">Force kill</button></div>`;
@@ -773,6 +881,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     setMessage('Audit scope cleared. Select a profile or individual sections.');
   });
   $('#run-selected').addEventListener('click', () => startScan());
+  $('#check-this-mac').addEventListener('click', startGuidedCheck);
+  $('#dismiss-guide').addEventListener('click', dismissGuide);
+  $('#show-guide').addEventListener('click', () => setGuideVisible(true));
   $('#case-select').addEventListener('change', () => loadCaseIntoEditor($('#case-select').value));
   $('#scan-case-select').addEventListener('change', () => attachCaseToScan($('#scan-case-select').value));
   $('#save-case').addEventListener('click', saveCase);
@@ -797,6 +908,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#findings-next').addEventListener('click', () => { if (state.findingPage * state.findingPageSize < state.filteredFindings.length) { state.findingPage += 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   setConnection('checking');
   applyEnglishCopy();
+  try { if (window.localStorage.getItem('macos-inspector-guide-1.2.6') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
   const health = await checkHealth();
   if (!health) setMessage('Dashboard server unavailable. Retrying automatically...', true);
   state.healthPoll = setInterval(checkHealth, 4000);

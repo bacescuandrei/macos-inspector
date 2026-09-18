@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.6 - 2026-09-18
+
+- Added a first-run **Check this Mac** workflow that starts the recommended offline Quick triage profile without requiring security knowledge.
+- Added a guided investigation summary that separates items needing attention, checks that could not be completed, and results that look normal or were resolved.
+- Added plain-language verdicts, short explanations, concrete next steps, and an investigation workflow from detection through closure without treating a review signal as proof of malware.
+- Added focused application and process investigation context while keeping commands and raw evidence behind expandable technical details.
+- Added local investigation states and analyst notes for `Investigating`, `Expected`, `Suspicious`, `Contained`, and `Resolved` findings.
+- Kept investigation decisions separate from immutable scan reports and automatically invalidated an expected decision when the application's identity, executable hash, signature, Gatekeeper result, or other security evidence changes.
+- Added protected guidance and investigation APIs, owner-only local storage, responsive layouts, and regression tests for evidence separation and stale-decision handling.
+
 ## 1.2.5 - 2026-09-17
 
 - Added analyst-confirmed `SIGTERM` and `SIGKILL` controls for current-user processes explicitly listed as Live Triage review candidates.

@@ -2,6 +2,23 @@
 
 This guide explains the dashboard workflows, representative results, and the next investigative step. Examples are derived from the project's automated fixtures and are not claims about a real host.
 
+## Guided investigation
+
+Select **Check this Mac** on the start guide for the recommended offline Quick triage profile. After the scan, the dashboard groups results into items that need attention, checks that could not be completed, and findings that look normal or were already resolved.
+
+Each finding starts with a plain-language verdict and concrete next steps. Expand **Details** for commands, raw evidence, application identity, executable hashes, process context, and the full rule explanation.
+
+Use investigation states to record progress:
+
+- `New`: not yet reviewed.
+- `Investigating`: validation is in progress.
+- `Expected`: the current evidence matches an accepted application or host condition.
+- `Suspicious`: the item requires escalation or deeper analysis.
+- `Contained`: an immediate response action was completed.
+- `Resolved`: remediation was verified with a new scan.
+
+Investigation notes are stored locally and do not change the signed or exported scan report. An `Expected` decision is not a permanent allowlist. If the underlying application identity, hash, signature, Gatekeeper result, process identity, or other security evidence changes, the dashboard returns the finding to `New` and shows the previous decision as stale.
+
 ## Start with readiness
 
 Open **Collection readiness** before the first scan. It checks the macOS and Python environment, trusted command availability, report storage, visible applications, TCC and browser database access, PDF support, and optional asymmetric signing support.

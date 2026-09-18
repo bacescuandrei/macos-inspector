@@ -10,6 +10,7 @@ from typing import Any
 
 from macos_inspector.core.io import read_json_limited
 from macos_inspector.reporters.common import secure_write_text
+from macos_inspector.core.guidance import finding_fingerprint
 
 
 MAX_TEXT = 2_000
@@ -192,3 +193,64 @@ class CaseStore:
         cases.append(record)
         secure_write_text(self.path, json.dumps({"schema_version": 1, "cases": cases[-500:]}, indent=2, ensure_ascii=False) + "\n")
         return record
+
+
+class InvestigationStore:
+    VALID_STATUSES = {"New", "Investigating", "Expected", "Suspicious", "Contained", "Resolved"}
+
+    def __init__(self, root: Path | None = None) -> None:
+        self.root = (root or application_data_dir()).resolve()
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.root.chmod(0o700)
+        self.path = self.root / "investigations.json"
+
+    def _records(self) -> list[dict[str, Any]]:
+        payload = _read_object(self.path)
+        records = payload.get("records", [])
+        return [item for item in records if isinstance(item, dict)]
+
+    def for_report(self, report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        saved = {str(item.get("finding_id", "")): item for item in self._records()}
+        result: dict[str, dict[str, Any]] = {}
+        for finding in report.get("findings", []):
+            if not isinstance(finding, dict):
+                continue
+            finding_id = str(finding.get("finding_id", ""))
+            record = saved.get(finding_id)
+            current = bool(record and record.get("fingerprint") == finding_fingerprint(finding))
+            result[finding_id] = {
+                "status": str(record.get("status")) if current else "New",
+                "note": str(record.get("note", "")) if current else "",
+                "current": current or record is None,
+                "previous_status": str(record.get("status")) if record and not current else None,
+                "updated_at": record.get("updated_at") if record else None,
+            }
+        return result
+
+    def save(self, report: dict[str, Any], supplied: object) -> dict[str, Any]:
+        if not isinstance(supplied, dict):
+            raise ValueError("Investigation update must be a JSON object.")
+        finding_id = str(supplied.get("finding_id", "")).strip()
+        status = str(supplied.get("status", "")).strip()
+        note = str(supplied.get("note", "")).strip()
+        if status not in self.VALID_STATUSES:
+            raise ValueError("Investigation status is invalid.")
+        if len(note) > MAX_TEXT or any(ord(character) < 32 and character not in "\t\n" for character in note):
+            raise ValueError("Investigation note must be plain text up to 2000 characters.")
+        finding = next((item for item in report.get("findings", []) if isinstance(item, dict) and item.get("finding_id") == finding_id), None)
+        if finding is None:
+            raise KeyError("Finding not found in this scan.")
+        records = [item for item in self._records() if item.get("finding_id") != finding_id]
+        record = {
+            "finding_id": finding_id,
+            "title": str(finding.get("title", ""))[:MAX_TEXT],
+            "status": status,
+            "note": note,
+            "fingerprint": finding_fingerprint(finding),
+            "scan_id": str(report.get("metadata", {}).get("scan_id", "")),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if status != "New" or note:
+            records.append(record)
+        secure_write_text(self.path, json.dumps({"schema_version": 1, "records": records[-1000:]}, indent=2, ensure_ascii=False) + "\n")
+        return {**record, "current": True}
