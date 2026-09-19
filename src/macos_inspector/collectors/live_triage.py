@@ -413,6 +413,13 @@ class LiveTriageCollector(Collector):
             recommendation="Validate review candidates against expected software, preserve volatile evidence and inspect code signatures before remediation.",
             evidence=(Evidence("process_snapshot", "local", {
                 "process_count": len(processes),
+                "running_processes": [
+                    {
+                        key: process.get(key)
+                        for key in ("pid", "ppid", "stat", "zombie", "elapsed", "elapsed_seconds", "executable")
+                    }
+                    for process in processes[:MAX_PROCESSES]
+                ],
                 "priority_summary": dict(sorted(priority_counts.items())),
                 "review_candidates": suspicious,
                 "snapshot_truncated": len(processes) >= MAX_PROCESSES,

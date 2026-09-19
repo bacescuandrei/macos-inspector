@@ -25,6 +25,8 @@ After a scan, **Changes since last comparable scan** automatically selects the n
 
 Investigation stories connect findings only when the evidence shares an exact application path. For example, an Application Trust finding can be connected to a running process, listener, or startup mechanism inside the same application bundle. A story is an investigation aid, not a malware verdict.
 
+The application review queue also shows current activity when the loaded scan contains both Application Trust and the relevant Live Triage or Persistence evidence. **Running**, **network endpoint**, and **startup item** labels mean that an executable path inside the exact bundle appeared in that evidence. A similarly named application is not treated as a match. Activity is useful investigation context, not a negative trust signal.
+
 Confidence describes how complete and direct the supporting evidence is. It does not describe impact. A high-severity finding can have low confidence when collection failed, and a normal observation can have high confidence when several local checks agree.
 
 ## Hash reputation
@@ -104,7 +106,7 @@ For one unfamiliar application:
 
 1. In **Check one application**, type part of the application name or path.
 2. Select the application from the filtered local list.
-3. Select **Check selected application**.
+3. Select **Check trust only** for the fastest focused result, or select **Check trust and activity** to collect Live Triage and Persistence context for the same exact app.
 4. Review the signature, notarization, Gatekeeper context, hardened runtime, entitlements, quarantine metadata, bundle layout, symlinks, writable components, sealed resources, and executable placement.
 
 For a complete inventory, select **Application Trust**, run the scan, wait for all visible bundles to finish, then filter the results by application name, status, severity, Team ID, or path.
@@ -116,6 +118,8 @@ After either scan, use **Which applications should I look at first?** to review 
 - **Unable to verify** keeps incomplete evidence separate from passing checks.
 - **Checks passed** means only that the displayed trust checks succeeded; it is not a safe-software verdict.
 - **Reviewed locally** contains results currently marked `Expected` or `Resolved` in the local investigation record.
+
+Select **Active in this scan** to see applications that were running, owned a listener or established connection, or were referenced by a launch item. Expand **Why this app appears active** to see the matching PID, endpoint, or startup definition. No fuzzy application-name match is used. An active application can be entirely expected, and an inactive application can still require review.
 
 Open a result for its complete evidence or select **Recheck this app** to run a new focused Application Trust scan for the exact recorded path. The server validates the path against the current local application inventory before collection.
 

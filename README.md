@@ -10,12 +10,13 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current development version: `v1.2.9`
+Current development version: `v1.3.0`
 
 ## What it can help answer
 
 - Which applications have valid signatures, hardened runtime, notarization evidence, suspicious paths, or integrity concerns?
 - Which accounts, launch items, background services, privacy grants, profiles, extensions, and network settings deserve review?
+- Which applications are running, using the network, or configured to start automatically, and which exact evidence connects those observations?
 - Which processes own listeners or established connections, and what local context makes them higher priority?
 - Does the installed macOS version require review against current Apple, CISA KEV, FIRST EPSS, or NIST NVD information?
 - Did a bounded local IOC or YARA rule match the files explicitly selected by the analyst?
@@ -61,11 +62,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.2.9-macos.zip` and `SHA256SUMS` from the latest GitHub release.
+1. Download `macos-inspector-1.3.0-macos.zip` and `SHA256SUMS` from the latest GitHub release.
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.2.9-macos.zip
+   shasum -a 256 macos-inspector-1.3.0-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
@@ -99,7 +100,7 @@ Routine use does not require terminal commands. The CLI remains available for au
 
 Goal: determine whether an application has the expected macOS trust signals.
 
-Steps: use **Check one application** to search the local application list, select the app, and run a focused check. Review its signature, Team ID, notarization result, hardened runtime, entitlements, quarantine metadata, bundle paths, and executable integrity. Use the full **Application Trust** profile when you need an inventory of every visible application. The application review queue then separates results into **Review first**, **Needs context**, **Unable to verify**, **Checks passed**, and **Reviewed locally**. Each row explains the concrete trust signal and can start a focused recheck for that exact application.
+Steps: use **Check one application** to search the local application list and select the app. Choose **Check trust only** for the fastest signature and integrity check, or **Check trust and activity** to add running-process, network, and startup context. Review its signature, Team ID, notarization result, hardened runtime, entitlements, quarantine metadata, bundle paths, and executable integrity. Use the full **Application Trust** profile when you need an inventory of every visible application. The application review queue then separates results into **Review first**, **Needs context**, **Unable to verify**, **Checks passed**, and **Reviewed locally**. When the same scan also includes Live Triage or Persistence, each row shows whether the exact application bundle was running, had network endpoints, or was referenced by a startup item. These activity labels provide context and do not make the application suspicious by themselves.
 
 Representative result:
 
@@ -164,6 +165,7 @@ More workflows, including privacy grants, persistence, IOC/YARA matches, scan co
 - Imported IOC packs and YARA rules remain local. YARA scans at most ten explicit targets and rejects `/` and the entire home directory.
 - Report files, case records, settings, cache entries, signing secrets, and unfinished job journals remain on the Mac. Private local stores use owner-only permissions.
 - Common secret-bearing command arguments are redacted from collected process context. This reduces exposure but cannot guarantee that every sensitive value is recognized.
+- Live Triage retains a minimal PID, process state, runtime, and executable-path inventory so exact applications can be correlated with activity. It does not retain the complete command line for every process.
 - Full Disk Access is not requested automatically. If policy permits broader coverage, grant it to the application that launches Python, such as Terminal, then restart the launcher. Never bypass TCC protections for convenience.
 - Running read-only macOS commands may still create normal unified-log entries or update access metadata.
 

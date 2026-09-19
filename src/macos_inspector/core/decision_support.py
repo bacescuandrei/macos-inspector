@@ -153,10 +153,21 @@ def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -
         "recorded": "Recorded",
     }
     order = {key: index for index, key in enumerate(groups)}
+    findings = _findings(report)
     applications = _applications(report)
+    observed_processes = _process_rows(report)
+    observed_persistence = _persistence_rows(report)
+    collectors = set(report.get("metadata", {}).get("collectors", []))
+    activity_coverage = {
+        "running": "live-triage" in collectors or "LIVE-PROCESS-TREE" in findings,
+        "network": "live-triage" in collectors or "LIVE-NETWORK-PROCESSES" in findings,
+        "startup": bool(collectors & {"persistence", "background-items"}) or any(
+            finding_id.startswith(("PERSIST-", "BACKGROUND-")) for finding_id in findings
+        ),
+    }
     rows: list[dict[str, Any]] = []
     for finding_id, app in applications.items():
-        finding = _findings(report)[finding_id]
+        finding = findings[finding_id]
         status = str(finding.get("status", "Unknown"))
         severity = str(finding.get("severity", "Informational"))
         guide = guidance.get("findings", {}).get(finding_id, {})
@@ -196,6 +207,9 @@ def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -
             "hardened_runtime": signature.get("hardened_runtime"),
             "sha256": executable.get("sha256"),
             "signals": _application_signals(finding),
+            "activity": _application_activity(
+                str(app.get("path") or ""), observed_processes, observed_persistence, activity_coverage,
+            ),
         })
     rows.sort(key=lambda row: (
         order[row["group"]],
@@ -203,10 +217,16 @@ def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -
         str(row["name"]).casefold(),
     ))
     counts = {key: sum(row["group"] == key for row in rows) for key in groups}
+    activity_counts = {
+        "running": sum(bool(row["activity"]["running_processes"]) for row in rows),
+        "network": sum(bool(row["activity"]["network_connections"]) for row in rows),
+        "starts_automatically": sum(bool(row["activity"]["startup_items"]) for row in rows),
+    }
     return {
         "available": bool(rows),
         "total": len(rows),
         "counts": counts,
+        "activity_counts": activity_counts,
         "groups": groups,
         "applications": rows,
         "conclusion": "This queue prioritizes trust observations. It does not label an application as malware or safe.",
@@ -344,16 +364,31 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
 
 def _process_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for finding_id in ("LIVE-PROCESS-TREE", "LIVE-NETWORK-PROCESSES"):
-        finding = _findings(report).get(finding_id, {})
-        for item in finding.get("evidence", []):
-            value = item.get("value") if isinstance(item, dict) else None
-            if not isinstance(value, dict):
-                continue
-            for key in ("review_candidates", "listeners"):
-                for row in value.get(key, []) if isinstance(value.get(key), list) else []:
-                    if isinstance(row, dict) and row.get("executable"):
-                        rows.append({**row, "finding_id": finding_id, "signal": "network" if key == "listeners" else "process"})
+    seen: set[tuple[object, ...]] = set()
+
+    def add(row: object, finding_id: str, signal: str) -> None:
+        if not isinstance(row, dict) or not row.get("executable"):
+            return
+        key = (
+            finding_id, signal, row.get("pid"), row.get("state"),
+            row.get("endpoint"), row.get("executable"),
+        )
+        if key not in seen:
+            seen.add(key)
+            rows.append({**row, "finding_id": finding_id, "signal": signal})
+
+    process_finding = _findings(report).get("LIVE-PROCESS-TREE", {})
+    process_snapshot = evidence_value(process_finding, "process_snapshot")
+    process_key = "running_processes" if isinstance(process_snapshot.get("running_processes"), list) else "review_candidates"
+    process_values = process_snapshot.get(process_key, [])
+    for row in process_values if isinstance(process_values, list) else []:
+        add(row, "LIVE-PROCESS-TREE", "process")
+
+    network_finding = _findings(report).get("LIVE-NETWORK-PROCESSES", {})
+    network_snapshot = evidence_value(network_finding, "network_process_snapshot")
+    for key in ("listeners", "established", "review_candidates"):
+        for row in network_snapshot.get(key, []) if isinstance(network_snapshot.get(key), list) else []:
+            add(row, "LIVE-NETWORK-PROCESSES", "network")
     return rows
 
 
@@ -372,6 +407,81 @@ def _persistence_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _belongs_to_application(executable: object, app_path: str) -> bool:
+    """Match only executables inside the exact application bundle path."""
+    return bool(app_path and str(executable or "").startswith(f"{app_path}/"))
+
+
+def _application_activity(
+    app_path: str, observed: list[dict[str, Any]], persistence: list[dict[str, Any]],
+    coverage: dict[str, bool],
+) -> dict[str, Any]:
+    """Describe observed app activity without turning activity into a risk verdict."""
+    process_rows = [
+        row for row in observed
+        if row.get("signal") == "process" and _belongs_to_application(row.get("executable"), app_path)
+    ]
+    network_rows = [
+        row for row in observed
+        if row.get("signal") == "network" and _belongs_to_application(row.get("executable"), app_path)
+    ]
+    startup_rows = [
+        row for row in persistence
+        if _belongs_to_application(row.get("executable"), app_path)
+    ]
+
+    processes: dict[str, dict[str, Any]] = {}
+    for row in process_rows:
+        key = str(row.get("pid") or row.get("executable"))
+        processes[key] = {
+            "pid": row.get("pid"),
+            "state": row.get("stat"),
+            "elapsed": row.get("elapsed"),
+            "executable": row.get("executable"),
+            "finding_id": row.get("finding_id"),
+        }
+    connections: dict[str, dict[str, Any]] = {}
+    for row in network_rows:
+        key = f"{row.get('pid')}|{row.get('state')}|{row.get('endpoint')}"
+        connections[key] = {
+            "pid": row.get("pid"),
+            "state": row.get("state"),
+            "endpoint": row.get("endpoint"),
+            "executable": row.get("executable"),
+            "finding_id": row.get("finding_id"),
+        }
+    startup: dict[str, dict[str, Any]] = {}
+    for row in startup_rows:
+        key = f"{row.get('finding_id')}|{row.get('executable')}"
+        startup[key] = {
+            "title": row.get("title"),
+            "executable": row.get("executable"),
+            "finding_id": row.get("finding_id"),
+        }
+    running_processes = list(processes.values())[:20]
+    network_connections = list(connections.values())[:20]
+    startup_items = list(startup.values())[:20]
+    counts = {
+        "running": len(processes),
+        "network": len(connections),
+        "startup": len(startup),
+    }
+    return {
+        "running_processes": running_processes,
+        "network_connections": network_connections,
+        "startup_items": startup_items,
+        "counts": counts,
+        "coverage": {**coverage, "available": any(coverage.values())},
+        "details_truncated": any((
+            counts["running"] > len(running_processes),
+            counts["network"] > len(network_connections),
+            counts["startup"] > len(startup_items),
+        )),
+        "has_activity": bool(processes or connections or startup),
+        "conclusion": "Observed activity provides investigation context. It does not make an application unsafe by itself.",
+    }
+
+
 def build_stories(report: dict[str, Any], guidance: dict[str, Any]) -> list[dict[str, Any]]:
     apps = _applications(report)
     processes = _process_rows(report)
@@ -383,9 +493,8 @@ def build_stories(report: dict[str, Any], guidance: dict[str, Any]) -> list[dict
         if verdict not in ATTENTION_VERDICTS:
             continue
         app_path = str(app.get("path") or "")
-        prefix = f"{app_path}/" if app_path else ""
-        matched_processes = [row for row in processes if prefix and str(row.get("executable", "")).startswith(prefix)]
-        matched_persistence = [row for row in persistence if prefix and str(row.get("executable", "")).startswith(prefix)]
+        matched_processes = [row for row in processes if _belongs_to_application(row.get("executable"), app_path)]
+        matched_persistence = [row for row in persistence if _belongs_to_application(row.get("executable"), app_path)]
         signals = [{"type": "application", "finding_id": finding_id, "detail": str(app.get("path") or app.get("name"))}]
         signals.extend({"type": row["signal"], "finding_id": row["finding_id"], "detail": str(row.get("executable"))} for row in matched_processes)
         signals.extend({"type": "persistence", "finding_id": row["finding_id"], "detail": str(row.get("executable"))} for row in matched_persistence)
@@ -468,10 +577,30 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
         f"<article><span>{escape(str(item.get('confidence', 'medium')).title())} confidence correlation</span><h3>{escape(str(item.get('title', 'Investigation story')))}</h3><p>{escape(str(item.get('narrative', '')))}</p></article>"
         for item in stories
     ) or "<p>No multi-signal investigation story was identified.</p>"
-    application_rows = "".join(
-        f"<article><span>{escape(str(item.get('group_label', 'Recorded')))}</span><h3>{escape(str(item.get('name', 'Application')))}</h3><p>{escape(str(item.get('explanation', 'Trust evidence was recorded.')))}</p><small>{escape(str(item.get('path', 'Location unavailable')))}</small></article>"
-        for item in application_review.get("applications", [])
-    ) or "<p>No Application Trust result is present in this scan.</p>"
+    application_rows = ""
+    for item in application_review.get("applications", []):
+        activity = item.get("activity", {})
+        labels = []
+        activity_counts = activity.get("counts", {})
+        if activity_counts.get("running"):
+            labels.append(f"running processes: {activity_counts['running']}")
+        if activity_counts.get("network"):
+            labels.append(f"network endpoints: {activity_counts['network']}")
+        if activity_counts.get("startup"):
+            labels.append(f"startup items: {activity_counts['startup']}")
+        if labels:
+            activity_html = f"<small>Observed activity: {escape(', '.join(labels))}. Activity alone is not a security verdict.</small>"
+        elif activity.get("coverage", {}).get("available"):
+            activity_html = "<small>No matching activity was observed in the live or startup evidence collected by this scan.</small>"
+        else:
+            activity_html = "<small>Activity context was not collected. Include Live Triage or Persistence to correlate behavior.</small>"
+        application_rows += (
+            f"<article><span>{escape(str(item.get('group_label', 'Recorded')))}</span>"
+            f"<h3>{escape(str(item.get('name', 'Application')))}</h3>"
+            f"<p>{escape(str(item.get('explanation', 'Trust evidence was recorded.')))}</p>"
+            f"{activity_html}<small>{escape(str(item.get('path', 'Location unavailable')))}</small></article>"
+        )
+    application_rows = application_rows or "<p>No Application Trust result is present in this scan.</p>"
     hostname = escape(str(report.get("metadata", {}).get("hostname", "unknown")))
     target = str(report.get("metadata", {}).get("target_application", ""))
     target_html = f"<p>Target application: {escape(target)}</p>" if target else ""

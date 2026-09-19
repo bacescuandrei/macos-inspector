@@ -389,13 +389,37 @@ class CoreTests(unittest.TestCase):
         process = {
             "finding_id": "LIVE-PROCESS-TREE", "category": "Live Triage", "title": "Running process tree snapshot",
             "severity": "Low", "status": "Review", "description": "Live process review.", "observed_result": "One candidate.",
-            "evidence": [{"kind": "process_snapshot", "source": "local", "value": {"review_candidates": [{
-                "pid": 42, "uid": 501, "user": "owner", "executable": "/Applications/Example.app/Contents/MacOS/Example", "reason": "test", "priority": "low",
-            }]}}],
+            "evidence": [{"kind": "process_snapshot", "source": "local", "value": {
+                "running_processes": [
+                    {"pid": 42, "stat": "S", "elapsed": "01:20", "executable": "/Applications/Example.app/Contents/MacOS/Example"},
+                    {"pid": 43, "stat": "S", "executable": "/Applications/Example.app.helper/Contents/MacOS/Helper"},
+                ],
+                "review_candidates": [{
+                    "pid": 42, "uid": 501, "user": "owner", "executable": "/Applications/Example.app/Contents/MacOS/Example", "reason": "test", "priority": "low",
+                }],
+            }}],
+        }
+        network = {
+            "finding_id": "LIVE-NETWORK-PROCESSES", "category": "Live Triage", "title": "Process and network connection correlation",
+            "severity": "Informational", "status": "Observed", "description": "Network context.", "observed_result": "One connection.",
+            "evidence": [{"kind": "network_process_snapshot", "source": "local", "value": {
+                "listeners": [],
+                "established": [
+                    {"pid": 42, "state": "ESTABLISHED", "endpoint": "127.0.0.1:5000->127.0.0.1:443", "executable": "/Applications/Example.app/Contents/MacOS/Example"},
+                    {"pid": 43, "state": "ESTABLISHED", "endpoint": "127.0.0.1:5001->127.0.0.1:443", "executable": "/Applications/Example.app.helper/Contents/MacOS/Helper"},
+                ],
+            }}],
+        }
+        persistence = {
+            "finding_id": "PERSIST-LAUNCHD-EXAMPLE", "category": "Persistence", "title": "launchd item: Example",
+            "severity": "Informational", "status": "Observed", "description": "Startup context.", "observed_result": "Configured.",
+            "evidence": [{"kind": "plist", "source": "/Library/LaunchAgents/test.example.plist", "value": {
+                "label": "test.example", "program": "/Applications/Example.app/Contents/MacOS/Example",
+            }}],
         }
         current = {
             "metadata": {"scan_id": "current", "hostname": "fixture", "collectors": ["application-trust", "live-triage"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-02T00:00:00+00:00"},
-            "summary": {}, "findings": [current_app, process],
+            "summary": {}, "findings": [current_app, process, network, persistence],
         }
         result = build_decision_support(current, baseline)
         app_guidance = result["guidance"]["findings"]["APP-TRUST-EXAMPLE"]
@@ -406,6 +430,18 @@ class CoreTests(unittest.TestCase):
         self.assertIn("application", result["stories"][0]["title"])
         self.assertEqual(result["application_review"]["counts"]["review_first"], 1)
         self.assertEqual(result["application_review"]["applications"][0]["name"], "Example")
+        activity = result["application_review"]["applications"][0]["activity"]
+        self.assertEqual(len(activity["running_processes"]), 1)
+        self.assertEqual(len(activity["network_connections"]), 1)
+        self.assertEqual(len(activity["startup_items"]), 1)
+        self.assertEqual(activity["counts"], {"running": 1, "network": 1, "startup": 1})
+        self.assertFalse(activity["details_truncated"])
+        self.assertEqual(activity["coverage"], {
+            "running": True, "network": True, "startup": True, "available": True,
+        })
+        self.assertEqual(result["application_review"]["activity_counts"], {
+            "running": 1, "network": 1, "starts_automatically": 1,
+        })
         self.assertEqual(confidence_for_finding({"status": "Unknown", "evidence": []})["level"], "low")
         with tempfile.TemporaryDirectory() as directory:
             path = write_investigation_summary(current, result, Path(directory))
@@ -413,6 +449,7 @@ class CoreTests(unittest.TestCase):
             self.assertIn("Changes since the previous comparable scan", html)
             self.assertIn("Application review queue", html)
             self.assertIn("Example", html)
+            self.assertIn("Observed activity: running processes: 1, network endpoints: 1, startup items: 1", html)
             self.assertIn("Target application: /Applications/Example.app", html)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
@@ -450,6 +487,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(queue["counts"]["unable_to_verify"], 1)
         self.assertEqual(queue["counts"]["checks_passed"], 1)
         self.assertEqual(queue["applications"][0]["name"], "Broken")
+        self.assertFalse(queue["applications"][0]["activity"]["coverage"]["available"])
         self.assertIn("code signature did not validate", " ".join(queue["applications"][0]["signals"]).lower())
         self.assertIn("writable by every local user", " ".join(queue["applications"][0]["signals"]).lower())
         self.assertIn("does not label an application as malware or safe", queue["conclusion"])
@@ -627,6 +665,8 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn('href="/styles.css"', index)
         self.assertNotIn('src="/app.js"', index)
         self.assertIn('id="local-launcher-help"', index)
+        self.assertIn('id="inspect-application-activity"', index)
+        self.assertIn("['application-trust', 'live-triage', 'persistence']", script)
         self.assertIn("window.location.protocol === 'file:'", script)
         self.assertNotIn('id="language-select"', index)
         self.assertNotIn('value="ro"', index)
@@ -701,6 +741,9 @@ class CoreTests(unittest.TestCase):
         findings = {item.finding_id: item for item in LiveTriageCollector(FakeRunner()).collect()}
         self.assertEqual(findings["LIVE-PROCESS-TREE"].status, "Review")
         self.assertEqual(findings["LIVE-PROCESS-TREE"].severity, Severity.MEDIUM)
+        process_snapshot = findings["LIVE-PROCESS-TREE"].evidence[0].value
+        self.assertEqual(len(process_snapshot["running_processes"]), 2)
+        self.assertNotIn("command_line", process_snapshot["running_processes"][0])
         self.assertEqual(findings["LIVE-NETWORK-PROCESSES"].severity, Severity.HIGH)
 
     def test_process_response_requires_reported_current_user_identity_and_logs_action(self):
@@ -1811,7 +1854,7 @@ enabled active teamID bundleID (version) name [state]
     def test_target_application_scope_is_visible_in_export_formats(self):
         target = "/Applications/Example.app"
         metadata = ScanMetadata(
-            "1.2.9", "target-exports", "start", "end", "host", "platform", "user",
+            "1.3.0", "target-exports", "start", "end", "host", "platform", "user",
             ("application-trust",), target_application=target,
         )
         result = ScanResult(metadata, (finding(),), 82, {"Application Trust": 82})

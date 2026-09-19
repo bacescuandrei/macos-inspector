@@ -55,6 +55,8 @@ function updateRunAvailability() {
   document.querySelectorAll('[data-run-one]').forEach((button) => { button.disabled = disabled; });
   const inspectButton = $('#inspect-application');
   if (inspectButton) inspectButton.disabled = disabled || !$('#target-application')?.value;
+  const activityButton = $('#inspect-application-activity');
+  if (activityButton) activityButton.disabled = disabled || !$('#target-application')?.value;
   document.querySelectorAll('[data-recheck-app]').forEach((button) => { button.disabled = disabled; });
   const cancelButton = $('#cancel-scan');
   if (cancelButton && !cancelButton.classList.contains('hidden')) cancelButton.disabled = !state.online;
@@ -68,7 +70,7 @@ function setGuideVisible(visible) {
 }
 
 function dismissGuide() {
-  try { window.localStorage.setItem('macos-inspector-guide-1.2.9', 'dismissed'); } catch (error) { /* Local preferences are optional. */ }
+  try { window.localStorage.setItem('macos-inspector-guide-1.3.0', 'dismissed'); } catch (error) { /* Local preferences are optional. */ }
   setGuideVisible(false);
 }
 
@@ -217,6 +219,13 @@ async function inspectSelectedApplication() {
   if (!target) return setMessage('Choose an application to inspect.', true);
   setMessage(`Preparing a focused trust check for ${target.split('/').pop()}...`);
   await startScan(['application-trust'], target);
+}
+
+async function inspectSelectedApplicationActivity() {
+  const target = $('#target-application').value;
+  if (!target) return setMessage('Choose an application to inspect.', true);
+  setMessage(`Preparing a trust and activity check for ${target.split('/').pop()}...`);
+  await startScan(['application-trust', 'live-triage', 'persistence'], target);
 }
 
 function selectedValues(attribute) {
@@ -384,11 +393,14 @@ function renderApplicationReview(review) {
   const rows = (review.applications || []).filter((item) => {
     if (filter === 'all') return true;
     if (filter === 'attention') return ['review_first', 'needs_context', 'unable_to_verify'].includes(item.group);
+    if (filter === 'active') return Boolean(item.activity?.has_activity);
     return item.group === filter;
   });
+  const activeCount = (review.applications || []).filter((item) => item.activity?.has_activity).length;
   const filters = [
     ['attention', 'Needs attention', (counts.review_first || 0) + (counts.needs_context || 0) + (counts.unable_to_verify || 0)],
     ['all', 'All applications', review.total || 0],
+    ['active', 'Active in this scan', activeCount],
     ['checks_passed', 'Checks passed', counts.checks_passed || 0],
     ['reviewed', 'Reviewed locally', counts.reviewed || 0],
   ];
@@ -400,7 +412,24 @@ function renderApplicationReview(review) {
       item.notarized === true ? 'Notarized' : item.notarized === false ? 'Notarization not confirmed' : 'Notarization unknown',
     ];
     const signals = (item.signals || []).map((signal) => `<li>${escapeHtml(signal)}</li>`).join('');
-    return `<article class="application-review-row application-group-${escapeHtml(item.group)}"><div class="application-review-main"><span class="application-group">${escapeHtml(item.group_label || groups[item.group] || 'Recorded')}</span><h4>${escapeHtml(item.name)}</h4><p>${escapeHtml(item.explanation)}</p><div class="application-facts">${facts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join('')}</div>${signals ? `<ul>${signals}</ul>` : ''}<code>${escapeHtml(item.path || 'Location unavailable')}</code></div><div class="application-review-actions"><button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open result</button><button type="button" class="secondary-button" data-recheck-app="${escapeHtml(item.path || '')}">Recheck this app</button></div></article>`;
+    const activity = item.activity || {};
+    const activityCounts = activity.counts || {};
+    const activityBadges = [
+      activityCounts.running ? `${activityCounts.running} running` : '',
+      activityCounts.network ? `${activityCounts.network} network endpoint${activityCounts.network === 1 ? '' : 's'}` : '',
+      activityCounts.startup ? `${activityCounts.startup} startup item${activityCounts.startup === 1 ? '' : 's'}` : '',
+    ].filter(Boolean);
+    const activityRows = [
+      ...(activity.running_processes || []).map((row) => `<li><strong>Running process${row.pid ? ` ${escapeHtml(row.pid)}` : ''}</strong><code>${escapeHtml(row.executable || 'Executable unavailable')}</code>${row.elapsed ? `<small>Running for ${escapeHtml(row.elapsed)}</small>` : ''}</li>`),
+      ...(activity.network_connections || []).map((row) => `<li><strong>${escapeHtml(row.state || 'Network activity')}</strong><code>${escapeHtml(row.endpoint || 'Endpoint unavailable')}</code></li>`),
+      ...(activity.startup_items || []).map((row) => `<li><strong>Starts automatically</strong><span>${escapeHtml(row.title || 'Startup item')}</span><code>${escapeHtml(row.executable || 'Executable unavailable')}</code></li>`),
+    ].join('');
+    const truncated = activity.details_truncated ? '<small>Showing the first 20 matching entries in each activity type. Open the complete Live Triage evidence for the full snapshot.</small>' : '';
+    const noActivity = activity.coverage?.available
+      ? 'No matching activity was observed in the live or startup evidence collected by this scan.'
+      : 'Activity context was not collected. Include Live Triage or Persistence to correlate behavior.';
+    const activityBlock = activityBadges.length ? `<div class="application-activity-badges">${activityBadges.map((label) => `<span>${escapeHtml(label)}</span>`).join('')}</div><details class="application-activity"><summary>Why this app appears active</summary><p>${escapeHtml(activity.conclusion || 'Observed activity is context, not a security verdict.')}</p>${truncated}<ul>${activityRows}</ul></details>` : `<p class="application-no-activity">${escapeHtml(noActivity)}</p>`;
+    return `<article class="application-review-row application-group-${escapeHtml(item.group)}"><div class="application-review-main"><span class="application-group">${escapeHtml(item.group_label || groups[item.group] || 'Recorded')}</span><h4>${escapeHtml(item.name)}</h4><p>${escapeHtml(item.explanation)}</p><div class="application-facts">${facts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join('')}</div>${activityBlock}${signals ? `<ul class="application-signals">${signals}</ul>` : ''}<code>${escapeHtml(item.path || 'Location unavailable')}</code></div><div class="application-review-actions"><button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open result</button><button type="button" class="secondary-button" data-recheck-app="${escapeHtml(item.path || '')}">Recheck this app</button></div></article>`;
   }).join('');
   const empty = filter === 'attention'
     ? '<p class="application-review-clear">No application currently needs attention based on the checks in this scan.</p>'
@@ -1034,6 +1063,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   $('#run-selected').addEventListener('click', () => startScan());
   $('#inspect-application').addEventListener('click', inspectSelectedApplication);
+  $('#inspect-application-activity').addEventListener('click', inspectSelectedApplicationActivity);
   $('#application-search').addEventListener('input', renderApplications);
   $('#target-application').addEventListener('change', updateRunAvailability);
   $('#check-this-mac').addEventListener('click', startGuidedCheck);
@@ -1063,7 +1093,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#findings-next').addEventListener('click', () => { if (state.findingPage * state.findingPageSize < state.filteredFindings.length) { state.findingPage += 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   setConnection('checking');
   applyEnglishCopy();
-  try { if (window.localStorage.getItem('macos-inspector-guide-1.2.9') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
+  try { if (window.localStorage.getItem('macos-inspector-guide-1.3.0') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
   const health = await checkHealth();
   if (!health) setMessage('Dashboard server unavailable. Retrying automatically...', true);
   state.healthPoll = setInterval(checkHealth, 4000);

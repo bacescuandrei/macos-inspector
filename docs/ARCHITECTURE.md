@@ -32,6 +32,8 @@ Process response is separate from collection. The web API loads a managed report
 
 Targeted Application Trust is also bounded by server-side discovery. The dashboard lists application bundles found under the standard macOS application roots and accepts only an exact path from that current inventory. The browser cannot submit an arbitrary file-system target. Target scope is written into report metadata and participates in comparable-baseline selection.
 
+Application activity correlation is path-based. A process, socket, or launch item is associated with an Application Trust result only when its recorded executable is inside that exact bundle path. The live process evidence keeps a minimal inventory of PID, parent PID, process state, elapsed runtime, and executable path for this purpose. Complete command lines remain limited to review candidates and are sanitized before persistence.
+
 Guided interpretation is also separate from collection. It maps existing finding fields to plain-language verdicts, evidence confidence, recommended investigation steps, comparable-scan changes, and exact-path correlations. Local investigation states and notes are stored outside the report with owner-only permissions. Each decision is tied to a fingerprint of the security-relevant evidence, so an `Expected` decision returns to `New` when that evidence changes. Decision-support output is derived from completed reports and never changes the original evidence.
 
 ## Extension rules

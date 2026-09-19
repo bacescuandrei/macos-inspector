@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0 - 2026-09-19
+
+- Added exact-path activity context to every Application Trust review row when the same scan includes Live Triage or Persistence evidence.
+- Added a focused **Check trust and activity** action for one selected application alongside the faster trust-only check.
+- Added plain-language labels for running processes, network listeners or established connections, and startup items, with expandable source details.
+- Added an **Active in this scan** filter while keeping activity separate from trust severity and malware conclusions.
+- Added a privacy-limited process inventory containing PID, parent PID, state, runtime, and executable path without retaining the complete command line for every process.
+- Included application activity context in standalone investigation summaries.
+- Prevented similarly named neighboring bundles from being correlated by requiring the executable to be inside the exact application path.
+
 ## 1.2.9 - 2026-09-19
 
 - Added a plain-language application review queue that separates results into **Review first**, **Needs context**, **Unable to verify**, **Checks passed**, and **Reviewed locally** without treating a trust observation as a malware verdict.

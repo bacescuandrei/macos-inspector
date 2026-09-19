@@ -169,7 +169,10 @@
           <input id="application-search" class="field" type="search" placeholder="Type an app name or path" autocomplete="off">
           <label class="field-label" for="target-application">Application</label>
           <select id="target-application" class="field"><option value="">Loading installed applications...</option></select>
-          <button id="inspect-application" class="target-app-button" type="button" disabled>Check selected application</button>
+          <div class="target-app-actions">
+            <button id="inspect-application" class="target-app-button" type="button" disabled>Check trust only</button>
+            <button id="inspect-application-activity" class="target-app-button activity" type="button" disabled>Check trust and activity</button>
+          </div>
           <small id="target-app-count">Only applications discovered in standard macOS application folders can be selected.</small>
         </section>
         <p class="scope-label sections-label" data-i18n="individualSections">Individual sections</p>
