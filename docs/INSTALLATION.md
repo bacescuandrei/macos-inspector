@@ -16,13 +16,13 @@ The portable release does not require administrator privileges, `sudo`, a packag
 
 Download these two files from the same GitHub release:
 
-- `macos-inspector-1.2.8-macos.zip`
+- `macos-inspector-1.2.9-macos.zip`
 - `SHA256SUMS`
 
 From the directory containing both files, calculate the archive digest:
 
 ```bash
-shasum -a 256 macos-inspector-1.2.8-macos.zip
+shasum -a 256 macos-inspector-1.2.9-macos.zip
 ```
 
 Compare the complete 64-character value with the matching line in `SHA256SUMS`. Do not use the archive if the values differ.
@@ -30,7 +30,7 @@ Compare the complete 64-character value with the matching line in `SHA256SUMS`. 
 ### First launch
 
 1. Extract the ZIP.
-2. Open the extracted `macOS Inspector 1.2.8` folder.
+2. Open the extracted `macOS Inspector 1.2.9` folder.
 3. Double-click **macOS Inspector.command**.
 4. Keep the launcher window open while using the dashboard.
 

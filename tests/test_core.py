@@ -453,6 +453,17 @@ class CoreTests(unittest.TestCase):
         self.assertIn("code signature did not validate", " ".join(queue["applications"][0]["signals"]).lower())
         self.assertIn("writable by every local user", " ".join(queue["applications"][0]["signals"]).lower())
         self.assertIn("does not label an application as malware or safe", queue["conclusion"])
+        broken = report["findings"][1]
+        reviewed = build_decision_support(report, investigations={
+            broken["finding_id"]: {
+                "status": "Expected", "current": True, "note": "Approved local application.",
+                "fingerprint": finding_fingerprint(broken),
+            },
+        })["application_review"]
+        reviewed_item = next(item for item in reviewed["applications"] if item["name"] == "Broken")
+        self.assertEqual(reviewed_item["group"], "reviewed")
+        self.assertEqual(reviewed["counts"]["review_first"], 0)
+        self.assertEqual(reviewed["counts"]["reviewed"], 1)
 
     def test_decision_support_and_summary_export_use_comparable_baseline(self):
         baseline = {

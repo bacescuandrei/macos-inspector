@@ -61,11 +61,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.2.8-macos.zip` and `SHA256SUMS` from the latest GitHub release.
+1. Download `macos-inspector-1.2.9-macos.zip` and `SHA256SUMS` from the latest GitHub release.
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.2.8-macos.zip
+   shasum -a 256 macos-inspector-1.2.9-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.

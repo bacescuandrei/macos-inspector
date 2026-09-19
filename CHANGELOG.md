@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.9 - Unreleased
+## 1.2.9 - 2026-09-19
 
 - Added a plain-language application review queue that separates results into **Review first**, **Needs context**, **Unable to verify**, **Checks passed**, and **Reviewed locally** without treating a trust observation as a malware verdict.
 - Added concise evidence-backed signals for signature failures, Gatekeeper rejection, escaped bundle executables, unstable hashes, writable executable permissions, sensitive entitlements, missing hashes, and incomplete notarization or signing identity.
