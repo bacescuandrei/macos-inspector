@@ -9,6 +9,7 @@ from macos_inspector.reporters.common import secure_write_text
 
 
 ATTENTION_VERDICTS = {"needs-review", "high-risk", "likely-unwanted"}
+SEVERITY_RANK = {"Informational": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
 def evidence_value(finding: dict[str, Any], kind: str) -> dict[str, Any]:
@@ -102,6 +103,114 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "fingerprint": finding_fingerprint(finding),
         }
     return result
+
+
+def _application_signals(finding: dict[str, Any]) -> list[str]:
+    """Return short, evidence-backed trust signals without making a malware verdict."""
+    signature = evidence_value(finding, "code_signature")
+    gatekeeper = evidence_value(finding, "gatekeeper_assessment")
+    executable = evidence_value(finding, "executable_integrity")
+    bundle_paths = evidence_value(finding, "bundle_path_integrity")
+    entitlements = evidence_value(finding, "code_entitlements")
+    signals: list[str] = []
+    if signature.get("valid") is False:
+        signals.append("The code signature did not validate.")
+    if gatekeeper.get("accepted") is False:
+        signals.append("Gatekeeper did not accept the application.")
+    if bundle_paths.get("executable_resolves_within_bundle") is False:
+        signals.append("The main executable resolves outside the application bundle.")
+    if executable.get("changed_during_read") is True:
+        signals.append("The executable changed while its hash was being collected.")
+    permissions = str(executable.get("permissions") or "")
+    try:
+        mode = int(permissions, 8)
+        if mode & 0o002:
+            signals.append("The main executable is writable by every local user.")
+        elif mode & 0o020:
+            signals.append("The main executable is writable by its owning group.")
+    except ValueError:
+        pass
+    if not executable.get("sha256"):
+        signals.append("The executable hash could not be collected.")
+    sensitive = entitlements.get("sensitive", [])
+    if isinstance(sensitive, (list, tuple)) and sensitive:
+        signals.append(f"Security-sensitive entitlement: {sensitive[0]}.")
+    if gatekeeper.get("notarized") is False:
+        signals.append("Notarization was not confirmed by the Gatekeeper result.")
+    if signature.get("valid") is True and not signature.get("team_identifier"):
+        signals.append("No signing Team ID was reported.")
+    return signals[:4]
+
+
+def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -> dict[str, Any]:
+    """Build a plain-language application triage queue from Application Trust evidence."""
+    groups = {
+        "review_first": "Review first",
+        "needs_context": "Needs context",
+        "unable_to_verify": "Unable to verify",
+        "checks_passed": "Checks passed",
+        "reviewed": "Reviewed locally",
+        "recorded": "Recorded",
+    }
+    order = {key: index for index, key in enumerate(groups)}
+    applications = _applications(report)
+    rows: list[dict[str, Any]] = []
+    for finding_id, app in applications.items():
+        finding = _findings(report)[finding_id]
+        status = str(finding.get("status", "Unknown"))
+        severity = str(finding.get("severity", "Informational"))
+        guide = guidance.get("findings", {}).get(finding_id, {})
+        investigation = guide.get("investigation", {}) if isinstance(guide, dict) else {}
+        investigation_status = str(investigation.get("status", "New")) if investigation.get("current", True) else "New"
+        if investigation_status in {"Expected", "Resolved"}:
+            group = "reviewed"
+        elif status.lower() == "fail" or (
+            status.lower() == "review" and SEVERITY_RANK.get(severity, 0) >= SEVERITY_RANK["High"]
+        ):
+            group = "review_first"
+        elif status.lower() == "review":
+            group = "needs_context"
+        elif status.lower() == "unknown":
+            group = "unable_to_verify"
+        elif status.lower() == "pass":
+            group = "checks_passed"
+        else:
+            group = "recorded"
+        signature = evidence_value(finding, "code_signature")
+        gatekeeper = evidence_value(finding, "gatekeeper_assessment")
+        executable = evidence_value(finding, "executable_integrity")
+        next_actions = guide.get("next_actions", []) if isinstance(guide, dict) else []
+        rows.append({
+            **app,
+            "status": status,
+            "severity": severity,
+            "group": group,
+            "group_label": groups[group],
+            "explanation": guide.get("simple_explanation") or finding.get("observed_result") or "Trust evidence was recorded.",
+            "next_action": next_actions[0] if next_actions else "Open the finding and validate the publisher, source, and expected use.",
+            "investigation_status": investigation_status,
+            "signature_valid": signature.get("valid"),
+            "signature_type": signature.get("signature_type"),
+            "gatekeeper_accepted": gatekeeper.get("accepted"),
+            "notarized": gatekeeper.get("notarized"),
+            "hardened_runtime": signature.get("hardened_runtime"),
+            "sha256": executable.get("sha256"),
+            "signals": _application_signals(finding),
+        })
+    rows.sort(key=lambda row: (
+        order[row["group"]],
+        -SEVERITY_RANK.get(str(row["severity"]), 0),
+        str(row["name"]).casefold(),
+    ))
+    counts = {key: sum(row["group"] == key for row in rows) for key in groups}
+    return {
+        "available": bool(rows),
+        "total": len(rows),
+        "counts": counts,
+        "groups": groups,
+        "applications": rows,
+        "conclusion": "This queue prioritizes trust observations. It does not label an application as malware or safe.",
+    }
 
 
 def _network_listeners(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -313,6 +422,7 @@ def build_decision_support(
             guidance["findings"][finding_id]["confidence"] = confidence_for_finding(finding)
     changes = analyze_changes(baseline, current)
     stories = build_stories(current, guidance)
+    application_review = build_application_review(current, guidance)
     investigation_counts: dict[str, int] = {}
     for item in guidance["findings"].values():
         status = str(item.get("investigation", {}).get("status", "New"))
@@ -331,6 +441,7 @@ def build_decision_support(
         "guidance": guidance,
         "changes": changes,
         "stories": stories,
+        "application_review": application_review,
         "final_summary": final_summary,
     }
 
@@ -340,6 +451,7 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
     priorities = decision["guidance"].get("priorities", [])
     changes = decision["changes"]
     stories = decision["stories"]
+    application_review = decision.get("application_review", {})
     state_rows = "".join(
         f"<li><strong>{escape(str(key))}</strong>: {int(value)}</li>"
         for key, value in sorted(decision["final_summary"].get("investigation_states", {}).items())
@@ -356,10 +468,15 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
         f"<article><span>{escape(str(item.get('confidence', 'medium')).title())} confidence correlation</span><h3>{escape(str(item.get('title', 'Investigation story')))}</h3><p>{escape(str(item.get('narrative', '')))}</p></article>"
         for item in stories
     ) or "<p>No multi-signal investigation story was identified.</p>"
+    application_rows = "".join(
+        f"<article><span>{escape(str(item.get('group_label', 'Recorded')))}</span><h3>{escape(str(item.get('name', 'Application')))}</h3><p>{escape(str(item.get('explanation', 'Trust evidence was recorded.')))}</p><small>{escape(str(item.get('path', 'Location unavailable')))}</small></article>"
+        for item in application_review.get("applications", [])
+    ) or "<p>No Application Trust result is present in this scan.</p>"
     hostname = escape(str(report.get("metadata", {}).get("hostname", "unknown")))
     target = str(report.get("metadata", {}).get("target_application", ""))
     target_html = f"<p>Target application: {escape(target)}</p>" if target else ""
-    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Investigation summary {escape(scan_id)}</title><style>body{{margin:0;background:#0d1422;color:#edf3ff;font:15px/1.55 -apple-system,BlinkMacSystemFont,sans-serif}}main{{max-width:980px;margin:auto;padding:32px 18px 64px}}header,section{{margin-bottom:18px;padding:22px;border:1px solid #283954;border-radius:14px;background:#111b2d}}h1,h2,h3,p{{overflow-wrap:anywhere}}h1{{font-size:30px}}h2{{font-size:19px}}h3{{margin:5px 0;font-size:15px}}small,p,li{{color:#aebbd0}}.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}}.metrics div,article{{padding:13px;border:1px solid #283954;border-radius:10px;background:#16233a}}.metrics strong{{display:block;font-size:24px}}article{{margin-top:9px}}article span{{color:#78aaff;font-size:11px;text-transform:uppercase}}@media print{{body{{background:white;color:#111}}header,section,article,.metrics div{{background:white;border-color:#bbb}}small,p,li{{color:#333}}}}</style></head><body><main><header><small>MACOS INSPECTOR | INVESTIGATION SUMMARY</small><h1>{escape(str(decision['final_summary']['headline']))}</h1><p>Scan {escape(scan_id)} | Host {hostname}</p>{target_html}<p>{escape(str(decision['final_summary']['conclusion']))}</p></header><section><h2>Current assessment</h2><div class=\"metrics\"><div><strong>{decision['final_summary']['attention']}</strong>need attention</div><div><strong>{decision['final_summary']['unable_to_verify']}</strong>not verified</div><div><strong>{decision['final_summary']['correlated_stories']}</strong>correlated stories</div></div></section><section><h2>Priorities</h2>{priority_rows}</section><section><h2>Changes since the previous comparable scan</h2>{change_rows}</section><section><h2>Correlated investigation stories</h2>{story_rows}</section><section><h2>Investigation state</h2><ul>{state_rows}</ul><p>Technical evidence remains in the original signed or exported scan report.</p></section></main></body></html>"""
+    application_section = f"<section><h2>Application review queue</h2><p>{escape(str(application_review.get('conclusion', 'Trust observations require context.')))}</p>{application_rows}</section>" if application_review.get("available") else ""
+    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Investigation summary {escape(scan_id)}</title><style>body{{margin:0;background:#0d1422;color:#edf3ff;font:15px/1.55 -apple-system,BlinkMacSystemFont,sans-serif}}main{{max-width:980px;margin:auto;padding:32px 18px 64px}}header,section{{margin-bottom:18px;padding:22px;border:1px solid #283954;border-radius:14px;background:#111b2d}}h1,h2,h3,p,small{{overflow-wrap:anywhere}}h1{{font-size:30px}}h2{{font-size:19px}}h3{{margin:5px 0;font-size:15px}}small,p,li{{color:#aebbd0}}.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}}.metrics div,article{{padding:13px;border:1px solid #283954;border-radius:10px;background:#16233a}}.metrics strong{{display:block;font-size:24px}}article{{margin-top:9px}}article span{{color:#78aaff;font-size:11px;text-transform:uppercase}}article small{{display:block;margin-top:7px}}@media print{{body{{background:white;color:#111}}header,section,article,.metrics div{{background:white;border-color:#bbb}}small,p,li{{color:#333}}}}</style></head><body><main><header><small>MACOS INSPECTOR | INVESTIGATION SUMMARY</small><h1>{escape(str(decision['final_summary']['headline']))}</h1><p>Scan {escape(scan_id)} | Host {hostname}</p>{target_html}<p>{escape(str(decision['final_summary']['conclusion']))}</p></header><section><h2>Current assessment</h2><div class=\"metrics\"><div><strong>{decision['final_summary']['attention']}</strong>need attention</div><div><strong>{decision['final_summary']['unable_to_verify']}</strong>not verified</div><div><strong>{decision['final_summary']['correlated_stories']}</strong>correlated stories</div></div></section>{application_section}<section><h2>Priorities</h2>{priority_rows}</section><section><h2>Changes since the previous comparable scan</h2>{change_rows}</section><section><h2>Correlated investigation stories</h2>{story_rows}</section><section><h2>Investigation state</h2><ul>{state_rows}</ul><p>Technical evidence remains in the original signed or exported scan report.</p></section></main></body></html>"""
     path = output / f"macos-inspector-{scan_id}-investigation-summary.html"
     secure_write_text(path, html)
     return path

@@ -10,7 +10,7 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current development version: `v1.2.8`
+Current development version: `v1.2.9`
 
 ## What it can help answer
 
@@ -61,11 +61,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.2.7-macos.zip` and `SHA256SUMS` from the GitHub release.
+1. Download `macos-inspector-1.2.8-macos.zip` and `SHA256SUMS` from the latest GitHub release.
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.2.7-macos.zip
+   shasum -a 256 macos-inspector-1.2.8-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
@@ -99,7 +99,7 @@ Routine use does not require terminal commands. The CLI remains available for au
 
 Goal: determine whether an application has the expected macOS trust signals.
 
-Steps: use **Check one application** to search the local application list, select the app, and run a focused check. Review its signature, Team ID, notarization result, hardened runtime, entitlements, quarantine metadata, bundle paths, and executable integrity. Use the full **Application Trust** profile when you need an inventory of every visible application.
+Steps: use **Check one application** to search the local application list, select the app, and run a focused check. Review its signature, Team ID, notarization result, hardened runtime, entitlements, quarantine metadata, bundle paths, and executable integrity. Use the full **Application Trust** profile when you need an inventory of every visible application. The application review queue then separates results into **Review first**, **Needs context**, **Unable to verify**, **Checks passed**, and **Reviewed locally**. Each row explains the concrete trust signal and can start a focused recheck for that exact application.
 
 Representative result:
 

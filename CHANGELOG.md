@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.9 - Unreleased
+
+- Added a plain-language application review queue that separates results into **Review first**, **Needs context**, **Unable to verify**, **Checks passed**, and **Reviewed locally** without treating a trust observation as a malware verdict.
+- Added concise evidence-backed signals for signature failures, Gatekeeper rejection, escaped bundle executables, unstable hashes, writable executable permissions, sensitive entitlements, missing hashes, and incomplete notarization or signing identity.
+- Added one-click access to the complete finding and a focused recheck for the exact application path, with the existing server-side inventory validation preserved.
+- Included the application review queue in standalone investigation summaries and added responsive layouts for narrow browser windows.
+- Corrected portable-release filenames in the public installation documentation.
+
 ## 1.2.8 - 2026-09-18
 
 - Added a focused Application Trust workflow that lets a user search the locally discovered application inventory and inspect one selected app without waiting for a full inventory scan.

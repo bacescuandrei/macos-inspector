@@ -404,14 +404,55 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(result["changes"]["highlights"][0]["label"], "Application changed")
         self.assertEqual(len(result["stories"]), 1)
         self.assertIn("application", result["stories"][0]["title"])
+        self.assertEqual(result["application_review"]["counts"]["review_first"], 1)
+        self.assertEqual(result["application_review"]["applications"][0]["name"], "Example")
         self.assertEqual(confidence_for_finding({"status": "Unknown", "evidence": []})["level"], "low")
         with tempfile.TemporaryDirectory() as directory:
             path = write_investigation_summary(current, result, Path(directory))
             html = path.read_text(encoding="utf-8")
             self.assertIn("Changes since the previous comparable scan", html)
+            self.assertIn("Application review queue", html)
             self.assertIn("Example", html)
             self.assertIn("Target application: /Applications/Example.app", html)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_application_review_queue_prioritizes_without_malware_verdicts(self):
+        def application(name, severity, status, signature, gatekeeper, sha256, permissions="0755"):
+            path = f"/Applications/{name}.app"
+            return {
+                "finding_id": f"APP-TRUST-{name.upper()}", "category": "Application Trust",
+                "title": f"Application trust: {name}", "severity": severity, "status": status,
+                "description": "Checks application trust.", "observed_result": f"{name} trust result.",
+                "evidence": [
+                    {"kind": "application_bundle", "source": path, "value": {"name": name, "version": "1.0", "executable": f"{path}/Contents/MacOS/{name}"}},
+                    {"kind": "code_signature", "source": path, "value": {"valid": signature, "team_identifier": "TEAM123" if signature else None, "signature_type": "Developer ID" if signature else None, "hardened_runtime": signature}},
+                    {"kind": "executable_integrity", "source": f"{path}/Contents/MacOS/{name}", "value": {"sha256": sha256, "permissions": permissions}},
+                    {"kind": "gatekeeper_assessment", "source": path, "value": {"accepted": gatekeeper, "notarized": gatekeeper}},
+                    {"kind": "bundle_path_integrity", "source": path, "value": {"executable_resolves_within_bundle": True}},
+                    {"kind": "code_entitlements", "source": path, "value": {"sensitive": []}},
+                ],
+            }
+
+        report = {
+            "metadata": {"scan_id": "application-queue", "collectors": ["application-trust"]},
+            "summary": {},
+            "findings": [
+                application("Normal", "Informational", "Pass", True, True, "a" * 64),
+                application("Broken", "Medium", "Fail", False, False, "b" * 64, "0777"),
+                application("Context", "Low", "Review", True, True, "c" * 64),
+                application("Unknown", "Informational", "Unknown", None, None, None),
+            ],
+        }
+        queue = build_decision_support(report)["application_review"]
+        self.assertEqual(queue["total"], 4)
+        self.assertEqual(queue["counts"]["review_first"], 1)
+        self.assertEqual(queue["counts"]["needs_context"], 1)
+        self.assertEqual(queue["counts"]["unable_to_verify"], 1)
+        self.assertEqual(queue["counts"]["checks_passed"], 1)
+        self.assertEqual(queue["applications"][0]["name"], "Broken")
+        self.assertIn("code signature did not validate", " ".join(queue["applications"][0]["signals"]).lower())
+        self.assertIn("writable by every local user", " ".join(queue["applications"][0]["signals"]).lower())
+        self.assertIn("does not label an application as malware or safe", queue["conclusion"])
 
     def test_decision_support_and_summary_export_use_comparable_baseline(self):
         baseline = {
@@ -1759,7 +1800,7 @@ enabled active teamID bundleID (version) name [state]
     def test_target_application_scope_is_visible_in_export_formats(self):
         target = "/Applications/Example.app"
         metadata = ScanMetadata(
-            "1.2.8", "target-exports", "start", "end", "host", "platform", "user",
+            "1.2.9", "target-exports", "start", "end", "host", "platform", "user",
             ("application-trust",), target_application=target,
         )
         result = ScanResult(metadata, (finding(),), 82, {"Application Trust": 82})

@@ -109,6 +109,16 @@ For one unfamiliar application:
 
 For a complete inventory, select **Application Trust**, run the scan, wait for all visible bundles to finish, then filter the results by application name, status, severity, Team ID, or path.
 
+After either scan, use **Which applications should I look at first?** to review the application queue:
+
+- **Review first** contains failed trust checks and high-priority review observations.
+- **Needs context** contains lower-priority observations that still need owner or analyst validation.
+- **Unable to verify** keeps incomplete evidence separate from passing checks.
+- **Checks passed** means only that the displayed trust checks succeeded; it is not a safe-software verdict.
+- **Reviewed locally** contains results currently marked `Expected` or `Resolved` in the local investigation record.
+
+Open a result for its complete evidence or select **Recheck this app** to run a new focused Application Trust scan for the exact recorded path. The server validates the path against the current local application inventory before collection.
+
 The target path is recorded in the report. Changes since the previous comparable scan use only an earlier scan with the same target and collector scope. The selector includes applications discovered in the standard system, global, and current-user application folders; it does not accept an arbitrary path.
 
 ### Representative result
@@ -123,7 +133,7 @@ notarization is accepted, and the executable is inside the bundle.
 
 ### Interpretation
 
-The application met those specific checks. Code signing identifies signed content and its signer; it does not prove the publisher is honest or the software's behavior is safe. A validly signed application can still be unwanted or vulnerable.
+The application met those specific checks. Code signing identifies signed content and its signer; it does not prove the publisher is honest or the software's behavior is safe. A validly signed application can still be unwanted or vulnerable. Likewise, a review-queue position is a prioritization aid, not a malware classification.
 
 ### Next step
 

@@ -1,4 +1,4 @@
-const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, decisionSupport: null, processCandidates: new Map() };
+const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map() };
 
 const COPY = {
     manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, inspect findings, and explicitly contain a reported process when necessary.', safety:'Local-first | online OSINT is opt-in | containment requires confirmation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings | private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets | one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password | minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
@@ -55,6 +55,7 @@ function updateRunAvailability() {
   document.querySelectorAll('[data-run-one]').forEach((button) => { button.disabled = disabled; });
   const inspectButton = $('#inspect-application');
   if (inspectButton) inspectButton.disabled = disabled || !$('#target-application')?.value;
+  document.querySelectorAll('[data-recheck-app]').forEach((button) => { button.disabled = disabled; });
   const cancelButton = $('#cancel-scan');
   if (cancelButton && !cancelButton.classList.contains('hidden')) cancelButton.disabled = !state.online;
 }
@@ -67,7 +68,7 @@ function setGuideVisible(visible) {
 }
 
 function dismissGuide() {
-  try { window.localStorage.setItem('macos-inspector-guide-1.2.8', 'dismissed'); } catch (error) { /* Local preferences are optional. */ }
+  try { window.localStorage.setItem('macos-inspector-guide-1.2.9', 'dismissed'); } catch (error) { /* Local preferences are optional. */ }
   setGuideVisible(false);
 }
 
@@ -367,10 +368,58 @@ async function loadReport(job) {
     renderCaseMetadata(payload.metadata || {});
     renderSummary(payload.summary);
     renderGuidance(state.guidance);
+    renderApplicationReview(state.decisionSupport?.application_review);
     renderDecisionSupport(state.decisionSupport);
     renderTimeline(payload.timeline || []);
     renderFindings(payload.findings || []);
   } catch (error) { setMessage(`Could not load report data: ${error.message}`, true); }
+}
+
+function renderApplicationReview(review) {
+  const panel = $('#application-review');
+  if (!review?.available) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+  const counts = review.counts || {};
+  const groups = review.groups || {};
+  const filter = state.applicationReviewFilter;
+  const rows = (review.applications || []).filter((item) => {
+    if (filter === 'all') return true;
+    if (filter === 'attention') return ['review_first', 'needs_context', 'unable_to_verify'].includes(item.group);
+    return item.group === filter;
+  });
+  const filters = [
+    ['attention', 'Needs attention', (counts.review_first || 0) + (counts.needs_context || 0) + (counts.unable_to_verify || 0)],
+    ['all', 'All applications', review.total || 0],
+    ['checks_passed', 'Checks passed', counts.checks_passed || 0],
+    ['reviewed', 'Reviewed locally', counts.reviewed || 0],
+  ];
+  const cards = rows.slice(0, 150).map((item) => {
+    const facts = [
+      item.publisher_team_id ? `Team ID ${item.publisher_team_id}` : 'Team ID unavailable',
+      item.signature_valid === true ? 'Signature valid' : item.signature_valid === false ? 'Signature invalid' : 'Signature unknown',
+      item.gatekeeper_accepted === true ? 'Gatekeeper accepted' : item.gatekeeper_accepted === false ? 'Gatekeeper rejected' : 'Gatekeeper unknown',
+      item.notarized === true ? 'Notarized' : item.notarized === false ? 'Notarization not confirmed' : 'Notarization unknown',
+    ];
+    const signals = (item.signals || []).map((signal) => `<li>${escapeHtml(signal)}</li>`).join('');
+    return `<article class="application-review-row application-group-${escapeHtml(item.group)}"><div class="application-review-main"><span class="application-group">${escapeHtml(item.group_label || groups[item.group] || 'Recorded')}</span><h4>${escapeHtml(item.name)}</h4><p>${escapeHtml(item.explanation)}</p><div class="application-facts">${facts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join('')}</div>${signals ? `<ul>${signals}</ul>` : ''}<code>${escapeHtml(item.path || 'Location unavailable')}</code></div><div class="application-review-actions"><button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open result</button><button type="button" class="secondary-button" data-recheck-app="${escapeHtml(item.path || '')}">Recheck this app</button></div></article>`;
+  }).join('');
+  const empty = filter === 'attention'
+    ? '<p class="application-review-clear">No application currently needs attention based on the checks in this scan.</p>'
+    : '<p class="muted">No application is in this group.</p>';
+  panel.innerHTML = `<div class="application-review-heading"><div><p class="eyebrow">APPLICATION REVIEW</p><h3 id="application-review-title">Which applications should I look at first?</h3><p>${escapeHtml(review.conclusion)}</p></div><div class="application-review-counts"><span><strong>${escapeHtml(counts.review_first || 0)}</strong>review first</span><span><strong>${escapeHtml(counts.needs_context || 0)}</strong>need context</span><span><strong>${escapeHtml(counts.unable_to_verify || 0)}</strong>not verified</span></div></div><div class="application-review-filters">${filters.map(([value, label, count]) => `<button type="button" data-app-review-filter="${value}" class="${filter === value ? 'active' : ''}">${escapeHtml(label)} <strong>${escapeHtml(count)}</strong></button>`).join('')}</div><div class="application-review-list">${cards || empty}${rows.length > 150 ? `<p class="muted">Showing 150 of ${escapeHtml(rows.length)} applications in this view. Use the finding filters for the complete evidence list.</p>` : ''}</div>`;
+  panel.classList.remove('hidden');
+  panel.querySelectorAll('[data-app-review-filter]').forEach((button) => button.addEventListener('click', () => {
+    state.applicationReviewFilter = button.dataset.appReviewFilter;
+    renderApplicationReview(review);
+  }));
+  panel.querySelectorAll('[data-review-finding]').forEach((button) => button.addEventListener('click', () => focusFinding(button.dataset.reviewFinding)));
+  panel.querySelectorAll('[data-recheck-app]').forEach((button) => button.addEventListener('click', () => recheckApplication(button.dataset.recheckApp)));
+  updateRunAvailability();
+}
+
+async function recheckApplication(path) {
+  if (!path) return setMessage('The application path is unavailable.', true);
+  setMessage(`Preparing a focused trust check for ${path.split('/').pop()}...`);
+  await startScan(['application-trust'], path);
 }
 
 function renderDecisionSupport(decision) {
@@ -563,6 +612,7 @@ async function saveInvestigation(button) {
     state.decisionSupport = await api(`/api/decision-support/${encodeURIComponent(state.currentScanId)}`);
     state.guidance = state.decisionSupport.guidance || result.guidance;
     renderGuidance(state.guidance);
+    renderApplicationReview(state.decisionSupport.application_review);
     renderDecisionSupport(state.decisionSupport);
     renderFindingPage();
     setMessage('Investigation state saved locally. Scan evidence was not changed.');
@@ -1013,7 +1063,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#findings-next').addEventListener('click', () => { if (state.findingPage * state.findingPageSize < state.filteredFindings.length) { state.findingPage += 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   setConnection('checking');
   applyEnglishCopy();
-  try { if (window.localStorage.getItem('macos-inspector-guide-1.2.8') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
+  try { if (window.localStorage.getItem('macos-inspector-guide-1.2.9') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
   const health = await checkHealth();
   if (!health) setMessage('Dashboard server unavailable. Retrying automatically...', true);
   state.healthPoll = setInterval(checkHealth, 4000);
