@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.2 - Unreleased
+## 1.3.2 - 2026-09-21
 
 - Replaced generic application-change notices with explanations for possible updates, executable-content changes, signing-identity changes, and signature or Gatekeeper regressions.
 - Added previous and current values for version, Team ID, signature state, Gatekeeper state, notarization, hardened runtime, signature type, and executable SHA-256 when those fields change.

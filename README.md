@@ -10,7 +10,7 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current development version: `v1.3.2`
+Current release: `v1.3.2`
 
 ## What it can help answer
 
