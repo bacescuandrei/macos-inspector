@@ -489,6 +489,69 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(unresolved_change["priority"], "high")
         self.assertIn("current trust result is review", unresolved_change["detail"])
 
+        trusted_permissions = application("a" * 64)
+        trusted_permissions["severity"] = "Informational"
+        trusted_permissions["status"] = "Pass"
+        trusted_permissions["evidence"][2]["value"]["permissions"] = "0755"
+        permissions_baseline = {**baseline, "findings": [trusted_permissions]}
+        weakened_permissions = application("a" * 64)
+        weakened_permissions["evidence"][2]["value"]["permissions"] = "0777"
+        permissions_report = {**current, "findings": [weakened_permissions]}
+        permission_change = build_decision_support(permissions_report, permissions_baseline)["changes"]["highlights"][0]
+        self.assertEqual(permission_change["label"], "Executable permissions weakened")
+        self.assertEqual(permission_change["priority"], "high")
+        self.assertIn("0755", permission_change["detail"])
+        self.assertIn("0777", permission_change["detail"])
+
+        trusted_metadata = application("a" * 64)
+        trusted_metadata["severity"] = "Informational"
+        trusted_metadata["status"] = "Pass"
+        trusted_metadata["evidence"].append({
+            "kind": "info_plist_integrity", "source": "/Applications/Example.app/Contents/Info.plist",
+            "value": {"permissions": "0644"},
+        })
+        weakened_metadata = application("a" * 64)
+        weakened_metadata["evidence"].append({
+            "kind": "info_plist_integrity", "source": "/Applications/Example.app/Contents/Info.plist",
+            "value": {"permissions": "0666"},
+        })
+        metadata_baseline = {**baseline, "findings": [trusted_metadata]}
+        metadata_report = {**current, "findings": [weakened_metadata]}
+        metadata_change = build_decision_support(metadata_report, metadata_baseline)["changes"]["highlights"][0]
+        self.assertEqual(metadata_change["label"], "Application metadata permissions weakened")
+        self.assertEqual(metadata_change["priority"], "high")
+
+        trusted_path = application("a" * 64)
+        trusted_path["severity"] = "Informational"
+        trusted_path["status"] = "Pass"
+        trusted_path["evidence"].append({
+            "kind": "bundle_path_integrity", "source": "/Applications/Example.app",
+            "value": {"executable_resolves_within_bundle": True},
+        })
+        escaped_path = application("a" * 64)
+        escaped_path["evidence"].append({
+            "kind": "bundle_path_integrity", "source": "/Applications/Example.app",
+            "value": {"executable_resolves_within_bundle": False},
+        })
+        path_baseline = {**baseline, "findings": [trusted_path]}
+        path_report = {**current, "findings": [escaped_path]}
+        path_change = build_decision_support(path_report, path_baseline)["changes"]["highlights"][0]
+        self.assertEqual(path_change["label"], "Bundle path integrity regressed")
+        self.assertEqual(path_change["priority"], "high")
+
+        previously_unclassified = application("a" * 64)
+        previously_unclassified["severity"] = "Informational"
+        previously_unclassified["status"] = "Pass"
+        previously_unclassified["evidence"][2]["value"]["permissions"] = "0777"
+        newly_classified = application("a" * 64)
+        newly_classified["evidence"][2]["value"]["permissions"] = "0777"
+        classification_baseline = {**baseline, "findings": [previously_unclassified]}
+        classification_report = {**current, "findings": [newly_classified]}
+        classification_change = build_decision_support(classification_report, classification_baseline)["changes"]["highlights"][0]
+        self.assertEqual(classification_change["label"], "New trust concern detected")
+        self.assertEqual(classification_change["priority"], "high")
+        self.assertIn("writable by every local user", classification_change["detail"])
+
         replaced_signer = application("a" * 64)
         replaced_signer["evidence"][1]["value"]["team_identifier"] = "NEWTEAM456"
         signer_report = {**current, "findings": [replaced_signer]}
@@ -581,6 +644,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(system_change["priority"], "context")
         self.assertIn("macOS changed from 26.5.2 to 26.6.2", system_change["detail"])
         self.assertIn("macOS version", {item["label"] for item in system_change["changed_fields"]})
+        self.assertNotIn("Info.plist permissions", {item["label"] for item in system_change["changed_fields"]})
         review_changes = {
             item["finding_id"]: item["change"] for item in result["application_review"]["applications"]
         }

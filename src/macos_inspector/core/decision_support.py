@@ -94,6 +94,8 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
         app = evidence_value(finding, "application_bundle")
         signature = evidence_value(finding, "code_signature")
         executable = evidence_value(finding, "executable_integrity")
+        metadata = evidence_value(finding, "info_plist_integrity")
+        bundle_paths = evidence_value(finding, "bundle_path_integrity")
         gatekeeper = evidence_value(finding, "gatekeeper_assessment")
         result[finding_id] = {
             "finding_id": finding_id,
@@ -110,6 +112,12 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "gatekeeper_accepted": gatekeeper.get("accepted"),
             "notarized": gatekeeper.get("notarized"),
             "sha256": executable.get("sha256"),
+            "executable_permissions": executable.get("permissions"),
+            "executable_changed_during_read": executable.get("changed_during_read"),
+            "info_plist_permissions": metadata.get("permissions"),
+            "info_plist_changed_during_read": metadata.get("changed_during_read"),
+            "executable_inside_bundle": bundle_paths.get("executable_resolves_within_bundle"),
+            "signals": _application_signals(finding),
             "fingerprint": finding_fingerprint(finding),
         }
     return result
@@ -419,6 +427,33 @@ def _application_change_priority(app: dict[str, Any]) -> str:
     return "context"
 
 
+def _permission_risk(value: object) -> int | None:
+    try:
+        mode = int(str(value), 8)
+    except (TypeError, ValueError):
+        return None
+    if mode & 0o002:
+        return 2
+    if mode & 0o020:
+        return 1
+    return 0
+
+
+def _application_field_changed(key: str, before: object, after: object) -> bool:
+    if before == after:
+        return False
+    if before is not None:
+        return True
+    if key in {"executable_permissions", "info_plist_permissions"}:
+        risk = _permission_risk(after)
+        return risk is not None and risk > 0
+    if key == "executable_inside_bundle":
+        return after is False
+    if key in {"executable_changed_during_read", "info_plist_changed_during_read"}:
+        return after is True
+    return True
+
+
 def _application_change(
     before: dict[str, Any], after: dict[str, Any], finding_id: str,
     before_macos: str | None = None, after_macos: str | None = None,
@@ -434,6 +469,13 @@ def _application_change(
         ("notarized", "Notarization"),
         ("hardened_runtime", "Hardened runtime"),
         ("sha256", "Executable SHA-256"),
+        ("executable_permissions", "Executable permissions"),
+        ("info_plist_permissions", "Info.plist permissions"),
+        ("executable_inside_bundle", "Executable remains inside bundle"),
+        ("executable_changed_during_read", "Executable changed during collection"),
+        ("info_plist_changed_during_read", "Info.plist changed during collection"),
+        ("status", "Trust result"),
+        ("severity", "Severity"),
     )
     changed_fields = [
         {
@@ -442,7 +484,7 @@ def _application_change(
             "before": _change_value(key, before.get(key)),
             "after": _change_value(key, after.get(key)),
         }
-        for key, label in fields if before.get(key) != after.get(key)
+        for key, label in fields if _application_field_changed(key, before.get(key), after.get(key))
     ]
     changed_keys = {item["key"] for item in changed_fields}
     signature_regressed = before.get("signature_valid") is True and after.get("signature_valid") is False
@@ -451,6 +493,20 @@ def _application_change(
     signer_replaced = bool(old_team and new_team and old_team != new_team)
     old_bundle, new_bundle = before.get("bundle_identifier"), after.get("bundle_identifier")
     bundle_replaced = bool(old_bundle and new_bundle and old_bundle != new_bundle)
+    path_regressed = before.get("executable_inside_bundle") is True and after.get("executable_inside_bundle") is False
+    executable_permission_before = _permission_risk(before.get("executable_permissions"))
+    executable_permission_after = _permission_risk(after.get("executable_permissions"))
+    metadata_permission_before = _permission_risk(before.get("info_plist_permissions"))
+    metadata_permission_after = _permission_risk(after.get("info_plist_permissions"))
+    executable_permissions_weakened = (
+        executable_permission_before is not None and executable_permission_after is not None
+        and executable_permission_after > executable_permission_before
+    )
+    metadata_permissions_weakened = (
+        metadata_permission_before is not None and metadata_permission_after is not None
+        and metadata_permission_after > metadata_permission_before
+    )
+    previous_priority = _application_change_priority(before)
     current_priority = _application_change_priority(after)
     apple_system_app = bool(
         str(after.get("path") or "").startswith("/System/")
@@ -489,6 +545,33 @@ def _application_change(
         label, priority = "Bundle identity changed", "high"
         detail = f"Bundle identifier changed from {old_bundle} to {new_bundle}."
         next_action = "Confirm the application's expected bundle identifier and source before opening it."
+    elif path_regressed:
+        label, priority = "Bundle path integrity regressed", "high"
+        detail = "The main executable now resolves outside the application bundle."
+        next_action = "Do not open the application. Preserve the bundle and inspect the resolved executable path and ownership."
+    elif executable_permissions_weakened:
+        label = "Executable permissions weakened"
+        priority = "high" if executable_permission_after == 2 else "review"
+        detail = (
+            f"Executable permissions changed from {_change_value('executable_permissions', before.get('executable_permissions'))} "
+            f"to {_change_value('executable_permissions', after.get('executable_permissions'))}, allowing broader local modification."
+        )
+        next_action = "Validate the application's source and ownership, then correct or reinstall it before relying on the executable."
+    elif metadata_permissions_weakened:
+        label = "Application metadata permissions weakened"
+        priority = "high" if metadata_permission_after == 2 else "review"
+        detail = (
+            f"Info.plist permissions changed from {_change_value('info_plist_permissions', before.get('info_plist_permissions'))} "
+            f"to {_change_value('info_plist_permissions', after.get('info_plist_permissions'))}, allowing broader local modification."
+        )
+        next_action = "Validate the bundle source and ownership, then correct or reinstall the application before relying on its metadata."
+    elif current_priority in {"high", "review"} and previous_priority == "context":
+        label, priority = "New trust concern detected", current_priority
+        before_status = _change_value("status", before.get("status"))
+        after_status = _change_value("status", after.get("status"))
+        signal = next((str(item) for item in after.get("signals", []) if item), "The current result requires review.")
+        detail = f"The trust result changed from {before_status} to {after_status}. {signal}"
+        next_action = "Open the current result, validate the reported integrity or trust signal, and preserve evidence before remediation."
     elif current_priority in {"high", "review"} and ({"version", "sha256"} & changed_keys):
         label, priority = "Changed app still needs review", current_priority
         detail = (
