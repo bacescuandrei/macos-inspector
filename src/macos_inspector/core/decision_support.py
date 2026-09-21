@@ -105,6 +105,7 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "severity": finding.get("severity"),
             "bundle_identifier": app.get("bundle_identifier"),
             "version": app.get("version"),
+            "executable_path": app.get("executable"),
             "publisher_team_id": signature.get("team_identifier"),
             "signature_valid": signature.get("valid"),
             "signature_type": signature.get("signature_type"),
@@ -269,7 +270,7 @@ def build_application_review(
     application_changes = {
         str(item.get("finding_id")): item
         for item in (changes or {}).get("application_changes", (changes or {}).get("highlights", []))
-        if isinstance(item, dict) and item.get("kind") in {"new-application", "changed-application"}
+        if isinstance(item, dict) and item.get("kind") in {"new-application", "changed-application", "application-coverage-change"}
     }
     rows: list[dict[str, Any]] = []
     for finding_id, app in applications.items():
@@ -457,11 +458,13 @@ def _application_field_changed(key: str, before: object, after: object) -> bool:
 def _application_change(
     before: dict[str, Any], after: dict[str, Any], finding_id: str,
     before_macos: str | None = None, after_macos: str | None = None,
+    tool_version_changed: bool = False,
 ) -> dict[str, Any]:
     """Explain an application identity change without treating it as proof of tampering."""
     fields = (
         ("bundle_identifier", "Bundle identifier"),
         ("version", "Version"),
+        ("executable_path", "Executable path"),
         ("publisher_team_id", "Team ID"),
         ("signature_valid", "Signature validation"),
         ("signature_type", "Signature type"),
@@ -508,6 +511,11 @@ def _application_change(
     )
     previous_priority = _application_change_priority(before)
     current_priority = _application_change_priority(after)
+    established_field_change = any(
+        item["key"] not in {"status", "severity"} and before.get(item["key"]) is not None
+        for item in changed_fields
+    )
+    coverage_reclassification = tool_version_changed and not established_field_change
     apple_system_app = bool(
         str(after.get("path") or "").startswith("/System/")
         or (
@@ -528,7 +536,16 @@ def _application_change(
         before.get("gatekeeper_accepted") is False and after.get("gatekeeper_accepted") is True,
     ))
 
-    if signature_regressed or gatekeeper_regressed:
+    if coverage_reclassification and current_priority in {"high", "review"} and previous_priority == "context":
+        label, priority = "New concern from expanded checks", current_priority
+        signal = next((str(item) for item in after.get("signals", []) if item), "The current result requires review.")
+        detail = f"The newer inspector flags current evidence that the earlier version did not evaluate. {signal}"
+        next_action = "Validate the current concern, but do not assume the application itself changed without a compared field value showing it."
+    elif coverage_reclassification:
+        label, priority = "Evidence coverage expanded", "context"
+        detail = "The newer report contains different application evidence, but no previously known identity or trust field changed."
+        next_action = "Use the current evidence as the new baseline. No application change is established by this difference alone."
+    elif signature_regressed or gatekeeper_regressed:
         label, priority = "Trust check regressed", "high"
         failures = []
         if signature_regressed:
@@ -611,7 +628,7 @@ def _application_change(
         detail = f"Changed evidence: {names}."
         next_action = "Open the current result and compare the changed fields with the expected application identity."
     return {
-        "kind": "changed-application",
+        "kind": "application-coverage-change" if coverage_reclassification else "changed-application",
         "label": label,
         "priority": priority,
         "title": str(after.get("name") or "Application"),
@@ -661,13 +678,18 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
             "changed_fields": [], "finding_id": finding_id,
         })
     changed_apps = []
+    coverage_updates = []
     for finding_id in sorted(after_apps.keys() & before_apps.keys()):
         if after_apps[finding_id]["fingerprint"] != before_apps[finding_id]["fingerprint"]:
             app = after_apps[finding_id]
-            changed_apps.append(finding_id)
-            application_changes.append(_application_change(
-                before_apps[finding_id], app, finding_id, before_macos, after_macos,
-            ))
+            change = _application_change(
+                before_apps[finding_id], app, finding_id, before_macos, after_macos, tool_version_changed,
+            )
+            application_changes.append(change)
+            if change["kind"] == "application-coverage-change":
+                coverage_updates.append(finding_id)
+            else:
+                changed_apps.append(finding_id)
     highlights = list(application_changes)
     for finding_id in sorted(before_apps.keys() - after_apps.keys()):
         app = before_apps[finding_id]
@@ -717,6 +739,7 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
         "counts": {
             "new_applications": len(after_apps.keys() - before_apps.keys()),
             "changed_applications": len(changed_apps),
+            "application_coverage_changes": len(coverage_updates),
             "removed_applications": len(before_apps.keys() - after_apps.keys()),
             "new_startup_items": len(new_startup_keys),
             "changed_startup_items": len(changed_startup_keys),

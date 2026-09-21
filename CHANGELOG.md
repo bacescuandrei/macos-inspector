@@ -4,6 +4,7 @@
 
 - Added a comparison note when the baseline and current reports were created by different macOS Inspector versions, so expanded collector coverage is not mistaken for proof that the system changed.
 - Included the same comparison context in standalone investigation summaries.
+- Separated evidence-only coverage updates from actual application changes in dashboard counts and filters.
 
 ## 1.3.2 - 2026-09-21
 

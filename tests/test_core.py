@@ -487,6 +487,27 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(update_change["priority"], "context")
         self.assertIn("Team ID TEAM123 remained the same", update_change["detail"])
 
+        coverage_before = application("a" * 64)
+        coverage_before["severity"] = "Informational"
+        coverage_before["status"] = "Pass"
+        coverage_after = application("a" * 64)
+        coverage_after["severity"] = "High"
+        coverage_after["status"] = "Review"
+        coverage_after["evidence"].append({
+            "kind": "info_plist_integrity", "source": "/Applications/Example.app/Contents/Info.plist",
+            "value": {"permissions": "0644", "changed_during_read": False},
+        })
+        coverage_baseline = {**baseline, "findings": [coverage_before]}
+        coverage_report = {**current, "findings": [coverage_after]}
+        coverage_changes = build_decision_support(coverage_report, coverage_baseline)["changes"]
+        coverage_change = coverage_changes["application_changes"][0]
+        self.assertEqual(coverage_changes["counts"]["changed_applications"], 0)
+        self.assertEqual(coverage_changes["counts"]["application_coverage_changes"], 1)
+        self.assertEqual(coverage_change["kind"], "application-coverage-change")
+        self.assertEqual(coverage_change["label"], "New concern from expanded checks")
+        self.assertEqual(coverage_change["priority"], "high")
+        self.assertIn("do not assume the application itself changed", coverage_change["next_action"])
+
         unresolved_update = application("c" * 64)
         unresolved_update["evidence"][0]["value"]["version"] = "2.0"
         unresolved_report = {**current, "findings": [unresolved_update]}
@@ -552,7 +573,11 @@ class CoreTests(unittest.TestCase):
         newly_classified = application("a" * 64)
         newly_classified["evidence"][2]["value"]["permissions"] = "0777"
         classification_baseline = {**baseline, "findings": [previously_unclassified]}
-        classification_report = {**current, "findings": [newly_classified]}
+        classification_report = {
+            **current,
+            "metadata": {**current["metadata"], "tool_version": "1.3.2"},
+            "findings": [newly_classified],
+        }
         classification_change = build_decision_support(classification_report, classification_baseline)["changes"]["highlights"][0]
         self.assertEqual(classification_change["label"], "New trust concern detected")
         self.assertEqual(classification_change["priority"], "high")

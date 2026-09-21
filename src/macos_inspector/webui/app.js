@@ -394,7 +394,8 @@ function renderApplicationReview(review) {
     if (filter === 'all') return true;
     if (filter === 'attention') return ['review_first', 'needs_context', 'unable_to_verify'].includes(item.group);
     if (filter === 'active') return Boolean(item.activity?.has_activity);
-    if (filter === 'changed') return Boolean(item.change);
+    if (filter === 'changed') return Boolean(item.change) && item.change.kind !== 'application-coverage-change';
+    if (filter === 'coverage') return item.change?.kind === 'application-coverage-change';
     return item.group === filter;
   });
   if (filter === 'changed') {
@@ -402,12 +403,14 @@ function renderApplicationReview(review) {
     rows.sort((left, right) => (changeRank[left.change?.priority] ?? 1) - (changeRank[right.change?.priority] ?? 1));
   }
   const activeCount = (review.applications || []).filter((item) => item.activity?.has_activity).length;
-  const changedCount = (review.applications || []).filter((item) => item.change).length;
+  const changedCount = (review.applications || []).filter((item) => item.change && item.change.kind !== 'application-coverage-change').length;
+  const coverageCount = (review.applications || []).filter((item) => item.change?.kind === 'application-coverage-change').length;
   const filters = [
     ['attention', 'Needs attention', (counts.review_first || 0) + (counts.needs_context || 0) + (counts.unable_to_verify || 0)],
     ['all', 'All applications', review.total || 0],
     ['active', 'Active in this scan', activeCount],
     ['changed', 'Changed since last scan', changedCount],
+    ...(coverageCount ? [['coverage', 'New evidence coverage', coverageCount]] : []),
     ['checks_passed', 'Checks passed', counts.checks_passed || 0],
     ['reviewed', 'Reviewed locally', counts.reviewed || 0],
   ];
@@ -482,6 +485,7 @@ function renderDecisionSupport(decision) {
   const changeMetrics = changes.available ? [
     ['New apps', counts.new_applications || 0], ['Changed apps', counts.changed_applications || 0],
     ['Apps no longer present', counts.removed_applications || 0],
+    ['Coverage updates', counts.application_coverage_changes || 0],
     ['New startup items', counts.new_startup_items || 0], ['Changed startup items', counts.changed_startup_items || 0],
     ['New listeners', counts.new_network_listeners || 0], ['Resolved findings', counts.resolved_findings || 0],
   ] : [];
