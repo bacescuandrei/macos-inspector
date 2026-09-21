@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.3 - Unreleased
+## 1.3.3 - 2026-09-21
 
 - Added a comparison note when the baseline and current reports were created by different macOS Inspector versions, so expanded collector coverage is not mistaken for proof that the system changed.
 - Included the same comparison context in standalone investigation summaries.
