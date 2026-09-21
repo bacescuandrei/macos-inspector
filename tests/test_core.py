@@ -574,6 +574,17 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(regression["label"], "Trust check regressed")
         self.assertEqual(regression["priority"], "high")
 
+        removed_report = {**current, "findings": [process, network, persistence]}
+        removed_changes = build_decision_support(removed_report, baseline)["changes"]
+        removed_change = next(item for item in removed_changes["highlights"] if item["kind"] == "removed-application")
+        self.assertEqual(removed_changes["counts"]["removed_applications"], 1)
+        self.assertEqual(removed_change["label"], "Application no longer present")
+        self.assertEqual(removed_change["title"], "Example")
+        self.assertEqual(removed_change["priority"], "review")
+        self.assertIn("not found in the current application inventory", removed_change["detail"])
+        self.assertIn("intentionally removed", removed_change["next_action"])
+        self.assertEqual(removed_change["finding_id"], "")
+
         new_unverified = application("a" * 64)
         new_unverified["finding_id"] = "APP-TRUST-NEW"
         new_unverified["severity"] = "Informational"

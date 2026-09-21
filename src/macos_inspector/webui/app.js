@@ -480,10 +480,16 @@ function renderDecisionSupport(decision) {
   const counts = changes.counts || {};
   const changeMetrics = changes.available ? [
     ['New apps', counts.new_applications || 0], ['Changed apps', counts.changed_applications || 0],
+    ['Apps no longer present', counts.removed_applications || 0],
     ['New startup items', counts.new_startup_items || 0], ['Changed startup items', counts.changed_startup_items || 0],
     ['New listeners', counts.new_network_listeners || 0], ['Resolved findings', counts.resolved_findings || 0],
   ] : [];
-  const highlights = (changes.highlights || []).slice(0, 8).map((item) => `<button type="button" class="decision-row change-${escapeHtml(item.priority || 'context')}" data-review-finding="${escapeHtml(item.finding_id || '')}"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small>${item.next_action ? `<small class="change-action">Next: ${escapeHtml(item.next_action)}</small>` : ''}</button>`).join('');
+  const highlights = (changes.highlights || []).slice(0, 8).map((item) => {
+    const content = `<span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small>${item.next_action ? `<small class="change-action">Next: ${escapeHtml(item.next_action)}</small>` : ''}`;
+    return item.finding_id
+      ? `<button type="button" class="decision-row change-${escapeHtml(item.priority || 'context')}" data-review-finding="${escapeHtml(item.finding_id)}">${content}</button>`
+      : `<article class="decision-row change-${escapeHtml(item.priority || 'context')}">${content}</article>`;
+  }).join('');
   const stories = (decision.stories || []).map((story) => `<article class="story-card"><span>${escapeHtml(story.confidence)} confidence correlation</span><h4>${escapeHtml(story.title)}</h4><p>${escapeHtml(story.narrative)}</p><details><summary>Signals and next steps</summary><ul>${(story.signals || []).map((signal) => `<li>${escapeHtml(signal.type)} | ${escapeHtml(signal.detail)}</li>`).join('')}</ul><ol>${(story.next_actions || []).map((action) => `<li>${escapeHtml(action)}</li>`).join('')}</ol></details></article>`).join('');
   panel.innerHTML = `<div class="decision-heading"><div><p class="eyebrow">DECISION SUPPORT</p><h3 id="decision-support-title">What changed and how the evidence connects</h3><p>${escapeHtml(changes.message || '')}</p></div><button type="button" class="secondary-button" id="export-investigation-summary">Export investigation summary</button></div>${changeMetrics.length ? `<div class="change-metrics">${changeMetrics.map(([label,value]) => `<span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>`).join('')}</div>` : ''}<div class="decision-columns"><section><h4>Changes since last comparable scan</h4>${highlights || `<p class="muted">${escapeHtml(changes.message || 'No high-signal changes were identified.')}</p>`}</section><section><h4>Correlated investigation stories</h4>${stories || '<p class="muted">No finding is currently connected across multiple evidence types.</p>'}</section></div>`;
   panel.classList.remove('hidden');

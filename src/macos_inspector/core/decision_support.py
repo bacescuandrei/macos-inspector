@@ -656,6 +656,19 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
                 before_apps[finding_id], app, finding_id, before_macos, after_macos,
             ))
     highlights = list(application_changes)
+    for finding_id in sorted(before_apps.keys() - after_apps.keys()):
+        app = before_apps[finding_id]
+        highlights.append({
+            "kind": "removed-application", "label": "Application no longer present", "priority": "review",
+            "title": str(app.get("name") or "Application"),
+            "detail": (
+                f"{app.get('path')} was present in the earlier scan but was not found in the current application inventory."
+                if app.get("path") else
+                "The application was present in the earlier scan but was not found in the current application inventory."
+            ),
+            "next_action": "Confirm that the application was intentionally removed. If not, review recent administrative activity and preserve the earlier report.",
+            "changed_fields": [], "finding_id": "",
+        })
     new_ids = current_findings.keys() - baseline_findings.keys()
     resolved_ids = baseline_findings.keys() - current_findings.keys()
     before_startup, after_startup = _startup_items(baseline), _startup_items(current)

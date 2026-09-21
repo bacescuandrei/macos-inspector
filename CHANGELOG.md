@@ -11,6 +11,7 @@
 - Prioritized trust regressions, Team ID replacements, and bundle-identity changes before routine context in both summary and filtered card views, and recognized Apple-signed system-app changes that coincide with a recorded macOS update.
 - Prevented update context from hiding a current failed, review, or unknown trust result, and raised unverifiable new applications above routine additions.
 - Added explicit change explanations for weakened executable or Info.plist permissions, bundle path regressions, and newly detected trust concerns.
+- Added a visible count for applications no longer present and a plain-language inventory event with a confirmation step for unexpected disappearance.
 
 ## 1.3.1 - 2026-09-21
 
