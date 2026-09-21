@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.2 - Unreleased
+
+- Replaced generic application-change notices with explanations for possible updates, executable-content changes, signing-identity changes, and signature or Gatekeeper regressions.
+- Added previous and current values for version, Team ID, signature state, Gatekeeper state, notarization, hardened runtime, signature type, and executable SHA-256 when those fields change.
+- Added a **Changed since last scan** application filter and placed the same change explanation inside the relevant application card.
+- Added a concrete validation step to dashboard changes and standalone investigation summaries without treating a change as proof of tampering.
+- Added regression coverage for update context, signer replacement, trust regression, changed-content review, and compact hash display.
+
 ## 1.3.1 - 2026-09-21
 
 - Added a plain-language publisher and acquisition panel to every Application Trust review card.

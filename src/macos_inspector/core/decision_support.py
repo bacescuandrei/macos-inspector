@@ -94,12 +94,18 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
         app = evidence_value(finding, "application_bundle")
         signature = evidence_value(finding, "code_signature")
         executable = evidence_value(finding, "executable_integrity")
+        gatekeeper = evidence_value(finding, "gatekeeper_assessment")
         result[finding_id] = {
             "finding_id": finding_id,
             "name": app.get("name") or finding.get("title", finding_id),
             "path": next((item.get("source") for item in finding.get("evidence", []) if isinstance(item, dict) and item.get("kind") == "application_bundle"), None),
             "version": app.get("version"),
             "publisher_team_id": signature.get("team_identifier"),
+            "signature_valid": signature.get("valid"),
+            "signature_type": signature.get("signature_type"),
+            "hardened_runtime": signature.get("hardened_runtime"),
+            "gatekeeper_accepted": gatekeeper.get("accepted"),
+            "notarized": gatekeeper.get("notarized"),
             "sha256": executable.get("sha256"),
             "fingerprint": finding_fingerprint(finding),
         }
@@ -224,7 +230,9 @@ def _application_provenance(finding: dict[str, Any], path: str) -> dict[str, Any
     }
 
 
-def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -> dict[str, Any]:
+def build_application_review(
+    report: dict[str, Any], guidance: dict[str, Any], changes: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build a plain-language application triage queue from Application Trust evidence."""
     groups = {
         "review_first": "Review first",
@@ -246,6 +254,11 @@ def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -
         "startup": bool(collectors & {"persistence", "background-items"}) or any(
             finding_id.startswith(("PERSIST-", "BACKGROUND-")) for finding_id in findings
         ),
+    }
+    application_changes = {
+        str(item.get("finding_id")): item
+        for item in (changes or {}).get("highlights", [])
+        if isinstance(item, dict) and item.get("kind") in {"new-application", "changed-application"}
     }
     rows: list[dict[str, Any]] = []
     for finding_id, app in applications.items():
@@ -290,6 +303,7 @@ def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -
             "hardened_runtime": signature.get("hardened_runtime"),
             "sha256": executable.get("sha256"),
             "signals": _application_signals(finding),
+            "change": application_changes.get(finding_id),
             "provenance": _application_provenance(finding, application_path),
             "activity": _application_activity(
                 application_path, observed_processes, observed_persistence, activity_coverage,
@@ -374,6 +388,100 @@ def _startup_items(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _change_value(key: str, value: object) -> str:
+    if value is None or value == "":
+        return "Not available"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    text = str(value)
+    if key == "sha256" and len(text) > 16:
+        return f"{text[:16]}..."
+    return text
+
+
+def _application_change(before: dict[str, Any], after: dict[str, Any], finding_id: str) -> dict[str, Any]:
+    """Explain an application identity change without treating it as proof of tampering."""
+    fields = (
+        ("version", "Version"),
+        ("publisher_team_id", "Team ID"),
+        ("signature_valid", "Signature validation"),
+        ("signature_type", "Signature type"),
+        ("gatekeeper_accepted", "Gatekeeper acceptance"),
+        ("notarized", "Notarization"),
+        ("hardened_runtime", "Hardened runtime"),
+        ("sha256", "Executable SHA-256"),
+    )
+    changed_fields = [
+        {
+            "key": key,
+            "label": label,
+            "before": _change_value(key, before.get(key)),
+            "after": _change_value(key, after.get(key)),
+        }
+        for key, label in fields if before.get(key) != after.get(key)
+    ]
+    changed_keys = {item["key"] for item in changed_fields}
+    signature_regressed = before.get("signature_valid") is True and after.get("signature_valid") is False
+    gatekeeper_regressed = before.get("gatekeeper_accepted") is True and after.get("gatekeeper_accepted") is False
+    old_team, new_team = before.get("publisher_team_id"), after.get("publisher_team_id")
+    signer_replaced = bool(old_team and new_team and old_team != new_team)
+    trust_recovered = any((
+        before.get("signature_valid") is False and after.get("signature_valid") is True,
+        before.get("gatekeeper_accepted") is False and after.get("gatekeeper_accepted") is True,
+    ))
+
+    if signature_regressed or gatekeeper_regressed:
+        label, priority = "Trust check regressed", "high"
+        failures = []
+        if signature_regressed:
+            failures.append("signature validation now fails")
+        if gatekeeper_regressed:
+            failures.append("Gatekeeper no longer accepts the application")
+        detail = f"{' and '.join(failures).capitalize()}."
+        next_action = "Do not rely on the earlier result. Preserve the current bundle and validate its source before opening it."
+    elif signer_replaced:
+        label, priority = "Signing identity changed", "high"
+        detail = f"Team ID changed from {old_team} to {new_team}."
+        next_action = "Confirm that the new signer is expected for this application before treating the change as an update."
+    elif {"version", "sha256"}.issubset(changed_keys) and old_team == new_team and bool(new_team):
+        label, priority = "Possible application update", "context"
+        detail = (
+            f"Version changed from {_change_value('version', before.get('version'))} to "
+            f"{_change_value('version', after.get('version'))}, the executable changed, and Team ID {new_team} remained the same."
+        )
+        next_action = "Confirm that an update was expected and compare the version with the publisher's trusted release information."
+    elif "sha256" in changed_keys:
+        label, priority = "Application contents changed", "review"
+        detail = "The executable SHA-256 changed without a matching recorded version change."
+        next_action = "Confirm whether the application was updated or reinstalled, then validate the current signer and source."
+    elif changed_keys == {"version"}:
+        label, priority = "Application version changed", "context"
+        detail = (
+            f"Version changed from {_change_value('version', before.get('version'))} to "
+            f"{_change_value('version', after.get('version'))}."
+        )
+        next_action = "Confirm that the version change was expected."
+    elif trust_recovered:
+        label, priority = "Trust check improved", "context"
+        detail = "A signature or Gatekeeper check that failed previously now passes."
+        next_action = "Confirm whether the application was repaired, replaced, or updated before closing the earlier finding."
+    else:
+        label, priority = "Application trust evidence changed", "review"
+        names = ", ".join(item["label"].lower() for item in changed_fields) or "trust outcome"
+        detail = f"Changed evidence: {names}."
+        next_action = "Open the current result and compare the changed fields with the expected application identity."
+    return {
+        "kind": "changed-application",
+        "label": label,
+        "priority": priority,
+        "title": str(after.get("name") or "Application"),
+        "detail": detail,
+        "next_action": next_action,
+        "changed_fields": changed_fields,
+        "finding_id": finding_id,
+    }
+
+
 def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) -> dict[str, Any]:
     if not baseline:
         return {
@@ -387,17 +495,18 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
     highlights: list[dict[str, Any]] = []
     for finding_id in sorted(after_apps.keys() - before_apps.keys()):
         app = after_apps[finding_id]
-        highlights.append({"kind": "new-application", "label": "New application", "title": str(app["name"]), "detail": str(app.get("path") or "Application path unavailable"), "finding_id": finding_id})
+        highlights.append({
+            "kind": "new-application", "label": "New application", "priority": "context",
+            "title": str(app["name"]), "detail": str(app.get("path") or "Application path unavailable"),
+            "next_action": "Confirm that this application was installed intentionally and review its publisher, source, and activity.",
+            "changed_fields": [], "finding_id": finding_id,
+        })
     changed_apps = []
     for finding_id in sorted(after_apps.keys() & before_apps.keys()):
         if after_apps[finding_id]["fingerprint"] != before_apps[finding_id]["fingerprint"]:
             app = after_apps[finding_id]
             changed_apps.append(finding_id)
-            details = []
-            for key, label in (("version", "version"), ("publisher_team_id", "publisher"), ("sha256", "executable hash")):
-                if before_apps[finding_id].get(key) != app.get(key):
-                    details.append(label)
-            highlights.append({"kind": "changed-application", "label": "Application changed", "title": str(app["name"]), "detail": f"Changed: {', '.join(details) or 'trust evidence'}", "finding_id": finding_id})
+            highlights.append(_application_change(before_apps[finding_id], app, finding_id))
     new_ids = current_findings.keys() - baseline_findings.keys()
     resolved_ids = baseline_findings.keys() - current_findings.keys()
     before_startup, after_startup = _startup_items(baseline), _startup_items(current)
@@ -615,7 +724,7 @@ def build_decision_support(
             guidance["findings"][finding_id]["confidence"] = confidence_for_finding(finding)
     changes = analyze_changes(baseline, current)
     stories = build_stories(current, guidance)
-    application_review = build_application_review(current, guidance)
+    application_review = build_application_review(current, guidance, changes)
     investigation_counts: dict[str, int] = {}
     for item in guidance["findings"].values():
         status = str(item.get("investigation", {}).get("status", "New"))
@@ -654,7 +763,9 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
         for item in priorities
     ) or "<p>No item currently needs immediate attention.</p>"
     change_rows = "".join(
-        f"<article><span>{escape(str(item.get('label', 'Change')))}</span><h3>{escape(str(item.get('title', 'Change')))}</h3><p>{escape(str(item.get('detail', '')))}</p></article>"
+        f"<article><span>{escape(str(item.get('label', 'Change')))}</span><h3>{escape(str(item.get('title', 'Change')))}</h3>"
+        f"<p>{escape(str(item.get('detail', '')))}</p>"
+        f"<small>Next: {escape(str(item.get('next_action', 'Review the change against the expected state.')))}</small></article>"
         for item in changes.get("highlights", [])[:20]
     ) or f"<p>{escape(str(changes.get('message', 'No high-signal change was identified.')))}</p>"
     story_rows = "".join(

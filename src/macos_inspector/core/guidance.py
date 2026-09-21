@@ -62,8 +62,11 @@ def finding_fingerprint(finding: dict[str, Any]) -> str:
             "executable": app.get("executable"),
             "team_identifier": signature.get("team_identifier"),
             "signature_valid": signature.get("valid"),
+            "signature_type": signature.get("signature_type"),
+            "hardened_runtime": signature.get("hardened_runtime"),
             "sha256": executable.get("sha256"),
             "gatekeeper_accepted": gatekeeper.get("accepted"),
+            "notarized": gatekeeper.get("notarized"),
         }
     elif finding_id in {"LIVE-PROCESS-TREE", "LIVE-NETWORK-PROCESSES"}:
         identity["processes"] = _process_identities(finding)

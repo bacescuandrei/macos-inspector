@@ -394,18 +394,22 @@ function renderApplicationReview(review) {
     if (filter === 'all') return true;
     if (filter === 'attention') return ['review_first', 'needs_context', 'unable_to_verify'].includes(item.group);
     if (filter === 'active') return Boolean(item.activity?.has_activity);
+    if (filter === 'changed') return Boolean(item.change);
     return item.group === filter;
   });
   const activeCount = (review.applications || []).filter((item) => item.activity?.has_activity).length;
+  const changedCount = (review.applications || []).filter((item) => item.change).length;
   const filters = [
     ['attention', 'Needs attention', (counts.review_first || 0) + (counts.needs_context || 0) + (counts.unable_to_verify || 0)],
     ['all', 'All applications', review.total || 0],
     ['active', 'Active in this scan', activeCount],
+    ['changed', 'Changed since last scan', changedCount],
     ['checks_passed', 'Checks passed', counts.checks_passed || 0],
     ['reviewed', 'Reviewed locally', counts.reviewed || 0],
   ];
   const cards = rows.slice(0, 150).map((item) => {
     const provenance = item.provenance || {};
+    const change = item.change || null;
     const facts = [
       item.publisher_team_id ? `Team ID ${item.publisher_team_id}` : 'Team ID unavailable',
       item.signature_valid === true ? 'Signature valid' : item.signature_valid === false ? 'Signature invalid' : 'Signature unknown',
@@ -423,6 +427,8 @@ function renderApplicationReview(review) {
       ['Download time', provenance.downloaded_at || 'Not recorded'],
     ];
     const provenanceBlock = `<details class="application-provenance"><summary>Who signed this app and where did it come from?</summary><p>${escapeHtml(provenance.summary || 'Publisher and acquisition metadata were not available.')}</p><dl>${provenanceRows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl><small>${escapeHtml(provenance.privacy_note || 'Publisher and source observations do not establish that an application is safe.')}</small></details>`;
+    const changedFields = (change?.changed_fields || []).map((field) => `<li><span>${escapeHtml(field.label)}</span><code>${escapeHtml(field.before)} to ${escapeHtml(field.after)}</code></li>`).join('');
+    const changeBlock = change ? `<details class="application-change application-change-${escapeHtml(change.priority || 'review')}"><summary>${escapeHtml(change.label || 'Application changed')}</summary><p>${escapeHtml(change.detail || 'Application evidence changed since the previous comparable scan.')}</p>${changedFields ? `<ul>${changedFields}</ul>` : ''}<small>${escapeHtml(change.next_action || 'Validate the change before closing the review.')}</small></details>` : '';
     const signals = (item.signals || []).map((signal) => `<li>${escapeHtml(signal)}</li>`).join('');
     const activity = item.activity || {};
     const activityCounts = activity.counts || {};
@@ -441,7 +447,7 @@ function renderApplicationReview(review) {
       ? 'No matching activity was observed in the live or startup evidence collected by this scan.'
       : 'Activity context was not collected. Include Live Triage or Persistence to correlate behavior.';
     const activityBlock = activityBadges.length ? `<div class="application-activity-badges">${activityBadges.map((label) => `<span>${escapeHtml(label)}</span>`).join('')}</div><details class="application-activity"><summary>Why this app appears active</summary><p>${escapeHtml(activity.conclusion || 'Observed activity is context, not a security verdict.')}</p>${truncated}<ul>${activityRows}</ul></details>` : `<p class="application-no-activity">${escapeHtml(noActivity)}</p>`;
-    return `<article class="application-review-row application-group-${escapeHtml(item.group)}"><div class="application-review-main"><span class="application-group">${escapeHtml(item.group_label || groups[item.group] || 'Recorded')}</span><h4>${escapeHtml(item.name)}</h4><p>${escapeHtml(item.explanation)}</p><div class="application-facts">${facts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join('')}</div>${provenanceBlock}${activityBlock}${signals ? `<ul class="application-signals">${signals}</ul>` : ''}<code>${escapeHtml(item.path || 'Location unavailable')}</code></div><div class="application-review-actions"><button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open result</button><button type="button" class="secondary-button" data-recheck-app="${escapeHtml(item.path || '')}">Recheck this app</button></div></article>`;
+    return `<article class="application-review-row application-group-${escapeHtml(item.group)}"><div class="application-review-main"><span class="application-group">${escapeHtml(item.group_label || groups[item.group] || 'Recorded')}</span><h4>${escapeHtml(item.name)}</h4><p>${escapeHtml(item.explanation)}</p><div class="application-facts">${facts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join('')}</div>${changeBlock}${provenanceBlock}${activityBlock}${signals ? `<ul class="application-signals">${signals}</ul>` : ''}<code>${escapeHtml(item.path || 'Location unavailable')}</code></div><div class="application-review-actions"><button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open result</button><button type="button" class="secondary-button" data-recheck-app="${escapeHtml(item.path || '')}">Recheck this app</button></div></article>`;
   }).join('');
   const empty = filter === 'attention'
     ? '<p class="application-review-clear">No application currently needs attention based on the checks in this scan.</p>'
@@ -473,7 +479,7 @@ function renderDecisionSupport(decision) {
     ['New startup items', counts.new_startup_items || 0], ['Changed startup items', counts.changed_startup_items || 0],
     ['New listeners', counts.new_network_listeners || 0], ['Resolved findings', counts.resolved_findings || 0],
   ] : [];
-  const highlights = (changes.highlights || []).slice(0, 8).map((item) => `<button type="button" class="decision-row" data-review-finding="${escapeHtml(item.finding_id || '')}"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></button>`).join('');
+  const highlights = (changes.highlights || []).slice(0, 8).map((item) => `<button type="button" class="decision-row change-${escapeHtml(item.priority || 'context')}" data-review-finding="${escapeHtml(item.finding_id || '')}"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small>${item.next_action ? `<small class="change-action">Next: ${escapeHtml(item.next_action)}</small>` : ''}</button>`).join('');
   const stories = (decision.stories || []).map((story) => `<article class="story-card"><span>${escapeHtml(story.confidence)} confidence correlation</span><h4>${escapeHtml(story.title)}</h4><p>${escapeHtml(story.narrative)}</p><details><summary>Signals and next steps</summary><ul>${(story.signals || []).map((signal) => `<li>${escapeHtml(signal.type)} | ${escapeHtml(signal.detail)}</li>`).join('')}</ul><ol>${(story.next_actions || []).map((action) => `<li>${escapeHtml(action)}</li>`).join('')}</ol></details></article>`).join('');
   panel.innerHTML = `<div class="decision-heading"><div><p class="eyebrow">DECISION SUPPORT</p><h3 id="decision-support-title">What changed and how the evidence connects</h3><p>${escapeHtml(changes.message || '')}</p></div><button type="button" class="secondary-button" id="export-investigation-summary">Export investigation summary</button></div>${changeMetrics.length ? `<div class="change-metrics">${changeMetrics.map(([label,value]) => `<span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>`).join('')}</div>` : ''}<div class="decision-columns"><section><h4>Changes since last comparable scan</h4>${highlights || `<p class="muted">${escapeHtml(changes.message || 'No high-signal changes were identified.')}</p>`}</section><section><h4>Correlated investigation stories</h4>${stories || '<p class="muted">No finding is currently connected across multiple evidence types.</p>'}</section></div>`;
   panel.classList.remove('hidden');
