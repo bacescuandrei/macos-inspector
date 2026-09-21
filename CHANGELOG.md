@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.3 - Unreleased
+
+- Added a comparison note when the baseline and current reports were created by different macOS Inspector versions, so expanded collector coverage is not mistaken for proof that the system changed.
+- Included the same comparison context in standalone investigation summaries.
+
 ## 1.3.2 - 2026-09-21
 
 - Replaced generic application-change notices with explanations for possible updates, executable-content changes, signing-identity changes, and signature or Gatekeeper regressions.

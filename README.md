@@ -10,7 +10,7 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current release: `v1.3.2`
+Current development version: `v1.3.3`
 
 ## What it can help answer
 
@@ -91,7 +91,7 @@ See [Installation](docs/INSTALLATION.md) for source installation, permission beh
 5. Record the investigation state as `Expected`, `Suspicious`, `Contained`, or `Resolved`. Notes remain local and do not modify scan evidence.
 6. Run the same profile again after containment or remediation and compare it with the earlier scan.
 
-After a report loads, **Changes since last comparable scan** selects the newest earlier report with the same collection scope. For a focused application check, that includes the exact target application. Application changes are separated into additions, removals, possible application updates, possible macOS update changes, changed executable contents, weakened file permissions, bundle path changes, changed signing identities, or regressed trust checks. High-priority regressions are shown before routine update context, even in a large inventory. An update label never overrides a current failed, review, or unknown trust result. Each explanation identifies the fields that changed and recommends the next validation step without treating the change as proof of tampering. Evidence confidence explains how complete the supporting data is without changing the severity. Correlated investigation stories appear only when an application path connects trust, process, network, or persistence evidence. Use **Export investigation summary** for a compact standalone HTML handoff; the original scan evidence remains unchanged.
+After a report loads, **Changes since last comparable scan** selects the newest earlier report with the same collection scope. For a focused application check, that includes the exact target application. Application changes are separated into additions, removals, possible application updates, possible macOS update changes, changed executable contents, weakened file permissions, bundle path changes, changed signing identities, or regressed trust checks. High-priority regressions are shown before routine update context, even in a large inventory. An update label never overrides a current failed, review, or unknown trust result. If the reports were created by different macOS Inspector versions, the dashboard warns that collector coverage and detection rules may differ. Each explanation identifies the fields that changed and recommends the next validation step without treating the change as proof of tampering. Evidence confidence explains how complete the supporting data is without changing the severity. Correlated investigation stories appear only when an application path connects trust, process, network, or persistence evidence. Use **Export investigation summary** for a compact standalone HTML handoff; the original scan evidence remains unchanged.
 
 Routine use does not require terminal commands. The CLI remains available for automation and reproducible collections.
 

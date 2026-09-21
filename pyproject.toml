@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "macos-inspector"
-version = "1.3.2"
+version = "1.3.3"
 description = "macOS security auditing, DFIR triage, and guarded process response framework"
 readme = "README.md"
 requires-python = ">=3.10"

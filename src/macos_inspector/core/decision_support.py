@@ -628,11 +628,24 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
             "available": False,
             "baseline_scan_id": None,
             "message": "No earlier scan with the same scope is available yet. This scan can become the baseline.",
-            "counts": {}, "highlights": [], "application_changes": [],
+            "counts": {}, "highlights": [], "application_changes": [], "comparison_context": {},
         }
     baseline_findings, current_findings = _findings(baseline), _findings(current)
     before_apps, after_apps = _applications(baseline), _applications(current)
     before_macos, after_macos = _platform_version(baseline), _platform_version(current)
+    before_tool = str(baseline.get("metadata", {}).get("tool_version") or "").strip()
+    after_tool = str(current.get("metadata", {}).get("tool_version") or "").strip()
+    tool_version_changed = bool(before_tool and after_tool and before_tool != after_tool)
+    comparison_context = {
+        "baseline_tool_version": before_tool or None,
+        "current_tool_version": after_tool or None,
+        "different_tool_versions": tool_version_changed,
+        "message": (
+            f"These reports were created by macOS Inspector {before_tool} and {after_tool}. "
+            "Collector coverage and detection rules can differ, so newly observed evidence does not always mean the system changed."
+            if tool_version_changed else ""
+        ),
+    }
     application_changes: list[dict[str, Any]] = []
     for finding_id in sorted(after_apps.keys() - before_apps.keys()):
         app = after_apps[finding_id]
@@ -718,6 +731,7 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
             key=lambda item: {"high": 0, "review": 1, "context": 2}.get(str(item.get("priority", "review")), 1),
         )[:50],
         "application_changes": application_changes,
+        "comparison_context": comparison_context,
     }
 
 
@@ -934,6 +948,8 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
         f"<small>Next: {escape(str(item.get('next_action', 'Review the change against the expected state.')))}</small></article>"
         for item in changes.get("highlights", [])[:20]
     ) or f"<p>{escape(str(changes.get('message', 'No high-signal change was identified.')))}</p>"
+    comparison_message = str(changes.get("comparison_context", {}).get("message") or "")
+    comparison_html = f"<p><strong>Comparison note:</strong> {escape(comparison_message)}</p>" if comparison_message else ""
     story_rows = "".join(
         f"<article><span>{escape(str(item.get('confidence', 'medium')).title())} confidence correlation</span><h3>{escape(str(item.get('title', 'Investigation story')))}</h3><p>{escape(str(item.get('narrative', '')))}</p></article>"
         for item in stories
@@ -976,7 +992,7 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
     target = str(report.get("metadata", {}).get("target_application", ""))
     target_html = f"<p>Target application: {escape(target)}</p>" if target else ""
     application_section = f"<section><h2>Application review queue</h2><p>{escape(str(application_review.get('conclusion', 'Trust observations require context.')))}</p>{application_rows}</section>" if application_review.get("available") else ""
-    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Investigation summary {escape(scan_id)}</title><style>body{{margin:0;background:#0d1422;color:#edf3ff;font:15px/1.55 -apple-system,BlinkMacSystemFont,sans-serif}}main{{max-width:980px;margin:auto;padding:32px 18px 64px}}header,section{{margin-bottom:18px;padding:22px;border:1px solid #283954;border-radius:14px;background:#111b2d}}h1,h2,h3,p,small{{overflow-wrap:anywhere}}h1{{font-size:30px}}h2{{font-size:19px}}h3{{margin:5px 0;font-size:15px}}small,p,li{{color:#aebbd0}}.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}}.metrics div,article{{padding:13px;border:1px solid #283954;border-radius:10px;background:#16233a}}.metrics strong{{display:block;font-size:24px}}article{{margin-top:9px}}article span{{color:#78aaff;font-size:11px;text-transform:uppercase}}article small{{display:block;margin-top:7px}}@media print{{body{{background:white;color:#111}}header,section,article,.metrics div{{background:white;border-color:#bbb}}small,p,li{{color:#333}}}}</style></head><body><main><header><small>MACOS INSPECTOR | INVESTIGATION SUMMARY</small><h1>{escape(str(decision['final_summary']['headline']))}</h1><p>Scan {escape(scan_id)} | Host {hostname}</p>{target_html}<p>{escape(str(decision['final_summary']['conclusion']))}</p></header><section><h2>Current assessment</h2><div class=\"metrics\"><div><strong>{decision['final_summary']['attention']}</strong>need attention</div><div><strong>{decision['final_summary']['unable_to_verify']}</strong>not verified</div><div><strong>{decision['final_summary']['correlated_stories']}</strong>correlated stories</div></div></section>{application_section}<section><h2>Priorities</h2>{priority_rows}</section><section><h2>Changes since the previous comparable scan</h2>{change_rows}</section><section><h2>Correlated investigation stories</h2>{story_rows}</section><section><h2>Investigation state</h2><ul>{state_rows}</ul><p>Technical evidence remains in the original signed or exported scan report.</p></section></main></body></html>"""
+    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Investigation summary {escape(scan_id)}</title><style>body{{margin:0;background:#0d1422;color:#edf3ff;font:15px/1.55 -apple-system,BlinkMacSystemFont,sans-serif}}main{{max-width:980px;margin:auto;padding:32px 18px 64px}}header,section{{margin-bottom:18px;padding:22px;border:1px solid #283954;border-radius:14px;background:#111b2d}}h1,h2,h3,p,small{{overflow-wrap:anywhere}}h1{{font-size:30px}}h2{{font-size:19px}}h3{{margin:5px 0;font-size:15px}}small,p,li{{color:#aebbd0}}.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}}.metrics div,article{{padding:13px;border:1px solid #283954;border-radius:10px;background:#16233a}}.metrics strong{{display:block;font-size:24px}}article{{margin-top:9px}}article span{{color:#78aaff;font-size:11px;text-transform:uppercase}}article small{{display:block;margin-top:7px}}@media print{{body{{background:white;color:#111}}header,section,article,.metrics div{{background:white;border-color:#bbb}}small,p,li{{color:#333}}}}</style></head><body><main><header><small>MACOS INSPECTOR | INVESTIGATION SUMMARY</small><h1>{escape(str(decision['final_summary']['headline']))}</h1><p>Scan {escape(scan_id)} | Host {hostname}</p>{target_html}<p>{escape(str(decision['final_summary']['conclusion']))}</p></header><section><h2>Current assessment</h2><div class=\"metrics\"><div><strong>{decision['final_summary']['attention']}</strong>need attention</div><div><strong>{decision['final_summary']['unable_to_verify']}</strong>not verified</div><div><strong>{decision['final_summary']['correlated_stories']}</strong>correlated stories</div></div></section>{application_section}<section><h2>Priorities</h2>{priority_rows}</section><section><h2>Changes since the previous comparable scan</h2>{comparison_html}{change_rows}</section><section><h2>Correlated investigation stories</h2>{story_rows}</section><section><h2>Investigation state</h2><ul>{state_rows}</ul><p>Technical evidence remains in the original signed or exported scan report.</p></section></main></body></html>"""
     path = output / f"macos-inspector-{scan_id}-investigation-summary.html"
     secure_write_text(path, html)
     return path

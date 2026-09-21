@@ -384,7 +384,7 @@ class CoreTests(unittest.TestCase):
                 ],
             }
         baseline = {
-            "metadata": {"scan_id": "baseline", "collectors": ["application-trust", "live-triage"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-01T00:00:00+00:00"},
+            "metadata": {"scan_id": "baseline", "tool_version": "1.3.2", "collectors": ["application-trust", "live-triage"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-01T00:00:00+00:00"},
             "summary": {}, "findings": [application("a" * 64)],
         }
         current_app = application("b" * 64)
@@ -420,7 +420,7 @@ class CoreTests(unittest.TestCase):
             }}],
         }
         current = {
-            "metadata": {"scan_id": "current", "hostname": "fixture", "collectors": ["application-trust", "live-triage"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-02T00:00:00+00:00"},
+            "metadata": {"scan_id": "current", "tool_version": "1.3.3", "hostname": "fixture", "collectors": ["application-trust", "live-triage"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-02T00:00:00+00:00"},
             "summary": {}, "findings": [current_app, process, network, persistence],
         }
         result = build_decision_support(current, baseline)
@@ -428,6 +428,10 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(app_guidance["confidence"]["level"], "high")
         self.assertEqual(result["changes"]["counts"]["changed_applications"], 1)
         self.assertEqual(len(result["changes"]["application_changes"]), 1)
+        self.assertTrue(result["changes"]["comparison_context"]["different_tool_versions"])
+        self.assertEqual(result["changes"]["comparison_context"]["baseline_tool_version"], "1.3.2")
+        self.assertEqual(result["changes"]["comparison_context"]["current_tool_version"], "1.3.3")
+        self.assertIn("newly observed evidence does not always mean", result["changes"]["comparison_context"]["message"])
         self.assertEqual(result["changes"]["highlights"][0]["label"], "Changed app still needs review")
         self.assertEqual(result["changes"]["highlights"][0]["priority"], "high")
         self.assertEqual(result["changes"]["highlights"][0]["changed_fields"][0]["label"], "Executable SHA-256")
@@ -460,6 +464,8 @@ class CoreTests(unittest.TestCase):
             path = write_investigation_summary(current, result, Path(directory))
             html = path.read_text(encoding="utf-8")
             self.assertIn("Changes since the previous comparable scan", html)
+            self.assertIn("Comparison note:", html)
+            self.assertIn("macOS Inspector 1.3.2 and 1.3.3", html)
             self.assertIn("Changed app still needs review", html)
             self.assertIn("Next: Open the current result and resolve its signature", html)
             self.assertIn("Application review queue", html)
