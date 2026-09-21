@@ -121,6 +121,8 @@ After either scan, use **Which applications should I look at first?** to review 
 
 Select **Active in this scan** to see applications that were running, owned a listener or established connection, or were referenced by a launch item. Expand **Why this app appears active** to see the matching PID, endpoint, or startup definition. No fuzzy application-name match is used. An active application can be entirely expected, and an inactive application can still require review.
 
+Expand **Who signed this app and where did it come from?** to review the human-readable signing identity, signature type, Team ID, Gatekeeper source, installation scope, download agent, download time, and source hostname available in local macOS metadata. The compact view shows only source hostnames so URL paths and query parameters are not copied into the investigation summary. Complete acquisition evidence remains in the original local report.
+
 Open a result for its complete evidence or select **Recheck this app** to run a new focused Application Trust scan for the exact recorded path. The server validates the path against the current local application inventory before collection.
 
 The target path is recorded in the report. Changes since the previous comparable scan use only an earlier scan with the same target and collector scope. The selector includes applications discovered in the standard system, global, and current-user application folders; it does not accept an arbitrary path.
@@ -137,7 +139,7 @@ notarization is accepted, and the executable is inside the bundle.
 
 ### Interpretation
 
-The application met those specific checks. Code signing identifies signed content and its signer; it does not prove the publisher is honest or the software's behavior is safe. A validly signed application can still be unwanted or vulnerable. Likewise, a review-queue position is a prioritization aid, not a malware classification.
+The application met those specific checks. Code signing identifies signed content and its signer; it does not prove the publisher is honest or the software's behavior is safe. Download metadata records what macOS observed during acquisition, but it does not authenticate the website or prove that the application remained unchanged. Missing quarantine or source metadata is not suspicious by itself. A validly signed application can still be unwanted or vulnerable. Likewise, a review-queue position is a prioritization aid, not a malware classification.
 
 ### Next step
 

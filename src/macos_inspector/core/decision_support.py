@@ -3,6 +3,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from macos_inspector.core.guidance import build_guidance, finding_fingerprint
 from macos_inspector.reporters.common import secure_write_text
@@ -142,6 +143,87 @@ def _application_signals(finding: dict[str, Any]) -> list[str]:
     return signals[:4]
 
 
+def _source_host(value: object) -> str | None:
+    """Return a privacy-limited label for acquisition metadata."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = urlsplit(text)
+    except ValueError:
+        return None
+    if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
+        return parsed.hostname.rstrip(".").lower()
+    if parsed.scheme.lower() == "file":
+        return "Local file"
+    return None
+
+
+def _application_provenance(finding: dict[str, Any], path: str) -> dict[str, Any]:
+    """Summarize signer and acquisition evidence without inferring publisher legitimacy."""
+    signature = evidence_value(finding, "code_signature")
+    gatekeeper = evidence_value(finding, "gatekeeper_assessment")
+    quarantine = evidence_value(finding, "quarantine_attribute")
+    downloads = evidence_value(finding, "download_sources")
+
+    authorities = signature.get("authority", [])
+    if not isinstance(authorities, (list, tuple)):
+        authorities = []
+    usable_authorities = [
+        str(authority).strip() for authority in authorities
+        if str(authority).strip().lower() not in {"", "(unavailable)", "unavailable"}
+    ]
+    publisher = str(gatekeeper.get("origin") or "").strip() or (usable_authorities[0] if usable_authorities else None)
+    if not publisher and signature.get("team_identifier"):
+        publisher = f"Team ID {signature['team_identifier']}"
+
+    raw_sources = downloads.get("sources", [])
+    if not isinstance(raw_sources, (list, tuple)):
+        raw_sources = []
+    source_hosts: list[str] = []
+    for value in raw_sources:
+        label = _source_host(value)
+        if label and label not in source_hosts:
+            source_hosts.append(label)
+        if len(source_hosts) == 5:
+            break
+
+    normalized_path = path.rstrip("/")
+    if normalized_path.startswith(("/System/Applications/", "/System/Library/CoreServices/")):
+        install_scope = "Built into macOS or system-managed"
+    elif normalized_path.startswith("/Applications/"):
+        install_scope = "Installed for all users"
+    elif normalized_path.startswith("/Users/") and "/Applications/" in normalized_path:
+        install_scope = "Installed for one user"
+    else:
+        install_scope = "Other application location"
+
+    gatekeeper_source = str(gatekeeper.get("source") or "").strip() or None
+    quarantine_present = quarantine.get("present")
+    if source_hosts:
+        acquisition = f"Download source recorded: {', '.join(source_hosts)}."
+    elif quarantine_present is True:
+        acquisition = "macOS recorded downloaded-file metadata, but no source hostname is available."
+    elif gatekeeper_source and "app store" in gatekeeper_source.lower():
+        acquisition = "Gatekeeper reports a Mac App Store source."
+    else:
+        acquisition = "The installation source is not recorded in the available metadata. Its absence is not a risk signal by itself."
+    signer = f"macOS reported the signing identity as {publisher}." if publisher else "No human-readable signing identity was available."
+    return {
+        "publisher": publisher,
+        "team_id": signature.get("team_identifier"),
+        "signature_type": signature.get("signature_type"),
+        "gatekeeper_source": gatekeeper_source,
+        "install_scope": install_scope,
+        "source_hosts": source_hosts,
+        "download_agent": quarantine.get("agent"),
+        "downloaded_at": quarantine.get("timestamp_iso"),
+        "quarantine_present": quarantine_present,
+        "summary": f"{signer} {acquisition}",
+        "privacy_note": "Only source hostnames are shown here. The original local evidence may contain complete acquisition metadata.",
+    }
+
+
 def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -> dict[str, Any]:
     """Build a plain-language application triage queue from Application Trust evidence."""
     groups = {
@@ -191,6 +273,7 @@ def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -
         gatekeeper = evidence_value(finding, "gatekeeper_assessment")
         executable = evidence_value(finding, "executable_integrity")
         next_actions = guide.get("next_actions", []) if isinstance(guide, dict) else []
+        application_path = str(app.get("path") or "")
         rows.append({
             **app,
             "status": status,
@@ -207,8 +290,9 @@ def build_application_review(report: dict[str, Any], guidance: dict[str, Any]) -
             "hardened_runtime": signature.get("hardened_runtime"),
             "sha256": executable.get("sha256"),
             "signals": _application_signals(finding),
+            "provenance": _application_provenance(finding, application_path),
             "activity": _application_activity(
-                str(app.get("path") or ""), observed_processes, observed_persistence, activity_coverage,
+                application_path, observed_processes, observed_persistence, activity_coverage,
             ),
         })
     rows.sort(key=lambda row: (
@@ -580,6 +664,7 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
     application_rows = ""
     for item in application_review.get("applications", []):
         activity = item.get("activity", {})
+        provenance = item.get("provenance", {})
         labels = []
         activity_counts = activity.get("counts", {})
         if activity_counts.get("running"):
@@ -594,11 +679,20 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
             activity_html = "<small>No matching activity was observed in the live or startup evidence collected by this scan.</small>"
         else:
             activity_html = "<small>Activity context was not collected. Include Live Triage or Persistence to correlate behavior.</small>"
+        provenance_html = ""
+        if provenance:
+            publisher = provenance.get("publisher") or "Signing identity unavailable"
+            source_hosts = provenance.get("source_hosts", [])
+            source = ", ".join(str(host) for host in source_hosts) if source_hosts else "Acquisition source unavailable"
+            provenance_html = (
+                f"<small>Publisher context: {escape(str(publisher))}. "
+                f"Source context: {escape(source)}. These observations do not establish that the publisher or source is trustworthy.</small>"
+            )
         application_rows += (
             f"<article><span>{escape(str(item.get('group_label', 'Recorded')))}</span>"
             f"<h3>{escape(str(item.get('name', 'Application')))}</h3>"
             f"<p>{escape(str(item.get('explanation', 'Trust evidence was recorded.')))}</p>"
-            f"{activity_html}<small>{escape(str(item.get('path', 'Location unavailable')))}</small></article>"
+            f"{provenance_html}{activity_html}<small>{escape(str(item.get('path', 'Location unavailable')))}</small></article>"
         )
     application_rows = application_rows or "<p>No Application Trust result is present in this scan.</p>"
     hostname = escape(str(report.get("metadata", {}).get("hostname", "unknown")))

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.1 - 2026-09-21
+
+- Added a plain-language publisher and acquisition panel to every Application Trust review card.
+- Showed the signing identity, signature type, Gatekeeper source, Team ID, installation scope, download agent, and recorded download time without turning those observations into a trust verdict.
+- Reduced recorded download URLs to source hostnames in the application queue and standalone investigation summary so URL paths and query parameters are not copied into the compact view.
+- Explained that missing acquisition metadata is not a risk signal by itself and kept the complete local evidence available in the original report.
+- Added responsive layouts and regression coverage for publisher context, source-host privacy, and standalone summary output.
+
 ## 1.3.0 - 2026-09-19
 
 - Added exact-path activity context to every Application Trust review row when the same scan includes Live Triage or Persistence evidence.

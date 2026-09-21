@@ -376,9 +376,11 @@ class CoreTests(unittest.TestCase):
                 "description": "Checks application trust.", "observed_result": "The application needs review.",
                 "evidence": [
                     {"kind": "application_bundle", "source": "/Applications/Example.app", "value": {"name": "Example", "version": "1.0", "bundle_identifier": "test.example", "executable": "/Applications/Example.app/Contents/MacOS/Example"}},
-                    {"kind": "code_signature", "source": "/Applications/Example.app", "value": {"valid": True, "team_identifier": "TEAM123"}},
+                    {"kind": "code_signature", "source": "/Applications/Example.app", "value": {"valid": True, "team_identifier": "TEAM123", "signature_type": "Developer ID", "authority": ["Developer ID Application: Example Company (TEAM123)"]}},
                     {"kind": "executable_integrity", "source": "/Applications/Example.app/Contents/MacOS/Example", "value": {"sha256": sha256}},
-                    {"kind": "gatekeeper_assessment", "source": "/Applications/Example.app", "value": {"accepted": True}},
+                    {"kind": "gatekeeper_assessment", "source": "/Applications/Example.app", "value": {"accepted": True, "source": "Notarized Developer ID", "origin": "Developer ID Application: Example Company (TEAM123)"}},
+                    {"kind": "quarantine_attribute", "source": "/Applications/Example.app", "value": {"present": True, "agent": "Safari", "timestamp_iso": "2026-01-01T10:00:00+00:00"}},
+                    {"kind": "download_sources", "source": "/Applications/Example.app", "value": {"sources": ["https://downloads.example.test/app.dmg?campaign=release-test"]}},
                 ],
             }
         baseline = {
@@ -430,6 +432,12 @@ class CoreTests(unittest.TestCase):
         self.assertIn("application", result["stories"][0]["title"])
         self.assertEqual(result["application_review"]["counts"]["review_first"], 1)
         self.assertEqual(result["application_review"]["applications"][0]["name"], "Example")
+        provenance = result["application_review"]["applications"][0]["provenance"]
+        self.assertEqual(provenance["publisher"], "Developer ID Application: Example Company (TEAM123)")
+        self.assertEqual(provenance["source_hosts"], ["downloads.example.test"])
+        self.assertEqual(provenance["download_agent"], "Safari")
+        self.assertEqual(provenance["install_scope"], "Installed for all users")
+        self.assertNotIn("campaign", json.dumps(provenance))
         activity = result["application_review"]["applications"][0]["activity"]
         self.assertEqual(len(activity["running_processes"]), 1)
         self.assertEqual(len(activity["network_connections"]), 1)
@@ -449,6 +457,9 @@ class CoreTests(unittest.TestCase):
             self.assertIn("Changes since the previous comparable scan", html)
             self.assertIn("Application review queue", html)
             self.assertIn("Example", html)
+            self.assertIn("Publisher context: Developer ID Application: Example Company (TEAM123)", html)
+            self.assertIn("Source context: downloads.example.test", html)
+            self.assertNotIn("campaign=release-test", html)
             self.assertIn("Observed activity: running processes: 1, network endpoints: 1, startup items: 1", html)
             self.assertIn("Target application: /Applications/Example.app", html)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
@@ -491,6 +502,8 @@ class CoreTests(unittest.TestCase):
         self.assertIn("code signature did not validate", " ".join(queue["applications"][0]["signals"]).lower())
         self.assertIn("writable by every local user", " ".join(queue["applications"][0]["signals"]).lower())
         self.assertIn("does not label an application as malware or safe", queue["conclusion"])
+        normal_item = next(item for item in queue["applications"] if item["name"] == "Normal")
+        self.assertIn("absence is not a risk signal", normal_item["provenance"]["summary"])
         broken = report["findings"][1]
         reviewed = build_decision_support(report, investigations={
             broken["finding_id"]: {

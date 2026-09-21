@@ -405,12 +405,24 @@ function renderApplicationReview(review) {
     ['reviewed', 'Reviewed locally', counts.reviewed || 0],
   ];
   const cards = rows.slice(0, 150).map((item) => {
+    const provenance = item.provenance || {};
     const facts = [
       item.publisher_team_id ? `Team ID ${item.publisher_team_id}` : 'Team ID unavailable',
       item.signature_valid === true ? 'Signature valid' : item.signature_valid === false ? 'Signature invalid' : 'Signature unknown',
       item.gatekeeper_accepted === true ? 'Gatekeeper accepted' : item.gatekeeper_accepted === false ? 'Gatekeeper rejected' : 'Gatekeeper unknown',
       item.notarized === true ? 'Notarized' : item.notarized === false ? 'Notarization not confirmed' : 'Notarization unknown',
     ];
+    const sourceHosts = Array.isArray(provenance.source_hosts) ? provenance.source_hosts : [];
+    const provenanceRows = [
+      ['Signing identity', provenance.publisher || 'Not available'],
+      ['Signature type', provenance.signature_type || 'Not available'],
+      ['Gatekeeper source', provenance.gatekeeper_source || 'Not available'],
+      ['Installation scope', provenance.install_scope || 'Not available'],
+      ['Download source', sourceHosts.length ? sourceHosts.join(', ') : 'Not recorded'],
+      ['Downloaded by', provenance.download_agent || 'Not recorded'],
+      ['Download time', provenance.downloaded_at || 'Not recorded'],
+    ];
+    const provenanceBlock = `<details class="application-provenance"><summary>Who signed this app and where did it come from?</summary><p>${escapeHtml(provenance.summary || 'Publisher and acquisition metadata were not available.')}</p><dl>${provenanceRows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl><small>${escapeHtml(provenance.privacy_note || 'Publisher and source observations do not establish that an application is safe.')}</small></details>`;
     const signals = (item.signals || []).map((signal) => `<li>${escapeHtml(signal)}</li>`).join('');
     const activity = item.activity || {};
     const activityCounts = activity.counts || {};
@@ -429,7 +441,7 @@ function renderApplicationReview(review) {
       ? 'No matching activity was observed in the live or startup evidence collected by this scan.'
       : 'Activity context was not collected. Include Live Triage or Persistence to correlate behavior.';
     const activityBlock = activityBadges.length ? `<div class="application-activity-badges">${activityBadges.map((label) => `<span>${escapeHtml(label)}</span>`).join('')}</div><details class="application-activity"><summary>Why this app appears active</summary><p>${escapeHtml(activity.conclusion || 'Observed activity is context, not a security verdict.')}</p>${truncated}<ul>${activityRows}</ul></details>` : `<p class="application-no-activity">${escapeHtml(noActivity)}</p>`;
-    return `<article class="application-review-row application-group-${escapeHtml(item.group)}"><div class="application-review-main"><span class="application-group">${escapeHtml(item.group_label || groups[item.group] || 'Recorded')}</span><h4>${escapeHtml(item.name)}</h4><p>${escapeHtml(item.explanation)}</p><div class="application-facts">${facts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join('')}</div>${activityBlock}${signals ? `<ul class="application-signals">${signals}</ul>` : ''}<code>${escapeHtml(item.path || 'Location unavailable')}</code></div><div class="application-review-actions"><button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open result</button><button type="button" class="secondary-button" data-recheck-app="${escapeHtml(item.path || '')}">Recheck this app</button></div></article>`;
+    return `<article class="application-review-row application-group-${escapeHtml(item.group)}"><div class="application-review-main"><span class="application-group">${escapeHtml(item.group_label || groups[item.group] || 'Recorded')}</span><h4>${escapeHtml(item.name)}</h4><p>${escapeHtml(item.explanation)}</p><div class="application-facts">${facts.map((fact) => `<span>${escapeHtml(fact)}</span>`).join('')}</div>${provenanceBlock}${activityBlock}${signals ? `<ul class="application-signals">${signals}</ul>` : ''}<code>${escapeHtml(item.path || 'Location unavailable')}</code></div><div class="application-review-actions"><button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open result</button><button type="button" class="secondary-button" data-recheck-app="${escapeHtml(item.path || '')}">Recheck this app</button></div></article>`;
   }).join('');
   const empty = filter === 'attention'
     ? '<p class="application-review-clear">No application currently needs attention based on the checks in this scan.</p>'
