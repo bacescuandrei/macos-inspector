@@ -428,15 +428,15 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(app_guidance["confidence"]["level"], "high")
         self.assertEqual(result["changes"]["counts"]["changed_applications"], 1)
         self.assertEqual(len(result["changes"]["application_changes"]), 1)
-        self.assertEqual(result["changes"]["highlights"][0]["label"], "Application contents changed")
-        self.assertEqual(result["changes"]["highlights"][0]["priority"], "review")
+        self.assertEqual(result["changes"]["highlights"][0]["label"], "Changed app still needs review")
+        self.assertEqual(result["changes"]["highlights"][0]["priority"], "high")
         self.assertEqual(result["changes"]["highlights"][0]["changed_fields"][0]["label"], "Executable SHA-256")
         self.assertEqual(result["changes"]["highlights"][0]["changed_fields"][0]["before"], "aaaaaaaaaaaaaaaa...")
         self.assertEqual(len(result["stories"]), 1)
         self.assertIn("application", result["stories"][0]["title"])
         self.assertEqual(result["application_review"]["counts"]["review_first"], 1)
         self.assertEqual(result["application_review"]["applications"][0]["name"], "Example")
-        self.assertEqual(result["application_review"]["applications"][0]["change"]["label"], "Application contents changed")
+        self.assertEqual(result["application_review"]["applications"][0]["change"]["label"], "Changed app still needs review")
         provenance = result["application_review"]["applications"][0]["provenance"]
         self.assertEqual(provenance["publisher"], "Developer ID Application: Example Company (TEAM123)")
         self.assertEqual(provenance["source_hosts"], ["downloads.example.test"])
@@ -460,8 +460,8 @@ class CoreTests(unittest.TestCase):
             path = write_investigation_summary(current, result, Path(directory))
             html = path.read_text(encoding="utf-8")
             self.assertIn("Changes since the previous comparable scan", html)
-            self.assertIn("Application contents changed", html)
-            self.assertIn("Next: Confirm whether the application was updated or reinstalled", html)
+            self.assertIn("Changed app still needs review", html)
+            self.assertIn("Next: Open the current result and resolve its signature", html)
             self.assertIn("Application review queue", html)
             self.assertIn("Example", html)
             self.assertIn("Publisher context: Developer ID Application: Example Company (TEAM123)", html)
@@ -472,12 +472,22 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
         updated_app = application("c" * 64)
+        updated_app["severity"] = "Informational"
+        updated_app["status"] = "Pass"
         updated_app["evidence"][0]["value"]["version"] = "2.0"
         updated = {**current, "findings": [updated_app]}
         update_change = build_decision_support(updated, baseline)["changes"]["highlights"][0]
         self.assertEqual(update_change["label"], "Possible application update")
         self.assertEqual(update_change["priority"], "context")
         self.assertIn("Team ID TEAM123 remained the same", update_change["detail"])
+
+        unresolved_update = application("c" * 64)
+        unresolved_update["evidence"][0]["value"]["version"] = "2.0"
+        unresolved_report = {**current, "findings": [unresolved_update]}
+        unresolved_change = build_decision_support(unresolved_report, baseline)["changes"]["highlights"][0]
+        self.assertEqual(unresolved_change["label"], "Changed app still needs review")
+        self.assertEqual(unresolved_change["priority"], "high")
+        self.assertIn("current trust result is review", unresolved_change["detail"])
 
         replaced_signer = application("a" * 64)
         replaced_signer["evidence"][1]["value"]["team_identifier"] = "NEWTEAM456"
@@ -500,6 +510,19 @@ class CoreTests(unittest.TestCase):
         regression = build_decision_support(regression_report, baseline)["changes"]["highlights"][0]
         self.assertEqual(regression["label"], "Trust check regressed")
         self.assertEqual(regression["priority"], "high")
+
+        new_unverified = application("a" * 64)
+        new_unverified["finding_id"] = "APP-TRUST-NEW"
+        new_unverified["severity"] = "Informational"
+        new_unverified["status"] = "Unknown"
+        new_report = {**current, "findings": [*current["findings"], new_unverified]}
+        new_change = next(
+            item for item in build_decision_support(new_report, current)["changes"]["application_changes"]
+            if item["finding_id"] == "APP-TRUST-NEW"
+        )
+        self.assertEqual(new_change["label"], "New application")
+        self.assertEqual(new_change["priority"], "review")
+        self.assertIn("resolve its current trust result", new_change["next_action"])
 
     def test_application_change_context_is_complete_prioritized_and_os_aware(self):
         def application(index, sha256, *, valid=True, gatekeeper=True, system=False):

@@ -99,6 +99,8 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "finding_id": finding_id,
             "name": app.get("name") or finding.get("title", finding_id),
             "path": next((item.get("source") for item in finding.get("evidence", []) if isinstance(item, dict) and item.get("kind") == "application_bundle"), None),
+            "status": finding.get("status"),
+            "severity": finding.get("severity"),
             "bundle_identifier": app.get("bundle_identifier"),
             "version": app.get("version"),
             "publisher_team_id": signature.get("team_identifier"),
@@ -407,6 +409,16 @@ def _platform_version(report: dict[str, Any]) -> str | None:
     return None
 
 
+def _application_change_priority(app: dict[str, Any]) -> str:
+    status = str(app.get("status") or "").lower()
+    severity = SEVERITY_RANK.get(str(app.get("severity") or "Informational"), 0)
+    if status in {"fail", "match", "review"} and severity >= SEVERITY_RANK["High"]:
+        return "high"
+    if status in {"fail", "match", "review", "unknown"}:
+        return "review"
+    return "context"
+
+
 def _application_change(
     before: dict[str, Any], after: dict[str, Any], finding_id: str,
     before_macos: str | None = None, after_macos: str | None = None,
@@ -439,6 +451,7 @@ def _application_change(
     signer_replaced = bool(old_team and new_team and old_team != new_team)
     old_bundle, new_bundle = before.get("bundle_identifier"), after.get("bundle_identifier")
     bundle_replaced = bool(old_bundle and new_bundle and old_bundle != new_bundle)
+    current_priority = _application_change_priority(after)
     apple_system_app = bool(
         str(after.get("path") or "").startswith("/System/")
         or (
@@ -476,6 +489,13 @@ def _application_change(
         label, priority = "Bundle identity changed", "high"
         detail = f"Bundle identifier changed from {old_bundle} to {new_bundle}."
         next_action = "Confirm the application's expected bundle identifier and source before opening it."
+    elif current_priority in {"high", "review"} and ({"version", "sha256"} & changed_keys):
+        label, priority = "Changed app still needs review", current_priority
+        detail = (
+            "The application changed, but its current trust result is "
+            f"{str(after.get('status') or 'not verified').lower()}."
+        )
+        next_action = "Open the current result and resolve its signature, Gatekeeper, or integrity issue before accepting the change as an update."
     elif {"version", "sha256"}.issubset(changed_keys) and old_team == new_team and bool(new_team):
         label, priority = "Possible application update", "context"
         detail = (
@@ -533,10 +553,15 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
     application_changes: list[dict[str, Any]] = []
     for finding_id in sorted(after_apps.keys() - before_apps.keys()):
         app = after_apps[finding_id]
+        priority = _application_change_priority(app)
         application_changes.append({
-            "kind": "new-application", "label": "New application", "priority": "context",
+            "kind": "new-application", "label": "New application", "priority": priority,
             "title": str(app["name"]), "detail": str(app.get("path") or "Application path unavailable"),
-            "next_action": "Confirm that this application was installed intentionally and review its publisher, source, and activity.",
+            "next_action": (
+                "Confirm that this application was installed intentionally, then resolve its current trust result."
+                if priority != "context" else
+                "Confirm that this application was installed intentionally and review its publisher, source, and activity."
+            ),
             "changed_fields": [], "finding_id": finding_id,
         })
     changed_apps = []
