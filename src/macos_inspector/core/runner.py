@@ -58,6 +58,10 @@ class CommandRunner:
         self.cancel_event = cancel_event
 
     def run(self, argv: Sequence[str]) -> CommandResult:
+        return self.run_with_timeout(argv, self.timeout)
+
+    def run_with_timeout(self, argv: Sequence[str], timeout: int) -> CommandResult:
+        """Run an allowlisted command with a bounded per-call timeout."""
         if self.cancel_event and self.cancel_event.is_set():
             raise ScanCancelled("Scan cancelled by user.")
         if not argv:
@@ -72,7 +76,7 @@ class CommandRunner:
         command = (trusted_path, *(str(part) for part in argv[1:]))
         try:
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=False)
-            deadline = time.monotonic() + self.timeout
+            deadline = time.monotonic() + max(1, int(timeout))
             while True:
                 if self.cancel_event and self.cancel_event.is_set():
                     process.terminate()

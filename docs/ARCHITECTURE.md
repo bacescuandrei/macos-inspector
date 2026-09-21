@@ -5,7 +5,7 @@ macOS Inspector is a local Python application with a browser-based interface. Th
 ## Collection path
 
 1. The CLI or dashboard selects registered collectors.
-2. Each collector uses `CommandRunner` for allowlisted commands with fixed argument rules and timeouts.
+2. Each collector uses `CommandRunner` for allowlisted commands with fixed argument rules and bounded default or per-call timeouts. Deep application signature and Gatekeeper checks receive longer bounds because large bundles can require more time without implying failure.
 3. Collectors return immutable `Finding` and `Evidence` records.
 4. The scan layer records metadata, errors, scores, coverage, and timeline events.
 5. The guidance layer derives plain-language verdicts and next steps from the completed report without changing its findings.
@@ -34,7 +34,7 @@ Targeted Application Trust is also bounded by server-side discovery. The dashboa
 
 Application activity correlation is path-based. A process, socket, or launch item is associated with an Application Trust result only when its recorded executable is inside that exact bundle path. The live process evidence keeps a minimal inventory of PID, parent PID, process state, elapsed runtime, and executable path for this purpose. Complete command lines remain limited to review candidates and are sanitized before persistence.
 
-Guided interpretation is also separate from collection. It maps existing finding fields to plain-language verdicts, evidence confidence, recommended investigation steps, comparable-scan changes, and exact-path correlations. Local investigation states and notes are stored outside the report with owner-only permissions. Each decision is tied to a fingerprint of the security-relevant evidence, so an `Expected` decision returns to `New` when that evidence changes. Decision-support output is derived from completed reports and never changes the original evidence.
+Guided interpretation is also separate from collection. It maps existing finding fields to plain-language verdicts, evidence confidence, recommended investigation steps, comparable-scan changes, and exact-path correlations. The Simple view consumes a derived four-state assessment and at most three prioritized actions. The Analyst view exposes the complete evidence and controls. Both views use the same immutable report. Local investigation states and notes are stored outside the report with owner-only permissions. Each decision is tied to a fingerprint of the security-relevant evidence, so an `Expected` decision returns to `New` when that evidence changes. Decision-support output is derived from completed reports and never changes the original evidence.
 
 ## Extension rules
 

@@ -65,7 +65,7 @@ def write_pdf(result: ScanResult, path: Path) -> None:
         )
         story = [Spacer(1, 32 * mm), Paragraph("macOS Inspector", styles["CoverTitle"]), paragraph("Read-only security and DFIR assessment", "Heading2"), Spacer(1, 10 * mm)]
         score_rows = [
-            [paragraph("SECURITY SCORE", "Small"), paragraph(f"{result.overall_score}/100", "Heading1")],
+            [paragraph("RULE OUTCOME INDEX", "Small"), paragraph(f"{result.overall_score}/100", "Heading1")],
             [paragraph("SCAN ID", "Small"), paragraph(result.metadata.scan_id, "Small")],
             [paragraph("CASE REFERENCE", "Small"), paragraph(result.metadata.case_reference or "Not provided", "Small")],
             [paragraph("ANALYST", "Small"), paragraph(result.metadata.analyst or "Not provided", "Small")],
@@ -82,9 +82,13 @@ def write_pdf(result: ScanResult, path: Path) -> None:
             ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
             ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
         ]))
-        story.extend([score_table, PageBreak(), Paragraph("Executive summary", styles["Section"])])
+        story.extend([
+            score_table,
+            paragraph("The rule outcome index summarizes documented rule results. It is not the probability that this Mac is safe or compromised.", "Small"),
+            PageBreak(), Paragraph("Executive summary", styles["Section"]),
+        ])
 
-        category_rows = [[paragraph("Category", "TableHeader"), paragraph("Score", "TableHeader"), paragraph("Coverage", "TableHeader")]]
+        category_rows = [[paragraph("Category", "TableHeader"), paragraph("Rule index", "TableHeader"), paragraph("Coverage", "TableHeader")]]
         for category, score in result.category_scores.items():
             category_rows.append([paragraph(category), paragraph(score), paragraph(f"{result.category_coverage.get(category, 100)}%")])
         category_table = Table(category_rows, colWidths=[100 * mm, 25 * mm, 27 * mm], repeatRows=1)

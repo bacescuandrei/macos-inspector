@@ -133,8 +133,24 @@ def parse_gatekeeper_details(output: str) -> GatekeeperDetails:
             source = line.partition("=")[2] or None
         elif line.lower().startswith("origin="):
             origin = line.partition("=")[2] or None
-    notarized = None if source is None else "notarized" in source.lower()
+    if source is None or "app store" in source.lower():
+        # spctl does not report a separate notarization result for App Store apps.
+        notarized = None
+    else:
+        notarized = "notarized" in source.lower()
     return GatekeeperDetails(source, origin, notarized)
+
+
+def command_completed(result: CommandResult) -> bool:
+    """Return whether a trust command produced a definitive local result."""
+    output = f"{result.stdout}\n{result.stderr}".lower()
+    return not (
+        result.timed_out
+        or result.returncode in {124, 126, 127}
+        or "internal error in code signing subsystem" in output
+        or "resource temporarily unavailable" in output
+        or "internal error" in output
+    )
 
 
 def _json_safe_plist(value: Any) -> Any:
@@ -631,10 +647,20 @@ class ApplicationTrustCollector(Collector):
         executable_integrity = inspect_file_integrity(executable)
         bundle_paths = inspect_bundle_paths(bundle, executable)
 
-        signature = self.runner.run(("codesign", "--verify", "--deep", "--strict", "--verbose=2", str(bundle)))
+        signature_command = ("codesign", "--verify", "--deep", "--strict", "--verbose=1", str(bundle))
+        signature = (
+            self.runner.run_with_timeout(signature_command, 60)
+            if hasattr(self.runner, "run_with_timeout")
+            else self.runner.run(signature_command)
+        )
         details_result = self.runner.run(("codesign", "--display", "--verbose=4", "--requirements", "-", str(bundle)))
         entitlements_result = self.runner.run(("codesign", "--display", "--entitlements", "-", str(bundle)))
-        assessment = self.runner.run(("spctl", "--assess", "--type", "execute", "--verbose=4", str(bundle)))
+        assessment_command = ("spctl", "--assess", "--type", "execute", "--verbose=4", str(bundle))
+        assessment = (
+            self.runner.run_with_timeout(assessment_command, 30)
+            if hasattr(self.runner, "run_with_timeout")
+            else self.runner.run(assessment_command)
+        )
         quarantine = self.runner.run(("xattr", "-p", "com.apple.quarantine", str(bundle)))
         where_froms = self.runner.run(("xattr", "-px", "com.apple.metadata:kMDItemWhereFroms", str(bundle)))
         details_output = f"{details_result.stdout}\n{details_result.stderr}"
@@ -705,7 +731,11 @@ class ApplicationTrustCollector(Collector):
                 "error": plist_integrity.error,
             }),
             Evidence("code_signature", str(bundle), {
-                "valid": signature.returncode == 0, "identifier": details.identifier,
+                "valid": signature.returncode == 0 if command_completed(signature) else None,
+                "verification_completed": command_completed(signature),
+                "timed_out": signature.timed_out,
+                "returncode": signature.returncode,
+                "identifier": details.identifier,
                 "team_identifier": details.team_identifier, "authority": details.authority,
                 "designated_requirement": details.designated_requirement, "hardened_runtime": details.hardened_runtime,
                 "signature_type": details.signature_type,
@@ -727,7 +757,11 @@ class ApplicationTrustCollector(Collector):
                 "parse_error": entitlements_error, "command_returncode": entitlements_result.returncode,
             }),
             Evidence("gatekeeper_assessment", str(bundle), {
-                "accepted": assessment.returncode == 0, "stdout": assessment.stdout, "stderr": assessment.stderr,
+                "accepted": assessment.returncode == 0 if command_completed(assessment) else None,
+                "assessment_completed": command_completed(assessment),
+                "timed_out": assessment.timed_out,
+                "returncode": assessment.returncode,
+                "stdout": assessment.stdout, "stderr": assessment.stderr,
                 "source": gatekeeper.source, "origin": gatekeeper.origin, "notarized": gatekeeper.notarized,
             }),
             Evidence("quarantine_attribute", str(bundle), {

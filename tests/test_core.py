@@ -26,6 +26,7 @@ from macos_inspector.collectors.application_trust import (
     assess_file_integrity,
     assess_metadata_integrity,
     classify_trust,
+    command_completed,
     discover_applications,
     inspect_file_integrity,
     inspect_bundle_paths,
@@ -459,6 +460,11 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(result["application_review"]["activity_counts"], {
             "running": 1, "network": 1, "starts_automatically": 1,
         })
+        self.assertEqual(result["experience"]["assessment"]["id"], "needs-review")
+        self.assertLessEqual(len(result["experience"]["next_actions"]), 3)
+        self.assertEqual(result["experience"]["next_actions"][0]["finding_id"], "APP-TRUST-EXAMPLE")
+        self.assertIn("does not prove", result["experience"]["next_actions"][0]["not_proof"])
+        self.assertEqual(set(result["experience"]["axes"]), {"priority", "coverage", "confidence"})
         self.assertEqual(confidence_for_finding({"status": "Unknown", "evidence": []})["level"], "low")
         with tempfile.TemporaryDirectory() as directory:
             path = write_investigation_summary(current, result, Path(directory))
@@ -476,6 +482,26 @@ class CoreTests(unittest.TestCase):
             self.assertIn("Observed activity: running processes: 1, network endpoints: 1, startup items: 1", html)
             self.assertIn("Target application: /Applications/Example.app", html)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+        legacy_timeout = application("d" * 64)
+        legacy_timeout["status"] = "Unknown"
+        legacy_timeout["severity"] = "Informational"
+        legacy_timeout["observed_result"] = "Code-signature verification was unavailable or timed out."
+        legacy_timeout["evidence"][1]["value"]["valid"] = False
+        legacy_timeout["evidence"][3]["value"].update({"source": "Mac App Store", "notarized": False})
+        legacy_review = build_decision_support({**current, "findings": [legacy_timeout]})["application_review"]["applications"][0]
+        self.assertIsNone(legacy_review["signature_valid"])
+        self.assertIsNone(legacy_review["notarized"])
+        self.assertNotIn("The code signature did not validate.", legacy_review["signals"])
+
+        legacy_gatekeeper_timeout = application("e" * 64)
+        legacy_gatekeeper_timeout["status"] = "Unknown"
+        legacy_gatekeeper_timeout["severity"] = "Informational"
+        legacy_gatekeeper_timeout["observed_result"] = "Gatekeeper assessment was unavailable or returned an internal error."
+        legacy_gatekeeper_timeout["evidence"][3]["value"].update({"accepted": False, "source": None})
+        gatekeeper_review = build_decision_support({**current, "findings": [legacy_gatekeeper_timeout]})["application_review"]["applications"][0]
+        self.assertIsNone(gatekeeper_review["gatekeeper_accepted"])
+        self.assertNotIn("Gatekeeper did not accept the application.", gatekeeper_review["signals"])
 
         updated_app = application("c" * 64)
         updated_app["severity"] = "Informational"
@@ -909,6 +935,12 @@ class CoreTests(unittest.TestCase):
         self.assertIn('id="local-launcher-help"', index)
         self.assertIn('id="inspect-application-activity"', index)
         self.assertIn("['application-trust', 'live-triage', 'persistence']", script)
+        self.assertIn('id="view-simple"', index)
+        self.assertIn('id="view-analyst"', index)
+        self.assertIn('id="experience-summary"', index)
+        self.assertIn("function renderExperience", script)
+        self.assertIn("setViewMode('analyst')", script)
+        self.assertNotIn("no remediation", index)
         self.assertIn("window.location.protocol === 'file:'", script)
         self.assertNotIn('id="language-select"', index)
         self.assertNotIn('value="ro"', index)
@@ -1288,6 +1320,9 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(signature.hardened_runtime)
         self.assertTrue(gatekeeper.notarized)
         self.assertEqual(gatekeeper.source, "Notarized Developer ID")
+        app_store = parse_gatekeeper_details("/Applications/Xcode.app: accepted\nsource=Mac App Store")
+        self.assertEqual(app_store.source, "Mac App Store")
+        self.assertIsNone(app_store.notarized)
         self.assertIsNone(error)
         self.assertTrue(entitlements["com.apple.security.app-sandbox"])
         self.assertEqual(entitlements["com.apple.security.application-groups"], ["ABC1234567.com.example.shared"])
@@ -1470,6 +1505,19 @@ class CoreTests(unittest.TestCase):
                 if not candidate.exists():
                     missing.append(f"{document.relative_to(root)} -> {target}")
         self.assertEqual(missing, [])
+
+    def test_public_version_and_portable_filenames_stay_in_sync(self):
+        from macos_inspector import __version__
+
+        root = Path(__file__).resolve().parents[1]
+        pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        installation = (root / "docs" / "INSTALLATION.md").read_text(encoding="utf-8")
+        artifact = f"macos-inspector-{__version__}-macos.zip"
+        self.assertIn(f'version = "{__version__}"', pyproject)
+        self.assertIn(f"Current release: `v{__version__}`", readme)
+        self.assertIn(artifact, readme)
+        self.assertIn(artifact, installation)
 
     def test_gitea_workflow_tests_and_verifies_release_without_secrets(self):
         root = Path(__file__).resolve().parents[1]
@@ -1764,6 +1812,9 @@ enabled active teamID bundleID (version) name [state]
         self.assertEqual(classify_trust(True, unsigned, rejected)[:2], (Severity.HIGH, "Fail"))
         unavailable = CommandResult(("codesign",), 126, "", "not in a trusted system directory")
         self.assertEqual(classify_trust(True, unavailable, rejected)[:2], (Severity.INFORMATIONAL, "Unknown"))
+        timed_out = CommandResult(("codesign",), 124, "", "partial verification", True)
+        self.assertFalse(command_completed(timed_out))
+        self.assertEqual(classify_trust(True, timed_out, accepted)[:2], (Severity.INFORMATIONAL, "Unknown"))
         ad_hoc = SignatureDetails(identifier="local.app", signature_type="Ad hoc")
         self.assertEqual(classify_trust(True, valid, accepted, ad_hoc)[:2], (Severity.LOW, "Review"))
         metadata_only = CommandResult(("codesign",), 1, "", "resource fork, Finder information, or similar detritus not allowed")
@@ -1919,6 +1970,9 @@ enabled active teamID bundleID (version) name [state]
             plist_integrity = next(item for item in finding.evidence if item.kind == "info_plist_integrity")
             path_integrity = next(item for item in finding.evidence if item.kind == "bundle_path_integrity")
             self.assertEqual(finding.status, "Pass")
+            signature_evidence = next(item for item in finding.evidence if item.kind == "code_signature")
+            self.assertTrue(signature_evidence.value["valid"])
+            self.assertTrue(signature_evidence.value["verification_completed"])
             self.assertEqual(integrity.value["sha256"], details.sha256)
             self.assertEqual(integrity.value["owner_uid"], executable.stat().st_uid)
             self.assertEqual(integrity.value["owner_gid"], executable.stat().st_gid)
@@ -1929,6 +1983,25 @@ enabled active teamID bundleID (version) name [state]
             self.assertEqual(len(plist_integrity.value["sha256"]), 64)
             self.assertTrue(path_integrity.value["executable_resolves_within_bundle"])
             self.assertEqual(progress, [("Test.app", 0, 1), (None, 1, 1)])
+
+            class TimeoutRunner(FakeRunner):
+                def __init__(self):
+                    self.timeouts = []
+
+                def run_with_timeout(self, argv, timeout):
+                    self.timeouts.append((tuple(argv), timeout))
+                    if argv[0] == "codesign" and "--verify" in argv:
+                        return CommandResult(tuple(argv), 124, "", "verification still running", True)
+                    return self.run(argv)
+
+            timeout_runner = TimeoutRunner()
+            incomplete = ApplicationTrustCollector(timeout_runner, bundles=(bundle,)).collect()[0]
+            incomplete_signature = next(item for item in incomplete.evidence if item.kind == "code_signature")
+            self.assertEqual(incomplete.status, "Unknown")
+            self.assertIsNone(incomplete_signature.value["valid"])
+            self.assertFalse(incomplete_signature.value["verification_completed"])
+            self.assertTrue(incomplete_signature.value["timed_out"])
+            self.assertTrue(any(timeout == 60 for _, timeout in timeout_runner.timeouts))
 
             executable.chmod(0o775)
             risky_finding = collector._inspect(bundle)

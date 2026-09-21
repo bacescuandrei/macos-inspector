@@ -61,7 +61,7 @@ def write_html(result: ScanResult, path: Path) -> None:
         if result.metadata.target_application else ""
     )
     document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector report</title><style>{CSS}</style></head><body><main>
-<section class="hero"><div><h1>macOS Inspector</h1>{case_html}{scope_html}<div class="meta">{html.escape(result.metadata.hostname)} | {html.escape(result.metadata.completed_at)} | scan {html.escape(result.metadata.scan_id)}</div></div><div class="score">{result.overall_score}<small>/100</small></div></section>
+<section class="hero"><div><h1>macOS Inspector</h1>{case_html}{scope_html}<div class="meta">{html.escape(result.metadata.hostname)} | {html.escape(result.metadata.completed_at)} | scan {html.escape(result.metadata.scan_id)}</div><p class="muted">The rule outcome index summarizes documented rule results. It is not the probability that this Mac is safe or compromised.</p></div><div class="score">{result.overall_score}<small>/100 rule outcome index</small></div></section>
 {errors}<section class="scores">{scores}</section>{timeline}<section class="toolbar"><input id="q" aria-label="Search" placeholder="Search findings"><select id="severity"><option value="">All severities</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option><option>Informational</option></select><select id="category"><option value="">All categories</option>{category_options}</select><button id="theme">Theme</button></section>
 <p id="count"></p><section id="findings">{''.join(cards)}</section></main><script>{SCRIPT}</script></body></html>'''
     secure_write_text(path, document)

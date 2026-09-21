@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.0 - 2026-09-21
+
+- Added Simple and Analyst dashboard views. Simple view keeps the recommended profiles, focused application check, current assessment, application review, reports, and history visible while Analyst view exposes complete collection and evidence controls.
+- Added a four-state current assessment: no immediate warning identified, needs review, action recommended, or scan incomplete.
+- Limited the primary response plan to three prioritized items. Each item explains what was observed, why it matters, what it does not prove, the next safe verification step, and the risk of taking action.
+- Replaced the dashboard safety-style score presentation with separate review priority, collection coverage, and evidence confidence indicators. Existing report compatibility retains the numeric value under the more accurate rule outcome index label.
+- Fixed large application bundles such as Xcode being shown with a false invalid-signature label when deep signature verification reached the generic command timeout.
+- Added bounded per-command timeouts for deep signature and Gatekeeper checks and recorded incomplete checks as unknown instead of invalid or rejected.
+- Distinguished Mac App Store acceptance from a separately reported notarization result.
+- Corrected stale portable-release filenames and clarified that process containment is the only explicit host-changing response action.
+
 ## 1.3.3 - 2026-09-21
 
 - Added a comparison note when the baseline and current reports were created by different macOS Inspector versions, so expanded collector coverage is not mistaken for proof that the system changed.

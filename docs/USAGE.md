@@ -6,7 +6,18 @@ This guide explains the dashboard workflows, representative results, and the nex
 
 Select **Check this Mac** on the start guide for the recommended offline Quick triage profile. After the scan, the dashboard groups results into items that need attention, checks that could not be completed, and findings that look normal or were already resolved.
 
-Each finding starts with a plain-language verdict and concrete next steps. Expand **Details** for commands, raw evidence, application identity, executable hashes, process context, and the full rule explanation.
+The dashboard starts in **Simple** view. It shows the recommended workflows, focused application check, current assessment, the three highest-priority next steps, application review, report links, and scan history. Choose **Analyst** when you need individual collectors, custom formats, readiness details, raw findings, commands, timelines, cases, rules, or evidence controls. Opening a technical result switches to Analyst view automatically.
+
+The current assessment has four possible states:
+
+- `No immediate warning identified`: the selected checks produced no result that currently needs attention.
+- `Needs review`: one or more observations need owner or analyst context.
+- `Action recommended`: at least one high-priority rule outcome needs prompt validation.
+- `Scan incomplete`: no immediate warning was identified, but important evidence could not be collected.
+
+The assessment shows review priority, collection coverage, and evidence confidence separately. The retained rule outcome index is a compatibility and comparison value, not a probability that the Mac is safe or compromised.
+
+Each recommended action states what was observed, why it matters, what it does not prove, the next safe validation step, and the risk of acting. Expand **Details** for commands, raw evidence, application identity, executable hashes, process context, and the full rule explanation.
 
 Use investigation states to record progress:
 

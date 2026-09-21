@@ -16,8 +16,10 @@ def write_markdown(result: ScanResult, path: Path) -> None:
         f"**Host:** `{result.metadata.hostname}`  ", f"**Completed:** {result.metadata.completed_at}  ",
         f"**Case reference:** {_safe(result.metadata.case_reference) or 'Not provided'}  ",
         f"**Analyst:** {_safe(result.metadata.analyst) or 'Not provided'}  ",
-        f"**Security score:** **{result.overall_score}/100**", "", "## Category scores", "",
-        "| Category | Score | Coverage |", "|---|---:|---:|",
+        f"**Rule outcome index:** **{result.overall_score}/100**  ",
+        "This index summarizes documented rule outcomes. It is not the probability that this Mac is safe or compromised.",
+        "", "## Category rule outcome indexes", "",
+        "| Category | Rule outcome index | Coverage |", "|---|---:|---:|",
     ]
     if result.metadata.target_application:
         lines.insert(7, f"**Target application:** {_safe(result.metadata.target_application)}  ")

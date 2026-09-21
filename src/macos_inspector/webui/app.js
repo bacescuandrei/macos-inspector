@@ -1,4 +1,4 @@
-const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map() };
+const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map(), viewMode: 'simple' };
 
 const COPY = {
     manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, inspect findings, and explicitly contain a reported process when necessary.', safety:'Local-first | online OSINT is opt-in | containment requires confirmation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings | private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets | one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password | minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
@@ -20,6 +20,19 @@ function applyEnglishCopy() {
   if (state.config) {
     renderCollectors(true);
     renderFormats(true);
+  }
+}
+
+function setViewMode(mode, persist = true) {
+  state.viewMode = mode === 'analyst' ? 'analyst' : 'simple';
+  document.body.classList.toggle('mode-simple', state.viewMode === 'simple');
+  document.body.classList.toggle('mode-analyst', state.viewMode === 'analyst');
+  const simple = $('#view-simple');
+  const analyst = $('#view-analyst');
+  if (simple) simple.setAttribute('aria-pressed', String(state.viewMode === 'simple'));
+  if (analyst) analyst.setAttribute('aria-pressed', String(state.viewMode === 'analyst'));
+  if (persist) {
+    try { window.localStorage.setItem('macos-inspector-view-mode', state.viewMode); } catch (error) { /* Local preferences are optional. */ }
   }
 }
 const api = async (url, options = {}) => {
@@ -375,7 +388,8 @@ async function loadReport(job) {
       setMessage(`The report loaded, but decision support is unavailable: ${error.message}`, true);
     }
     renderCaseMetadata(payload.metadata || {});
-    renderSummary(payload.summary);
+    renderExperience(state.decisionSupport?.experience);
+    renderSummary(payload.summary, state.decisionSupport?.experience);
     renderGuidance(state.guidance);
     renderApplicationReview(state.decisionSupport?.application_review);
     renderDecisionSupport(state.decisionSupport);
@@ -419,9 +433,9 @@ function renderApplicationReview(review) {
     const change = item.change || null;
     const facts = [
       item.publisher_team_id ? `Team ID ${item.publisher_team_id}` : 'Team ID unavailable',
-      item.signature_valid === true ? 'Signature valid' : item.signature_valid === false ? 'Signature invalid' : 'Signature unknown',
+      item.signature_valid === true ? 'Signature valid' : item.signature_valid === false ? 'Signature invalid' : 'Signature check not completed',
       item.gatekeeper_accepted === true ? 'Gatekeeper accepted' : item.gatekeeper_accepted === false ? 'Gatekeeper rejected' : 'Gatekeeper unknown',
-      item.notarized === true ? 'Notarized' : item.notarized === false ? 'Notarization not confirmed' : 'Notarization unknown',
+      item.notarized === true ? 'Notarized' : item.notarized === false ? 'Notarization not confirmed' : 'Notarization not separately reported',
     ];
     const sourceHosts = Array.isArray(provenance.source_hosts) ? provenance.source_hosts : [];
     const provenanceRows = [
@@ -526,14 +540,28 @@ function renderCaseMetadata(metadata) {
   banner.classList.toggle('hidden', !values.length);
 }
 
-function renderSummary(summary) {
+function renderExperience(experience) {
+  const panel = $('#experience-summary');
+  if (!experience?.assessment) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+  const assessment = experience.assessment;
+  const actions = (experience.next_actions || []).map((item, index) => `<article class="experience-action"><div><span>${index + 1}</span><strong>${escapeHtml(item.title)}</strong><em class="verdict verdict-${escapeHtml(item.verdict || 'information')}">${escapeHtml(item.label || 'Review')}</em></div><p>${escapeHtml(item.observed)}</p><details><summary>Why this matters and how to verify it</summary><dl><div><dt>Why it matters</dt><dd>${escapeHtml(item.why_it_matters)}</dd></div><div><dt>What this does not prove</dt><dd>${escapeHtml(item.not_proof)}</dd></div><div><dt>Next safe step</dt><dd>${escapeHtml(item.verify)}</dd></div><div><dt>Action risk</dt><dd>${escapeHtml(item.action_risk)}</dd></div></dl></details><button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open technical result</button></article>`).join('');
+  const empty = '<p class="experience-clear">Keep this report as a baseline. Run the same scope again if the Mac changes or unfamiliar behavior appears.</p>';
+  panel.className = `experience-summary experience-${assessment.id || 'needs-review'}`;
+  panel.innerHTML = `<div class="experience-heading"><div><p class="eyebrow">CURRENT ASSESSMENT</p><span class="experience-state">${escapeHtml(assessment.label)}</span><h3 id="experience-summary-title">${escapeHtml(assessment.headline)}</h3><p>${escapeHtml(assessment.explanation)}</p></div><button type="button" class="secondary-button" data-switch-analyst>Show analyst view</button></div><div class="experience-actions"><h4>What to do next</h4>${actions || empty}</div>`;
+  panel.classList.remove('hidden');
+  panel.querySelectorAll('[data-review-finding]').forEach((button) => button.addEventListener('click', () => focusFinding(button.dataset.reviewFinding)));
+  panel.querySelector('[data-switch-analyst]')?.addEventListener('click', () => setViewMode('analyst'));
+}
+
+function renderSummary(summary, experience = null) {
+  const axes = experience?.axes || {};
   const cards = [
-    ['Score', `${summary.overall_score}/100`],
-    ['Findings shown', summary.finding_count],
-    ['Total findings', summary.total_finding_count ?? summary.finding_count],
-    ['Coverage', `${Math.round(Object.values(summary.category_coverage || {}).reduce((a, b) => a + b, 0) / Math.max(1, Object.keys(summary.category_coverage || {}).length))}%`],
+    ['Review priority', axes.priority?.label || 'Not calculated'],
+    ['Collection coverage', axes.coverage ? `${axes.coverage.percent}% | ${axes.coverage.label}` : 'Not calculated'],
+    ['Evidence confidence', axes.confidence?.label || 'Not calculated'],
+    ['Findings shown', `${summary.finding_count} of ${summary.total_finding_count ?? summary.finding_count}`],
   ];
-  $('#summary').innerHTML = cards.map(([label, value]) => `<div class="summary-item"><span class="summary-label">${escapeHtml(label)}</span><span class="summary-value">${escapeHtml(value)}</span></div>`).join('');
+  $('#summary').innerHTML = cards.map(([label, value]) => `<div class="summary-item"><span class="summary-label">${escapeHtml(label)}</span><span class="summary-value">${escapeHtml(value)}</span></div>`).join('') + `<p class="summary-note">${escapeHtml(experience?.score_note || 'Priority, coverage, and evidence confidence answer different questions.')}</p>`;
   $('#summary').classList.remove('hidden');
 }
 
@@ -550,6 +578,7 @@ function renderGuidance(guidance) {
 }
 
 function focusFinding(findingId) {
+  setViewMode('analyst');
   $('#finding-search').value = findingId;
   applyFindingFilters(true);
   const finding = document.querySelector('.finding');
@@ -1029,7 +1058,7 @@ function renderHistory() {
   $('#history').innerHTML = visible.map((job) => {
     const actions = job.reports?.json ? `<button type="button" class="history-baseline${state.baselineJob?.job_id === job.job_id ? ' selected' : ''}" data-baseline-id="${escapeHtml(job.job_id)}">Baseline</button><button type="button" class="history-compare" data-compare-id="${escapeHtml(job.job_id)}">Compare</button><button type="button" class="history-open" data-history-id="${escapeHtml(job.job_id)}">View</button>` : '';
     const target = job.target_application ? ` | target ${job.target_application.split('/').pop()}` : '';
-    return `<div class="history-row"><div class="history-main"><strong>${job.case_reference ? `<span class="case-tag">${escapeHtml(job.case_reference)}</span> ` : ''}${escapeHtml((job.collectors || []).join(' | '))}</strong><small>${escapeHtml(job.completed_at || job.created_at || '')} | score ${escapeHtml(job.summary?.overall_score ?? 'N/A')}${escapeHtml(target)}${job.analyst ? ` | ${escapeHtml(job.analyst)}` : ''}${job.error ? ` | ${escapeHtml(job.error)}` : ''}<code>${escapeHtml(job.scan_id || '')}</code></small></div><span class="status-pill status-${escapeHtml(job.state)}">${escapeHtml(job.state)}</span>${actions}</div>`;
+    return `<div class="history-row"><div class="history-main"><strong>${job.case_reference ? `<span class="case-tag">${escapeHtml(job.case_reference)}</span> ` : ''}${escapeHtml((job.collectors || []).join(' | '))}</strong><small>${escapeHtml(job.completed_at || job.created_at || '')} | rule outcome index ${escapeHtml(job.summary?.overall_score ?? 'N/A')}${escapeHtml(target)}${job.analyst ? ` | ${escapeHtml(job.analyst)}` : ''}${job.error ? ` | ${escapeHtml(job.error)}` : ''}<code>${escapeHtml(job.scan_id || '')}</code></small></div><span class="status-pill status-${escapeHtml(job.state)}">${escapeHtml(job.state)}</span>${actions}</div>`;
   }).join('') + (matching.length > 50 ? `<p class="muted">Showing the 50 most recent matches.</p>` : '');
   document.querySelectorAll('[data-history-id]').forEach((button) => button.addEventListener('click', () => loadHistoryJob(state.historyScans.find((item) => item.job_id === button.dataset.historyId))));
   document.querySelectorAll('[data-baseline-id]').forEach((button) => button.addEventListener('click', () => setBaseline(state.historyScans.find((item) => item.job_id === button.dataset.baselineId))));
@@ -1039,7 +1068,7 @@ function renderHistory() {
 function setBaseline(job) {
   if (!job?.scan_id || !job.reports?.json) return setMessage('This scan has no JSON report and cannot be used as a baseline.', true);
   state.baselineJob = job;
-  setMessage(`Baseline selected: ${job.scan_id.slice(0, 8)} | score ${job.summary?.overall_score ?? 'N/A'}. Choose Compare on another scan.`);
+  setMessage(`Baseline selected: ${job.scan_id.slice(0, 8)} | rule outcome index ${job.summary?.overall_score ?? 'N/A'}. Choose Compare on another scan.`);
   document.querySelectorAll('[data-baseline-id]').forEach((button) => button.classList.toggle('selected', button.dataset.baselineId === job.job_id));
 }
 
@@ -1051,6 +1080,7 @@ async function compareWithBaseline(job) {
   try {
     const comparison = await api('/api/compare', writeOptions('POST', {baseline: state.baselineJob.scan_id, current: job.scan_id}));
     renderComparison(comparison);
+    setViewMode('analyst');
     setMessage('Comparison complete.');
     document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth', block: 'start'});
   } catch (error) { setMessage(error.message, true); }
@@ -1058,7 +1088,7 @@ async function compareWithBaseline(job) {
 
 function renderComparison(comparison) {
   const delta = comparison.score_delta > 0 ? `+${comparison.score_delta}` : String(comparison.score_delta);
-  $('#comparison-summary').innerHTML = [['Score change', delta], ['New', comparison.counts.new], ['Resolved', comparison.counts.resolved], ['Changed', comparison.counts.changed]].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+  $('#comparison-summary').innerHTML = [['Rule outcome index change', delta], ['New', comparison.counts.new], ['Resolved', comparison.counts.resolved], ['Changed', comparison.counts.changed]].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
   const rows = [
     ...comparison.new.map((finding) => ({kind: 'New', id: finding.finding_id, title: finding.title, detail: `${finding.severity} | ${finding.status}`})),
     ...comparison.resolved.map((finding) => ({kind: 'Resolved', id: finding.finding_id, title: finding.title, detail: `${finding.severity} | ${finding.status}`})),
@@ -1102,6 +1132,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#check-this-mac').addEventListener('click', startGuidedCheck);
   $('#dismiss-guide').addEventListener('click', dismissGuide);
   $('#show-guide').addEventListener('click', () => setGuideVisible(true));
+  $('#view-simple').addEventListener('click', () => setViewMode('simple'));
+  $('#view-analyst').addEventListener('click', () => setViewMode('analyst'));
   $('#case-select').addEventListener('change', () => loadCaseIntoEditor($('#case-select').value));
   $('#scan-case-select').addEventListener('change', () => attachCaseToScan($('#scan-case-select').value));
   $('#save-case').addEventListener('click', saveCase);
@@ -1126,6 +1158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#findings-next').addEventListener('click', () => { if (state.findingPage * state.findingPageSize < state.filteredFindings.length) { state.findingPage += 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   setConnection('checking');
   applyEnglishCopy();
+  try { setViewMode(window.localStorage.getItem('macos-inspector-view-mode') || 'simple', false); } catch (error) { setViewMode('simple', false); }
   try { if (window.localStorage.getItem('macos-inspector-guide-1.3.0') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
   const health = await checkHealth();
   if (!health) setMessage('Dashboard server unavailable. Retrying automatically...', true);

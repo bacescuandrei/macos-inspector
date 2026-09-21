@@ -20,6 +20,41 @@ def evidence_value(finding: dict[str, Any], kind: str) -> dict[str, Any]:
     return {}
 
 
+def _signature_result(finding: dict[str, Any], signature: dict[str, Any]) -> bool | None:
+    completed = signature.get("verification_completed")
+    if completed is False:
+        return None
+    observed = str(finding.get("observed_result") or "").lower()
+    if completed is None and str(finding.get("status", "")).lower() == "unknown" and (
+        "signature verification was unavailable or timed out" in observed
+        or "code-signing trust service could not complete" in observed
+    ):
+        return None
+    value = signature.get("valid")
+    return value if isinstance(value, bool) else None
+
+
+def _gatekeeper_result(finding: dict[str, Any], gatekeeper: dict[str, Any]) -> bool | None:
+    completed = gatekeeper.get("assessment_completed")
+    if completed is False:
+        return None
+    observed = str(finding.get("observed_result") or "").lower()
+    if completed is None and str(finding.get("status", "")).lower() == "unknown" and (
+        "gatekeeper assessment was unavailable" in observed
+        or "gatekeeper did not return a definitive assessment" in observed
+    ):
+        return None
+    value = gatekeeper.get("accepted")
+    return value if isinstance(value, bool) else None
+
+
+def _notarization_result(gatekeeper: dict[str, Any]) -> bool | None:
+    if "app store" in str(gatekeeper.get("source") or "").lower():
+        return None
+    value = gatekeeper.get("notarized")
+    return value if isinstance(value, bool) else None
+
+
 def confidence_for_finding(finding: dict[str, Any]) -> dict[str, Any]:
     """Describe evidence quality independently from finding severity."""
     status = str(finding.get("status", "")).lower()
@@ -107,11 +142,11 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "version": app.get("version"),
             "executable_path": app.get("executable"),
             "publisher_team_id": signature.get("team_identifier"),
-            "signature_valid": signature.get("valid"),
+            "signature_valid": _signature_result(finding, signature),
             "signature_type": signature.get("signature_type"),
             "hardened_runtime": signature.get("hardened_runtime"),
-            "gatekeeper_accepted": gatekeeper.get("accepted"),
-            "notarized": gatekeeper.get("notarized"),
+            "gatekeeper_accepted": _gatekeeper_result(finding, gatekeeper),
+            "notarized": _notarization_result(gatekeeper),
             "sha256": executable.get("sha256"),
             "executable_permissions": executable.get("permissions"),
             "executable_changed_during_read": executable.get("changed_during_read"),
@@ -132,9 +167,11 @@ def _application_signals(finding: dict[str, Any]) -> list[str]:
     bundle_paths = evidence_value(finding, "bundle_path_integrity")
     entitlements = evidence_value(finding, "code_entitlements")
     signals: list[str] = []
-    if signature.get("valid") is False:
+    signature_valid = _signature_result(finding, signature)
+    notarized = _notarization_result(gatekeeper)
+    if signature_valid is False:
         signals.append("The code signature did not validate.")
-    if gatekeeper.get("accepted") is False:
+    if _gatekeeper_result(finding, gatekeeper) is False:
         signals.append("Gatekeeper did not accept the application.")
     if bundle_paths.get("executable_resolves_within_bundle") is False:
         signals.append("The main executable resolves outside the application bundle.")
@@ -154,9 +191,9 @@ def _application_signals(finding: dict[str, Any]) -> list[str]:
     sensitive = entitlements.get("sensitive", [])
     if isinstance(sensitive, (list, tuple)) and sensitive:
         signals.append(f"Security-sensitive entitlement: {sensitive[0]}.")
-    if gatekeeper.get("notarized") is False:
+    if notarized is False:
         signals.append("Notarization was not confirmed by the Gatekeeper result.")
-    if signature.get("valid") is True and not signature.get("team_identifier"):
+    if signature_valid is True and not signature.get("team_identifier"):
         signals.append("No signing Team ID was reported.")
     return signals[:4]
 
@@ -308,10 +345,10 @@ def build_application_review(
             "explanation": guide.get("simple_explanation") or finding.get("observed_result") or "Trust evidence was recorded.",
             "next_action": next_actions[0] if next_actions else "Open the finding and validate the publisher, source, and expected use.",
             "investigation_status": investigation_status,
-            "signature_valid": signature.get("valid"),
+            "signature_valid": app.get("signature_valid"),
             "signature_type": signature.get("signature_type"),
-            "gatekeeper_accepted": gatekeeper.get("accepted"),
-            "notarized": gatekeeper.get("notarized"),
+            "gatekeeper_accepted": app.get("gatekeeper_accepted"),
+            "notarized": app.get("notarized"),
             "hardened_runtime": signature.get("hardened_runtime"),
             "sha256": executable.get("sha256"),
             "signals": _application_signals(finding),
@@ -917,6 +954,110 @@ def build_stories(report: dict[str, Any], guidance: dict[str, Any]) -> list[dict
     return stories[:20]
 
 
+def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> dict[str, Any]:
+    """Build a concise assessment without turning a rule score into a safety verdict."""
+    findings = _findings(report)
+    candidates: list[dict[str, Any]] = []
+    verdict_rank = {"high-risk": 0, "likely-unwanted": 0, "needs-review": 1, "unable-to-verify": 2}
+    for finding_id, guide in guidance.get("findings", {}).items():
+        if not isinstance(guide, dict) or finding_id not in findings:
+            continue
+        investigation = guide.get("investigation", {})
+        if isinstance(investigation, dict) and investigation.get("status") in {"Expected", "Resolved"}:
+            continue
+        verdict = str(guide.get("verdict", "information"))
+        if verdict not in verdict_rank:
+            continue
+        finding = findings[finding_id]
+        if verdict == "unable-to-verify":
+            not_proof = "An incomplete check is not evidence that the item is malicious or safe."
+        elif verdict == "likely-unwanted":
+            not_proof = "A rule or indicator match still requires validation before it becomes a security conclusion."
+        else:
+            not_proof = "This observation raises review priority. It does not prove malware or compromise."
+        if finding_id in {"LIVE-PROCESS-TREE", "LIVE-NETWORK-PROCESSES"}:
+            action_risk = "Reviewing is read-only. Terminating a process can interrupt work or lose unsaved data, so preserve its details first."
+        elif finding_id.startswith("APP-TRUST-"):
+            action_risk = "Reviewing and rechecking are read-only. Do not delete the application before preserving the evidence you may need."
+        else:
+            action_risk = "Reviewing the evidence does not change this Mac. Validate the result before changing system settings or removing files."
+        next_actions = guide.get("next_actions", [])
+        candidates.append({
+            "finding_id": finding_id,
+            "title": finding.get("title", finding_id),
+            "label": guide.get("label", "Review"),
+            "verdict": verdict,
+            "severity": finding.get("severity", "Informational"),
+            "observed": guide.get("simple_explanation") or finding.get("observed_result") or "Evidence was recorded.",
+            "why_it_matters": finding.get("why_it_matters") or "Unexpected security-relevant state may require validation.",
+            "not_proof": not_proof,
+            "verify": next_actions[0] if isinstance(next_actions, list) and next_actions else "Open the result and validate the evidence.",
+            "action_risk": action_risk,
+        })
+    candidates.sort(key=lambda item: (
+        verdict_rank[str(item["verdict"])],
+        -SEVERITY_RANK.get(str(item["severity"]), 0),
+        str(item["title"]),
+    ))
+
+    high_priority = any(item["verdict"] in {"high-risk", "likely-unwanted"} for item in candidates)
+    review_count = sum(item["verdict"] != "unable-to-verify" for item in candidates)
+    unknown_count = sum(item["verdict"] == "unable-to-verify" for item in candidates)
+    if high_priority:
+        assessment = {
+            "id": "action-recommended", "label": "Action recommended",
+            "headline": "Review the highest-priority evidence before making changes.",
+            "explanation": "At least one result has a high-priority rule outcome. Validate it before containment or removal.",
+        }
+    elif review_count:
+        assessment = {
+            "id": "needs-review", "label": "Needs review",
+            "headline": f"{review_count} result{'s' if review_count != 1 else ''} need context.",
+            "explanation": "The scan found observations that should be checked, but it did not establish compromise.",
+        }
+    elif unknown_count:
+        assessment = {
+            "id": "scan-incomplete", "label": "Scan incomplete",
+            "headline": "No immediate warning was identified, but some checks did not finish.",
+            "explanation": "Do not treat unavailable evidence as a pass. Review the missing checks and rerun them if needed.",
+        }
+    else:
+        assessment = {
+            "id": "no-immediate-warning", "label": "No immediate warning identified",
+            "headline": "The selected checks did not produce a result that currently needs attention.",
+            "explanation": "This is not a guarantee that the Mac is safe. Keep the report as a baseline and investigate unfamiliar behavior.",
+        }
+
+    coverage_values = [
+        int(value) for value in report.get("summary", {}).get("category_coverage", {}).values()
+        if isinstance(value, (int, float))
+    ]
+    coverage = round(sum(coverage_values) / len(coverage_values)) if coverage_values else 0
+    collection_errors = report.get("metadata", {}).get("collection_errors", [])
+    coverage_label = "Complete for selected scope" if coverage == 100 and not collection_errors else "Partial for selected scope"
+    confidence_levels = [
+        str(guidance.get("findings", {}).get(item["finding_id"], {}).get("confidence", {}).get("level", "low"))
+        for item in candidates[:3]
+    ]
+    confidence = "low" if "low" in confidence_levels else "medium" if "medium" in confidence_levels else "high"
+    confidence_label = {
+        "high": "Strong supporting evidence",
+        "medium": "Some supporting evidence is missing",
+        "low": "Important evidence is incomplete",
+    }[confidence]
+    priority_label = "High priority" if high_priority else "Review needed" if review_count else "No immediate priority"
+    return {
+        "assessment": assessment,
+        "next_actions": candidates[:3],
+        "axes": {
+            "priority": {"label": priority_label, "attention": review_count},
+            "coverage": {"label": coverage_label, "percent": coverage, "collection_errors": len(collection_errors)},
+            "confidence": {"label": confidence_label, "level": confidence},
+        },
+        "score_note": "The rule outcome index is not a probability that this Mac is safe or compromised.",
+    }
+
+
 def build_decision_support(
     current: dict[str, Any], baseline: dict[str, Any] | None = None,
     investigations: dict[str, dict[str, Any]] | None = None,
@@ -925,6 +1066,7 @@ def build_decision_support(
     for finding_id, finding in _findings(current).items():
         if finding_id in guidance["findings"]:
             guidance["findings"][finding_id]["confidence"] = confidence_for_finding(finding)
+    experience = build_user_experience(current, guidance)
     changes = analyze_changes(baseline, current)
     stories = build_stories(current, guidance)
     application_review = build_application_review(current, guidance, changes)
@@ -940,6 +1082,8 @@ def build_decision_support(
         "changes_available": changes["available"],
         "investigation_states": investigation_counts,
         "conclusion": "The report records observations and investigation decisions. It does not by itself prove that this Mac is compromised.",
+        "assessment": experience["assessment"],
+        "axes": experience["axes"],
     }
     return {
         "scan_id": current.get("metadata", {}).get("scan_id"),
@@ -947,13 +1091,15 @@ def build_decision_support(
         "changes": changes,
         "stories": stories,
         "application_review": application_review,
+        "experience": experience,
         "final_summary": final_summary,
     }
 
 
 def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any], output: Path) -> Path:
     scan_id = str(report.get("metadata", {}).get("scan_id", "scan"))
-    priorities = decision["guidance"].get("priorities", [])
+    experience = decision.get("experience", {})
+    priorities = experience.get("next_actions", [])
     changes = decision["changes"]
     stories = decision["stories"]
     application_review = decision.get("application_review", {})
@@ -962,7 +1108,10 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
         for key, value in sorted(decision["final_summary"].get("investigation_states", {}).items())
     )
     priority_rows = "".join(
-        f"<article><span>{escape(str(item.get('label', 'Review')))}</span><h3>{escape(str(item.get('title', 'Finding')))}</h3><p>{escape(str(item.get('next_action', 'Review the finding.')))}</p></article>"
+        f"<article><span>{escape(str(item.get('label', 'Review')))}</span><h3>{escape(str(item.get('title', 'Finding')))}</h3>"
+        f"<p>{escape(str(item.get('observed', 'Evidence was recorded.')))}</p>"
+        f"<small>Next: {escape(str(item.get('verify', 'Review the finding.')))}</small>"
+        f"<small>{escape(str(item.get('not_proof', 'This result requires validation.')))}</small></article>"
         for item in priorities
     ) or "<p>No item currently needs immediate attention.</p>"
     change_rows = "".join(
@@ -1015,7 +1164,12 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
     target = str(report.get("metadata", {}).get("target_application", ""))
     target_html = f"<p>Target application: {escape(target)}</p>" if target else ""
     application_section = f"<section><h2>Application review queue</h2><p>{escape(str(application_review.get('conclusion', 'Trust observations require context.')))}</p>{application_rows}</section>" if application_review.get("available") else ""
-    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Investigation summary {escape(scan_id)}</title><style>body{{margin:0;background:#0d1422;color:#edf3ff;font:15px/1.55 -apple-system,BlinkMacSystemFont,sans-serif}}main{{max-width:980px;margin:auto;padding:32px 18px 64px}}header,section{{margin-bottom:18px;padding:22px;border:1px solid #283954;border-radius:14px;background:#111b2d}}h1,h2,h3,p,small{{overflow-wrap:anywhere}}h1{{font-size:30px}}h2{{font-size:19px}}h3{{margin:5px 0;font-size:15px}}small,p,li{{color:#aebbd0}}.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}}.metrics div,article{{padding:13px;border:1px solid #283954;border-radius:10px;background:#16233a}}.metrics strong{{display:block;font-size:24px}}article{{margin-top:9px}}article span{{color:#78aaff;font-size:11px;text-transform:uppercase}}article small{{display:block;margin-top:7px}}@media print{{body{{background:white;color:#111}}header,section,article,.metrics div{{background:white;border-color:#bbb}}small,p,li{{color:#333}}}}</style></head><body><main><header><small>MACOS INSPECTOR | INVESTIGATION SUMMARY</small><h1>{escape(str(decision['final_summary']['headline']))}</h1><p>Scan {escape(scan_id)} | Host {hostname}</p>{target_html}<p>{escape(str(decision['final_summary']['conclusion']))}</p></header><section><h2>Current assessment</h2><div class=\"metrics\"><div><strong>{decision['final_summary']['attention']}</strong>need attention</div><div><strong>{decision['final_summary']['unable_to_verify']}</strong>not verified</div><div><strong>{decision['final_summary']['correlated_stories']}</strong>correlated stories</div></div></section>{application_section}<section><h2>Priorities</h2>{priority_rows}</section><section><h2>Changes since the previous comparable scan</h2>{comparison_html}{change_rows}</section><section><h2>Correlated investigation stories</h2>{story_rows}</section><section><h2>Investigation state</h2><ul>{state_rows}</ul><p>Technical evidence remains in the original signed or exported scan report.</p></section></main></body></html>"""
+    assessment = experience.get("assessment", {})
+    axes = experience.get("axes", {})
+    priority_axis = axes.get("priority", {})
+    coverage_axis = axes.get("coverage", {})
+    confidence_axis = axes.get("confidence", {})
+    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Investigation summary {escape(scan_id)}</title><style>body{{margin:0;background:#0d1422;color:#edf3ff;font:15px/1.55 -apple-system,BlinkMacSystemFont,sans-serif}}main{{max-width:980px;margin:auto;padding:32px 18px 64px}}header,section{{margin-bottom:18px;padding:22px;border:1px solid #283954;border-radius:14px;background:#111b2d}}h1,h2,h3,p,small{{overflow-wrap:anywhere}}h1{{font-size:30px}}h2{{font-size:19px}}h3{{margin:5px 0;font-size:15px}}small,p,li{{color:#aebbd0}}.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}}.metrics div,article{{padding:13px;border:1px solid #283954;border-radius:10px;background:#16233a}}.metrics strong{{display:block;font-size:18px}}article{{margin-top:9px}}article span{{color:#78aaff;font-size:11px;text-transform:uppercase}}article small{{display:block;margin-top:7px}}@media print{{body{{background:white;color:#111}}header,section,article,.metrics div{{background:white;border-color:#bbb}}small,p,li{{color:#333}}}}</style></head><body><main><header><small>MACOS INSPECTOR | INVESTIGATION SUMMARY</small><h1>{escape(str(assessment.get('label', decision['final_summary']['headline'])))}</h1><p>{escape(str(assessment.get('headline', decision['final_summary']['headline'])))}</p><p>Scan {escape(scan_id)} | Host {hostname}</p>{target_html}<p>{escape(str(decision['final_summary']['conclusion']))}</p></header><section><h2>Current assessment</h2><div class=\"metrics\"><div><strong>{escape(str(priority_axis.get('label', 'Not calculated')))}</strong>review priority</div><div><strong>{escape(str(coverage_axis.get('percent', 0)))}%</strong>{escape(str(coverage_axis.get('label', 'coverage unknown')))}</div><div><strong>{escape(str(confidence_axis.get('label', 'Not calculated')))}</strong>evidence confidence</div></div><p>{escape(str(experience.get('score_note', 'Priority, coverage, and confidence answer different questions.')))}</p></section>{application_section}<section><h2>What to do next</h2>{priority_rows}</section><section><h2>Changes since the previous comparable scan</h2>{comparison_html}{change_rows}</section><section><h2>Correlated investigation stories</h2>{story_rows}</section><section><h2>Investigation state</h2><ul>{state_rows}</ul><p>Technical evidence remains in the original signed or exported scan report.</p></section></main></body></html>"""
     path = output / f"macos-inspector-{scan_id}-investigation-summary.html"
     secure_write_text(path, html)
     return path
