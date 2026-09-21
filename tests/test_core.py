@@ -427,6 +427,7 @@ class CoreTests(unittest.TestCase):
         app_guidance = result["guidance"]["findings"]["APP-TRUST-EXAMPLE"]
         self.assertEqual(app_guidance["confidence"]["level"], "high")
         self.assertEqual(result["changes"]["counts"]["changed_applications"], 1)
+        self.assertEqual(len(result["changes"]["application_changes"]), 1)
         self.assertEqual(result["changes"]["highlights"][0]["label"], "Application contents changed")
         self.assertEqual(result["changes"]["highlights"][0]["priority"], "review")
         self.assertEqual(result["changes"]["highlights"][0]["changed_fields"][0]["label"], "Executable SHA-256")
@@ -485,6 +486,13 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(signer_change["label"], "Signing identity changed")
         self.assertEqual(signer_change["priority"], "high")
 
+        replaced_bundle = application("a" * 64)
+        replaced_bundle["evidence"][0]["value"]["bundle_identifier"] = "test.example.replaced"
+        bundle_report = {**current, "findings": [replaced_bundle]}
+        bundle_change = build_decision_support(bundle_report, baseline)["changes"]["highlights"][0]
+        self.assertEqual(bundle_change["label"], "Bundle identity changed")
+        self.assertEqual(bundle_change["priority"], "high")
+
         regressed = application("a" * 64)
         regressed["evidence"][1]["value"]["valid"] = False
         regressed["evidence"][3]["value"]["accepted"] = False
@@ -492,6 +500,69 @@ class CoreTests(unittest.TestCase):
         regression = build_decision_support(regression_report, baseline)["changes"]["highlights"][0]
         self.assertEqual(regression["label"], "Trust check regressed")
         self.assertEqual(regression["priority"], "high")
+
+    def test_application_change_context_is_complete_prioritized_and_os_aware(self):
+        def application(index, sha256, *, valid=True, gatekeeper=True, system=False):
+            name = f"App {index:02d}"
+            path = f"/Applications/{name}.app"
+            return {
+                "finding_id": f"APP-TRUST-{index:02d}", "category": "Application Trust",
+                "title": f"Application trust: {name}", "severity": "Informational", "status": "Pass",
+                "description": "Checks application trust.", "observed_result": "Checks completed.",
+                "evidence": [
+                    {"kind": "application_bundle", "source": path, "value": {
+                        "name": name, "version": "1.0",
+                        "bundle_identifier": f"com.apple.app{index}" if system else f"test.app{index}",
+                        "executable": f"{path}/Contents/MacOS/{name}",
+                    }},
+                    {"kind": "code_signature", "source": path, "value": {
+                        "valid": valid, "team_identifier": None if system else "TEAM123",
+                        "signature_type": "Apple System" if system else "Developer ID",
+                    }},
+                    {"kind": "executable_integrity", "source": f"{path}/Contents/MacOS/{name}", "value": {
+                        "sha256": sha256,
+                    }},
+                    {"kind": "gatekeeper_assessment", "source": path, "value": {
+                        "accepted": gatekeeper, "notarized": gatekeeper,
+                    }},
+                ],
+            }
+
+        baseline_apps = [application(index, "a" * 64, system=index == 0) for index in range(60)]
+        current_apps = [application(index, "b" * 64, system=index == 0) for index in range(60)]
+        current_apps[-1]["evidence"][1]["value"]["valid"] = False
+        current_apps[-1]["evidence"][3]["value"]["accepted"] = False
+        baseline = {
+            "metadata": {
+                "scan_id": "before-update", "collectors": ["application-trust"],
+                "completed_at": "2026-01-01T00:00:00+00:00", "platform": "macOS-26.5.2-arm64-arm-64bit",
+            },
+            "summary": {}, "findings": baseline_apps,
+        }
+        current = {
+            "metadata": {
+                "scan_id": "after-update", "collectors": ["application-trust"],
+                "completed_at": "2026-01-02T00:00:00+00:00", "platform": "macOS-26.6.2-arm64-arm-64bit",
+            },
+            "summary": {}, "findings": current_apps,
+        }
+
+        result = build_decision_support(current, baseline)
+        changes = result["changes"]
+        self.assertEqual(changes["counts"]["changed_applications"], 60)
+        self.assertEqual(len(changes["application_changes"]), 60)
+        self.assertEqual(changes["highlights"][0]["finding_id"], "APP-TRUST-59")
+        self.assertEqual(changes["highlights"][0]["label"], "Trust check regressed")
+        system_change = next(item for item in changes["application_changes"] if item["finding_id"] == "APP-TRUST-00")
+        self.assertEqual(system_change["label"], "Possible macOS update change")
+        self.assertEqual(system_change["priority"], "context")
+        self.assertIn("macOS changed from 26.5.2 to 26.6.2", system_change["detail"])
+        self.assertIn("macOS version", {item["label"] for item in system_change["changed_fields"]})
+        review_changes = {
+            item["finding_id"]: item["change"] for item in result["application_review"]["applications"]
+        }
+        self.assertEqual(len(review_changes), 60)
+        self.assertEqual(review_changes["APP-TRUST-59"]["label"], "Trust check regressed")
 
     def test_application_review_queue_prioritizes_without_malware_verdicts(self):
         def application(name, severity, status, signature, gatekeeper, sha256, permissions="0755"):

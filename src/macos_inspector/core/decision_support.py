@@ -99,6 +99,7 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "finding_id": finding_id,
             "name": app.get("name") or finding.get("title", finding_id),
             "path": next((item.get("source") for item in finding.get("evidence", []) if isinstance(item, dict) and item.get("kind") == "application_bundle"), None),
+            "bundle_identifier": app.get("bundle_identifier"),
             "version": app.get("version"),
             "publisher_team_id": signature.get("team_identifier"),
             "signature_valid": signature.get("valid"),
@@ -257,7 +258,7 @@ def build_application_review(
     }
     application_changes = {
         str(item.get("finding_id")): item
-        for item in (changes or {}).get("highlights", [])
+        for item in (changes or {}).get("application_changes", (changes or {}).get("highlights", []))
         if isinstance(item, dict) and item.get("kind") in {"new-application", "changed-application"}
     }
     rows: list[dict[str, Any]] = []
@@ -399,9 +400,20 @@ def _change_value(key: str, value: object) -> str:
     return text
 
 
-def _application_change(before: dict[str, Any], after: dict[str, Any], finding_id: str) -> dict[str, Any]:
+def _platform_version(report: dict[str, Any]) -> str | None:
+    platform = str(report.get("metadata", {}).get("platform") or "")
+    if platform.startswith("macOS-"):
+        return platform.removeprefix("macOS-").split("-", 1)[0] or None
+    return None
+
+
+def _application_change(
+    before: dict[str, Any], after: dict[str, Any], finding_id: str,
+    before_macos: str | None = None, after_macos: str | None = None,
+) -> dict[str, Any]:
     """Explain an application identity change without treating it as proof of tampering."""
     fields = (
+        ("bundle_identifier", "Bundle identifier"),
         ("version", "Version"),
         ("publisher_team_id", "Team ID"),
         ("signature_valid", "Signature validation"),
@@ -425,6 +437,23 @@ def _application_change(before: dict[str, Any], after: dict[str, Any], finding_i
     gatekeeper_regressed = before.get("gatekeeper_accepted") is True and after.get("gatekeeper_accepted") is False
     old_team, new_team = before.get("publisher_team_id"), after.get("publisher_team_id")
     signer_replaced = bool(old_team and new_team and old_team != new_team)
+    old_bundle, new_bundle = before.get("bundle_identifier"), after.get("bundle_identifier")
+    bundle_replaced = bool(old_bundle and new_bundle and old_bundle != new_bundle)
+    apple_system_app = bool(
+        str(after.get("path") or "").startswith("/System/")
+        or (
+            str(after.get("signature_type") or "").startswith("Apple")
+            and str(new_bundle or "").startswith("com.apple.")
+        )
+    )
+    system_macos_change = bool(
+        apple_system_app and before_macos and after_macos and before_macos != after_macos
+    )
+    if system_macos_change:
+        changed_fields.append({
+            "key": "macos_version", "label": "macOS version",
+            "before": str(before_macos), "after": str(after_macos),
+        })
     trust_recovered = any((
         before.get("signature_valid") is False and after.get("signature_valid") is True,
         before.get("gatekeeper_accepted") is False and after.get("gatekeeper_accepted") is True,
@@ -443,6 +472,10 @@ def _application_change(before: dict[str, Any], after: dict[str, Any], finding_i
         label, priority = "Signing identity changed", "high"
         detail = f"Team ID changed from {old_team} to {new_team}."
         next_action = "Confirm that the new signer is expected for this application before treating the change as an update."
+    elif bundle_replaced:
+        label, priority = "Bundle identity changed", "high"
+        detail = f"Bundle identifier changed from {old_bundle} to {new_bundle}."
+        next_action = "Confirm the application's expected bundle identifier and source before opening it."
     elif {"version", "sha256"}.issubset(changed_keys) and old_team == new_team and bool(new_team):
         label, priority = "Possible application update", "context"
         detail = (
@@ -450,6 +483,10 @@ def _application_change(before: dict[str, Any], after: dict[str, Any], finding_i
             f"{_change_value('version', after.get('version'))}, the executable changed, and Team ID {new_team} remained the same."
         )
         next_action = "Confirm that an update was expected and compare the version with the publisher's trusted release information."
+    elif system_macos_change and "sha256" in changed_keys:
+        label, priority = "Possible macOS update change", "context"
+        detail = f"The executable changed while macOS changed from {before_macos} to {after_macos}."
+        next_action = "Confirm that the macOS update was expected, then make sure the current signature and Gatekeeper checks still pass."
     elif "sha256" in changed_keys:
         label, priority = "Application contents changed", "review"
         detail = "The executable SHA-256 changed without a matching recorded version change."
@@ -488,14 +525,15 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
             "available": False,
             "baseline_scan_id": None,
             "message": "No earlier scan with the same scope is available yet. This scan can become the baseline.",
-            "counts": {}, "highlights": [],
+            "counts": {}, "highlights": [], "application_changes": [],
         }
     baseline_findings, current_findings = _findings(baseline), _findings(current)
     before_apps, after_apps = _applications(baseline), _applications(current)
-    highlights: list[dict[str, Any]] = []
+    before_macos, after_macos = _platform_version(baseline), _platform_version(current)
+    application_changes: list[dict[str, Any]] = []
     for finding_id in sorted(after_apps.keys() - before_apps.keys()):
         app = after_apps[finding_id]
-        highlights.append({
+        application_changes.append({
             "kind": "new-application", "label": "New application", "priority": "context",
             "title": str(app["name"]), "detail": str(app.get("path") or "Application path unavailable"),
             "next_action": "Confirm that this application was installed intentionally and review its publisher, source, and activity.",
@@ -506,7 +544,10 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
         if after_apps[finding_id]["fingerprint"] != before_apps[finding_id]["fingerprint"]:
             app = after_apps[finding_id]
             changed_apps.append(finding_id)
-            highlights.append(_application_change(before_apps[finding_id], app, finding_id))
+            application_changes.append(_application_change(
+                before_apps[finding_id], app, finding_id, before_macos, after_macos,
+            ))
+    highlights = list(application_changes)
     new_ids = current_findings.keys() - baseline_findings.keys()
     resolved_ids = baseline_findings.keys() - current_findings.keys()
     before_startup, after_startup = _startup_items(baseline), _startup_items(current)
@@ -551,7 +592,11 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
             "new_findings": len(new_ids),
             "resolved_findings": len(resolved_ids),
         },
-        "highlights": highlights[:50],
+        "highlights": sorted(
+            highlights,
+            key=lambda item: {"high": 0, "review": 1, "context": 2}.get(str(item.get("priority", "review")), 1),
+        )[:50],
+        "application_changes": application_changes,
     }
 
 

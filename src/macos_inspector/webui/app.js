@@ -397,6 +397,10 @@ function renderApplicationReview(review) {
     if (filter === 'changed') return Boolean(item.change);
     return item.group === filter;
   });
+  if (filter === 'changed') {
+    const changeRank = { high: 0, review: 1, context: 2 };
+    rows.sort((left, right) => (changeRank[left.change?.priority] ?? 1) - (changeRank[right.change?.priority] ?? 1));
+  }
   const activeCount = (review.applications || []).filter((item) => item.activity?.has_activity).length;
   const changedCount = (review.applications || []).filter((item) => item.change).length;
   const filters = [

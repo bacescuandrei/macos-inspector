@@ -7,6 +7,8 @@
 - Added a **Changed since last scan** application filter and placed the same change explanation inside the relevant application card.
 - Added a concrete validation step to dashboard changes and standalone investigation summaries without treating a change as proof of tampering.
 - Added regression coverage for update context, signer replacement, trust regression, changed-content review, and compact hash display.
+- Kept the complete application-change set available to the review queue while limiting only the summary highlights, so large inventories no longer lose card-level change context.
+- Prioritized trust regressions, Team ID replacements, and bundle-identity changes before routine context in both summary and filtered card views, and recognized Apple-signed system-app changes that coincide with a recorded macOS update.
 
 ## 1.3.1 - 2026-09-21
 
