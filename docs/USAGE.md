@@ -142,6 +142,8 @@ Expand **Who signed this app and where did it come from?** to review the human-r
 
 Open a result for its complete evidence or select **Recheck this app** to run a new focused Application Trust scan for the exact recorded path. The server validates the path against the current local application inventory before collection.
 
+For a negative Application Trust result from a scan made before 1.4.0, the dashboard checks whether the report recorded completion of signature and Gatekeeper verification. If a negative check lacks that completion evidence, the review card marks it as historical, lowers evidence confidence, and recommends a fresh check. The original finding and saved report remain unchanged. A newer `Pass` after an older `Fail` can reflect improved collection rather than a repaired application; compare the evidence before closing the investigation.
+
 The target path is recorded in the report. Changes since the previous comparable scan use only an earlier scan with the same target and collector scope. The selector includes applications discovered in the standard system, global, and current-user application folders; it does not accept an arbitrary path.
 
 ### Representative result

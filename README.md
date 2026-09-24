@@ -118,6 +118,8 @@ notarization accepted, executable located inside the application bundle.
 
 Interpretation: the application met the checks shown in the finding. This does not prove that the software is harmless or that its publisher is trustworthy. Confirm the publisher, expected installation source, hashes, and behavior before closing the review.
 
+If an older report asks you to recheck a trust failure, use **Recheck this app** before treating its signature or Gatekeeper label as current. Historical results without check-completion evidence are shown with lower confidence; the original evidence is preserved.
+
 ### Investigate a listening process
 
 Goal: connect a network listener to its owning process and execution context.

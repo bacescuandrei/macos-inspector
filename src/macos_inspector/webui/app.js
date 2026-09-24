@@ -433,10 +433,11 @@ function renderApplicationReview(review) {
     const change = item.change || null;
     const facts = [
       item.publisher_team_id ? `Team ID ${item.publisher_team_id}` : 'Team ID unavailable',
-      item.signature_valid === true ? 'Signature valid' : item.signature_valid === false ? 'Signature invalid' : 'Signature check not completed',
+      item.signature_valid === true ? 'Signature valid' : item.signature_valid === false ? 'Signature invalid' : item.legacy_verification ? 'Signature completion not recorded' : 'Signature check not completed',
       item.gatekeeper_accepted === true ? 'Gatekeeper accepted' : item.gatekeeper_accepted === false ? 'Gatekeeper rejected' : 'Gatekeeper unknown',
       item.notarized === true ? 'Notarized' : item.notarized === false ? 'Notarization not confirmed' : 'Notarization not separately reported',
     ];
+    if (item.legacy_verification) facts.unshift('Historical check: recheck required');
     const sourceHosts = Array.isArray(provenance.source_hosts) ? provenance.source_hosts : [];
     const provenanceRows = [
       ['Signing identity', provenance.publisher || 'Not available'],

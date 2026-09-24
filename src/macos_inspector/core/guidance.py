@@ -102,6 +102,27 @@ def _verdict(finding: dict[str, Any]) -> tuple[str, str]:
     return "information", "Information"
 
 
+def _legacy_app_trust_result(finding: dict[str, Any], tool_version: object) -> bool:
+    """Flag historical trust failures that predate explicit check-completion evidence."""
+    if not str(finding.get("finding_id", "")).startswith("APP-TRUST-"):
+        return False
+    if str(finding.get("status", "")).lower() not in {"fail", "unknown"}:
+        return False
+    parts = str(tool_version or "").split(".")
+    try:
+        if len(parts) < 2 or (int(parts[0]), int(parts[1])) >= (1, 4):
+            return False
+    except ValueError:
+        return False
+    signature = _evidence(finding, "code_signature")
+    gatekeeper = _evidence(finding, "gatekeeper_assessment")
+    return (
+        signature.get("valid") is False and "verification_completed" not in signature
+    ) or (
+        gatekeeper.get("accepted") is False and "assessment_completed" not in gatekeeper
+    )
+
+
 def _next_actions(finding: dict[str, Any], verdict: str) -> list[str]:
     finding_id = str(finding.get("finding_id", ""))
     if verdict == "unable-to-verify":
@@ -190,12 +211,19 @@ def build_guidance(report: dict[str, Any], investigations: dict[str, dict[str, A
     for finding in findings:
         finding_id = str(finding.get("finding_id", ""))
         verdict, label = _verdict(finding)
+        legacy_verification = _legacy_app_trust_result(finding, report.get("metadata", {}).get("tool_version"))
+        next_actions = _next_actions(finding, verdict)
+        explanation = _simple_explanation(finding, verdict)
+        if legacy_verification:
+            explanation = "This older report recorded a trust result without confirming whether every verification check finished. Recheck the app before treating the result as current."
+            next_actions = ["Recheck this app with the current version before drawing a conclusion.", *next_actions]
         investigation = investigations.get(finding_id, {"status": "New", "current": True, "note": ""})
         item = {
             "verdict": verdict,
             "label": label,
-            "simple_explanation": _simple_explanation(finding, verdict),
-            "next_actions": _next_actions(finding, verdict),
+            "simple_explanation": explanation,
+            "next_actions": next_actions,
+            "legacy_verification": legacy_verification,
             "context": _context(finding),
             "investigation": investigation,
         }

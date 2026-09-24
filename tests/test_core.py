@@ -357,6 +357,71 @@ class CoreTests(unittest.TestCase):
                 if verdict in {"high-priority", "indicator-match"}:
                     self.assertEqual(experience["assessment"]["id"], "action-recommended")
 
+    def test_historical_trust_failures_prompt_recheck_without_rewriting_evidence(self):
+        finding_payload = {
+            "finding_id": "APP-TRUST-LEGACY", "category": "Application Trust",
+            "title": "Application trust: Example", "severity": "High", "status": "Fail",
+            "observed_result": "The code signature did not validate.",
+            "evidence": [
+                {"kind": "application_bundle", "source": "/Applications/Example.app", "value": {"name": "Example"}},
+                {"kind": "code_signature", "source": "/Applications/Example.app", "value": {"valid": False}},
+                {"kind": "gatekeeper_assessment", "source": "/Applications/Example.app", "value": {"accepted": True}},
+                {"kind": "executable_integrity", "source": "/Applications/Example.app", "value": {"sha256": "a" * 64}},
+            ],
+        }
+        legacy = {"metadata": {"scan_id": "legacy-trust", "tool_version": "1.3.3", "collectors": ["application-trust"]},
+                  "summary": {}, "findings": [finding_payload]}
+        result = build_decision_support(legacy)
+        guide = result["guidance"]["findings"]["APP-TRUST-LEGACY"]
+        self.assertTrue(guide["legacy_verification"])
+        self.assertIn("older report", guide["simple_explanation"])
+        self.assertIn("Recheck this app", guide["next_actions"][0])
+        self.assertEqual(guide["confidence"]["level"], "low")
+        review = result["application_review"]["applications"][0]
+        self.assertTrue(review["legacy_verification"])
+        self.assertIsNone(review["signature_valid"])
+        self.assertIs(review["gatekeeper_accepted"], True)
+        self.assertNotIn("The code signature did not validate.", review["signals"])
+        self.assertIn("Recheck this app", result["experience"]["next_actions"][0]["verify"])
+        self.assertEqual(finding_payload["status"], "Fail")
+        self.assertFalse(finding_payload["evidence"][1]["value"]["valid"])
+
+        current = {**legacy, "metadata": {**legacy["metadata"], "tool_version": "1.4.0"}}
+        current_result = build_decision_support(current)
+        current_guide = current_result["guidance"]["findings"]["APP-TRUST-LEGACY"]
+        self.assertFalse(current_guide["legacy_verification"])
+        self.assertNotIn("older report", current_guide["simple_explanation"])
+        self.assertIs(current_result["application_review"]["applications"][0]["signature_valid"], False)
+
+        confirmed_failure = json.loads(json.dumps(legacy))
+        confirmed_failure["findings"][0]["evidence"][1]["value"]["verification_completed"] = True
+        confirmed_failure["findings"][0]["evidence"][2]["value"]["assessment_completed"] = True
+        confirmed_result = build_decision_support(confirmed_failure)
+        self.assertFalse(confirmed_result["guidance"]["findings"]["APP-TRUST-LEGACY"]["legacy_verification"])
+        self.assertIs(confirmed_result["application_review"]["applications"][0]["signature_valid"], False)
+
+        separate_integrity_issue = json.loads(json.dumps(legacy))
+        separate_integrity_issue["findings"][0]["evidence"][1]["value"]["valid"] = True
+        separate_result = build_decision_support(separate_integrity_issue)
+        self.assertFalse(separate_result["guidance"]["findings"]["APP-TRUST-LEGACY"]["legacy_verification"])
+
+        fresh_pass = json.loads(json.dumps(confirmed_failure))
+        fresh_pass["metadata"].update({"scan_id": "fresh-trust", "tool_version": "1.4.0"})
+        fresh_pass["findings"][0]["status"] = "Pass"
+        fresh_pass["findings"][0]["severity"] = "Informational"
+        fresh_pass["findings"][0]["evidence"][1]["value"]["valid"] = True
+        compared = build_decision_support(fresh_pass, legacy)["changes"]["application_changes"][0]
+        self.assertEqual(compared["kind"], "application-coverage-change")
+        self.assertEqual(compared["label"], "Evidence coverage expanded")
+
+    def test_single_indicator_match_is_not_treated_as_multiple_evidence_sources(self):
+        finding_payload = {"finding_id": "IOC-EXAMPLE", "status": "Match", "evidence": [
+            {"kind": "ioc_evaluation", "source": "fixture", "value": {"result": {"exists": True}}},
+        ]}
+        confidence = confidence_for_finding(finding_payload)
+        self.assertEqual(confidence["level"], "medium")
+        self.assertIn("one structured evidence source", confidence["rationale"])
+
     def test_guidance_and_investigation_endpoints_require_local_protected_requests(self):
         report = {
             "metadata": {"scan_id": "guided-endpoint"},

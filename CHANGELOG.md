@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Mark pre-1.4.0 application trust failures with incomplete historical check metadata as needing a fresh verification. Preserve the original result while lowering evidence confidence and showing a recheck cue.
+- Remove a dead IOC/YARA confidence shortcut; a single local rule match remains one evidence source, not multiple independent confirmations.
 - Describe failed application trust checks as trust or integrity findings, not observed behavior. Indicator matches now enter the review queue without asserting that software is unwanted.
 - Add Chromium dashboard smoke tests for Simple and Analyst views, incomplete-scan messaging, and narrow-screen layout. GitHub CI runs them before packaging.
 - Record coverage for every selected collector, including collectors that fail or return no findings.

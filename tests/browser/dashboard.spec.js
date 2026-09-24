@@ -91,3 +91,28 @@ test('review copy and cards fit narrow and wide viewports', async ({ page }) => 
     expect(overflow, `Horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
   }
 });
+
+test('historical trust findings show a recheck cue without changing the recorded status', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 850 });
+  await page.evaluate(() => renderApplicationReview({
+    available: true,
+    conclusion: 'Review recorded trust results in context.',
+    total: 1,
+    counts: { review_first: 1 },
+    applications: [{
+      finding_id: 'APP-TRUST-LEGACY',
+      group: 'review_first', group_label: 'Review first',
+      name: 'Example', path: '/Applications/Example.app',
+      explanation: 'This older report recorded a trust result without confirming whether every verification check finished.',
+      legacy_verification: true,
+      signature_valid: null, gatekeeper_accepted: true,
+      signals: [],
+    }],
+  }));
+
+  await expect(page.locator('#application-review')).toContainText('Historical check: recheck required');
+  await expect(page.locator('#application-review')).toContainText('Signature completion not recorded');
+  await expect(page.locator('#application-review')).toContainText('Recheck this app');
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});

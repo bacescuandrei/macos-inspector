@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from macos_inspector.core.guidance import build_guidance, finding_fingerprint
+from macos_inspector.core.guidance import _legacy_app_trust_result, build_guidance, finding_fingerprint
 from macos_inspector.reporters.common import secure_write_text
 
 
@@ -95,12 +95,6 @@ def confidence_for_finding(finding: dict[str, Any]) -> dict[str, Any]:
             "rationale": "Application evidence was collected, but one or more trust checks are incomplete.",
             "missing": missing,
         }
-    if ("IOC" in finding_id or "YARA" in finding_id) and status == "fail" and evidence:
-        return {
-            "level": "high", "label": "High evidence confidence",
-            "rationale": "A structured local rule or indicator match supports this result.",
-            "missing": [],
-        }
     if len(evidence) >= 2:
         return {
             "level": "high", "label": "High evidence confidence",
@@ -130,6 +124,7 @@ def _findings(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
+    tool_version = report.get("metadata", {}).get("tool_version")
     for finding_id, finding in _findings(report).items():
         if not finding_id.startswith("APP-TRUST-"):
             continue
@@ -139,6 +134,15 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
         metadata = evidence_value(finding, "info_plist_integrity")
         bundle_paths = evidence_value(finding, "bundle_path_integrity")
         gatekeeper = evidence_value(finding, "gatekeeper_assessment")
+        legacy_verification = _legacy_app_trust_result(finding, tool_version)
+        signature_valid = _signature_result(finding, signature)
+        gatekeeper_accepted = _gatekeeper_result(finding, gatekeeper)
+        notarized = _notarization_result(gatekeeper)
+        if legacy_verification and signature_valid is False and "verification_completed" not in signature:
+            signature_valid = None
+        if legacy_verification and gatekeeper_accepted is False and "assessment_completed" not in gatekeeper:
+            gatekeeper_accepted = None
+            notarized = None
         result[finding_id] = {
             "finding_id": finding_id,
             "name": app.get("name") or finding.get("title", finding_id),
@@ -149,24 +153,25 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "version": app.get("version"),
             "executable_path": app.get("executable"),
             "publisher_team_id": signature.get("team_identifier"),
-            "signature_valid": _signature_result(finding, signature),
+            "signature_valid": signature_valid,
             "signature_type": signature.get("signature_type"),
             "hardened_runtime": signature.get("hardened_runtime"),
-            "gatekeeper_accepted": _gatekeeper_result(finding, gatekeeper),
-            "notarized": _notarization_result(gatekeeper),
+            "gatekeeper_accepted": gatekeeper_accepted,
+            "notarized": notarized,
             "sha256": executable.get("sha256"),
             "executable_permissions": executable.get("permissions"),
             "executable_changed_during_read": executable.get("changed_during_read"),
             "info_plist_permissions": metadata.get("permissions"),
             "info_plist_changed_during_read": metadata.get("changed_during_read"),
             "executable_inside_bundle": bundle_paths.get("executable_resolves_within_bundle"),
-            "signals": _application_signals(finding),
+            "signals": _application_signals(finding, legacy_verification),
+            "legacy_verification": legacy_verification,
             "fingerprint": finding_fingerprint(finding),
         }
     return result
 
 
-def _application_signals(finding: dict[str, Any]) -> list[str]:
+def _application_signals(finding: dict[str, Any], legacy_verification: bool = False) -> list[str]:
     """Return short, evidence-backed trust signals without making a malware verdict."""
     signature = evidence_value(finding, "code_signature")
     gatekeeper = evidence_value(finding, "gatekeeper_assessment")
@@ -175,10 +180,16 @@ def _application_signals(finding: dict[str, Any]) -> list[str]:
     entitlements = evidence_value(finding, "code_entitlements")
     signals: list[str] = []
     signature_valid = _signature_result(finding, signature)
-    notarized = _notarization_result(gatekeeper)
+    gatekeeper_accepted = _gatekeeper_result(finding, gatekeeper)
+    gatekeeper_uncertain = legacy_verification and gatekeeper_accepted is False and "assessment_completed" not in gatekeeper
+    if legacy_verification and signature_valid is False and "verification_completed" not in signature:
+        signature_valid = None
+    if gatekeeper_uncertain:
+        gatekeeper_accepted = None
+    notarized = None if gatekeeper_uncertain else _notarization_result(gatekeeper)
     if signature_valid is False:
         signals.append("The code signature did not validate.")
-    if _gatekeeper_result(finding, gatekeeper) is False:
+    if gatekeeper_accepted is False:
         signals.append("Gatekeeper did not accept the application.")
     if bundle_paths.get("executable_resolves_within_bundle") is False:
         signals.append("The main executable resolves outside the application bundle.")
@@ -351,6 +362,7 @@ def build_application_review(
             "group_label": groups[group],
             "explanation": guide.get("simple_explanation") or finding.get("observed_result") or "Trust evidence was recorded.",
             "next_action": next_actions[0] if next_actions else "Open the finding and validate the publisher, source, and expected use.",
+            "legacy_verification": bool(guide.get("legacy_verification")),
             "investigation_status": investigation_status,
             "signature_valid": app.get("signature_valid"),
             "signature_type": signature.get("signature_type"),
@@ -358,7 +370,7 @@ def build_application_review(
             "notarized": app.get("notarized"),
             "hardened_runtime": signature.get("hardened_runtime"),
             "sha256": executable.get("sha256"),
-            "signals": _application_signals(finding),
+            "signals": app.get("signals", []),
             "change": application_changes.get(finding_id),
             "provenance": _application_provenance(finding, application_path),
             "activity": _application_activity(
@@ -1113,7 +1125,14 @@ def build_decision_support(
     guidance = build_guidance(current, investigations)
     for finding_id, finding in _findings(current).items():
         if finding_id in guidance["findings"]:
-            guidance["findings"][finding_id]["confidence"] = confidence_for_finding(finding)
+            confidence = confidence_for_finding(finding)
+            if guidance["findings"][finding_id].get("legacy_verification"):
+                confidence = {
+                    "level": "low", "label": "Low evidence confidence",
+                    "rationale": "This older report did not record whether every application trust check completed.",
+                    "missing": ["Explicit signature and Gatekeeper completion results"],
+                }
+            guidance["findings"][finding_id]["confidence"] = confidence
     experience = build_user_experience(current, guidance)
     changes = analyze_changes(baseline, current)
     stories = build_stories(current, guidance)
