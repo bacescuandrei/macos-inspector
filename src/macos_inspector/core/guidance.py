@@ -88,8 +88,10 @@ def _verdict(finding: dict[str, Any]) -> tuple[str, str]:
     finding_id = str(finding.get("finding_id", "")).lower()
     if status == "unknown":
         return "unable-to-verify", "Unable to verify"
-    if status in {"pass", "not applicable"}:
+    if status == "pass":
         return "looks-normal", "Looks normal"
+    if status == "not applicable":
+        return "not-assessed", "Not assessed"
     indicator_result = "ioc" in category or "yara" in category or "ioc" in finding_id or "yara" in finding_id
     if indicator_result and status == "match" and severity >= 2:
         return "indicator-match", "Indicator match to validate"
@@ -130,6 +132,14 @@ def _next_actions(finding: dict[str, Any], verdict: str) -> list[str]:
             "Open the technical details to see what could not be checked.",
             "Grant only the macOS permission needed for this check, then run it again.",
         ]
+    if verdict == "not-assessed":
+        if finding_id == "YARA-MANAGED-SCAN":
+            return ["Enable YARA in local settings and select trusted rules and explicit targets if you need this check."]
+        if finding_id == "IOC-NO-PACKS":
+            return ["Import a trusted, versioned IOC pack if you want to check this Mac for those indicators."]
+        if finding_id == "BROWSER-NO-PROFILES":
+            return ["Confirm you scanned the intended macOS user account if browser activity was expected."]
+        return ["Confirm whether this check applies to the selected Mac and user before drawing a conclusion."]
     if verdict == "looks-normal":
         return ["No immediate action is required. Review the technical details if this item is unfamiliar."]
     if verdict == "information":
@@ -207,6 +217,7 @@ def build_guidance(report: dict[str, Any], investigations: dict[str, dict[str, A
     attention: list[dict[str, Any]] = []
     normal = 0
     unknown = 0
+    not_assessed = 0
     observations = 0
     for finding in findings:
         finding_id = str(finding.get("finding_id", ""))
@@ -229,10 +240,12 @@ def build_guidance(report: dict[str, Any], investigations: dict[str, dict[str, A
         }
         guided[finding_id] = item
         state = str(investigation.get("status", "New"))
-        if verdict == "looks-normal" or state in {"Expected", "Resolved"}:
-            normal += 1
-        elif verdict == "unable-to-verify":
+        if verdict == "unable-to-verify":
             unknown += 1
+        elif verdict == "not-assessed":
+            not_assessed += 1
+        elif verdict == "looks-normal" or state in {"Expected", "Resolved"}:
+            normal += 1
         elif verdict != "information":
             attention.append({
                 "finding_id": finding_id,
@@ -248,14 +261,16 @@ def build_guidance(report: dict[str, Any], investigations: dict[str, dict[str, A
     if attention:
         headline = f"{len(attention)} item{'s' if len(attention) != 1 else ''} need your attention."
     elif unknown:
-        headline = "No immediate concern was found, but some checks could not be completed."
+        headline = "Some checks could not be verified. Review the missing evidence."
+    elif not_assessed:
+        headline = "Some selected checks did not assess a target. Review the scan scope."
     else:
         headline = "No item currently needs your attention."
     return {
         "scan_id": report.get("metadata", {}).get("scan_id"),
         "headline": headline,
         "plain_language_note": "A review result is a reason to investigate, not proof of malware.",
-        "counts": {"attention": len(attention), "unable_to_verify": unknown, "looks_normal_or_resolved": normal, "recorded_observations": observations},
+        "counts": {"attention": len(attention), "unable_to_verify": unknown, "not_assessed": not_assessed, "looks_normal_or_resolved": normal, "recorded_observations": observations},
         "priorities": attention[:5],
         "workflow": ["Detect", "Understand", "Validate", "Preserve", "Contain", "Rescan", "Close"],
         "findings": guided,

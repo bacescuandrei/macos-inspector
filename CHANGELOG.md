@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Separate `Not Applicable` from passing checks in guided review. Disabled YARA, absent IOC packs, and missing supported browser profiles now appear as "Not assessed" with a relevant setup or scope check, rather than "Looks normal".
+- Show a limited-scope assessment when a selected check finishes without an applicable target. Execution coverage remains distinct from whether the check assessed files or activity.
+- Clarify `Not Applicable` in standalone HTML reports and show `N/A` instead of a score when no findings were assessed.
+- Keep `Unknown` and `Not Applicable` findings in reports even when a higher minimum severity is selected, so filtering cannot hide collection or applicability gaps.
 - Mark pre-1.4.0 application trust failures with incomplete historical check metadata as needing a fresh verification. Preserve the original result while lowering evidence confidence and showing a recheck cue.
 - Remove a dead IOC/YARA confidence shortcut; a single local rule match remains one evidence source, not multiple independent confirmations.
 - Describe failed application trust checks as trust or integrity findings, not observed behavior. Indicator matches now enter the review queue without asserting that software is unwanted.

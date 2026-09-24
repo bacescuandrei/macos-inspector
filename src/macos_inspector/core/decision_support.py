@@ -977,19 +977,21 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
     """Build a concise assessment without turning a rule score into a safety verdict."""
     findings = _findings(report)
     candidates: list[dict[str, Any]] = []
-    verdict_rank = {"high-priority": 0, "indicator-match": 0, "needs-review": 1, "unable-to-verify": 2}
+    verdict_rank = {"high-priority": 0, "indicator-match": 0, "needs-review": 1, "unable-to-verify": 2, "not-assessed": 3}
     for finding_id, guide in guidance.get("findings", {}).items():
         if not isinstance(guide, dict) or finding_id not in findings:
             continue
         investigation = guide.get("investigation", {})
-        if isinstance(investigation, dict) and investigation.get("status") in {"Expected", "Resolved"}:
-            continue
         verdict = str(guide.get("verdict", "information"))
+        if isinstance(investigation, dict) and investigation.get("status") in {"Expected", "Resolved"} and verdict not in {"unable-to-verify", "not-assessed"}:
+            continue
         if verdict not in verdict_rank:
             continue
         finding = findings[finding_id]
         if verdict == "unable-to-verify":
             not_proof = "An incomplete check is not evidence that the item is malicious or safe."
+        elif verdict == "not-assessed":
+            not_proof = "A check without an applicable target is not evidence that the Mac is safe or compromised."
         elif verdict == "indicator-match":
             not_proof = "A rule or indicator match still requires validation before it becomes a security conclusion."
         else:
@@ -1067,8 +1069,9 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
     ))
 
     high_priority = any(item["verdict"] in {"high-priority", "indicator-match"} for item in candidates)
-    review_count = sum(item["verdict"] != "unable-to-verify" for item in candidates)
+    review_count = sum(item["verdict"] in ATTENTION_VERDICTS for item in candidates)
     unknown_count = sum(item["verdict"] == "unable-to-verify" for item in candidates)
+    not_assessed_count = sum(item["verdict"] == "not-assessed" for item in candidates)
     if high_priority:
         assessment = {
             "id": "action-recommended", "label": "Action recommended",
@@ -1084,8 +1087,14 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
     elif unknown_count:
         assessment = {
             "id": "scan-incomplete", "label": "Scan incomplete",
-            "headline": "No immediate warning was identified, but some checks did not finish.",
+            "headline": "Some selected checks did not finish.",
             "explanation": "Do not treat unavailable evidence as a pass. Review the missing checks and rerun them if needed.",
+        }
+    elif not_assessed_count:
+        assessment = {
+            "id": "limited-scope", "label": "Limited scan scope",
+            "headline": "Some selected checks did not assess a target.",
+            "explanation": "The checks ran, but one or more had no enabled rules or applicable data. This is not a clean result for those sections.",
         }
     else:
         assessment = {
@@ -1094,18 +1103,27 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
             "explanation": "This is not a guarantee that the Mac is safe. Keep the report as a baseline and investigate unfamiliar behavior.",
         }
 
-    coverage_label = "Coverage unavailable for this report" if coverage is None else "Complete for selected scope" if not incomplete else "Partial for selected scope"
+    if coverage is None:
+        coverage_label = "Coverage unavailable for this report"
+    elif incomplete:
+        coverage_label = "Partial for selected scope"
+    elif not_assessed_count:
+        coverage_label = "Checks finished; some not assessed"
+    else:
+        coverage_label = "Complete for selected scope"
     confidence_levels = [
         str(guidance.get("findings", {}).get(item["finding_id"], {}).get("confidence", {}).get("level", "low"))
         for item in candidates[:3]
     ]
-    confidence = "low" if incomplete or "low" in confidence_levels else "medium" if "medium" in confidence_levels else "high"
+    confidence = "low" if incomplete or not_assessed_count or "low" in confidence_levels else "medium" if "medium" in confidence_levels else "high"
     confidence_label = {
         "high": "Evidence available for selected checks" if not review_count else "Strong supporting evidence",
         "medium": "Some supporting evidence is missing",
         "low": "Important evidence is incomplete",
     }[confidence]
-    priority_label = "High priority" if high_priority else "Review needed" if review_count else "Recheck incomplete sections" if incomplete else "No immediate priority"
+    if confidence == "low" and not_assessed_count and not incomplete:
+        confidence_label = "Some selected checks have no target evidence"
+    priority_label = "High priority" if high_priority else "Review needed" if review_count else "Recheck incomplete sections" if incomplete else "Check scan scope" if not_assessed_count else "No immediate priority"
     return {
         "assessment": assessment,
         "next_actions": candidates[:3],

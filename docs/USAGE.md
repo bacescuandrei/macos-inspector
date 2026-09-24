@@ -15,7 +15,11 @@ The current assessment has four possible states:
 - `Action recommended`: at least one high-priority rule outcome needs prompt validation.
 - `Scan incomplete`: no immediate warning was identified, but important evidence could not be collected.
 
-The assessment shows review priority, collection coverage, and evidence confidence separately. Coverage includes every selected section, even when a section fails or returns no findings. Incomplete evidence lowers the confidence label and provides a step to check readiness and rerun the same scan. The retained rule outcome index is a compatibility and comparison value, not a probability that the Mac is safe or compromised.
+The assessment shows review priority, collection coverage, and evidence confidence separately. Coverage includes every selected section, even when a section fails or returns no findings. Incomplete evidence lowers the confidence label and provides a step to check readiness and rerun the same scan. A check marked `Not Applicable` may have finished without assessing files or activity; the dashboard calls this `Not assessed` and explains how to enable or scope the check when needed. The retained rule outcome index is a compatibility and comparison value, not a probability that the Mac is safe or compromised.
+
+Standalone HTML reports include a visible scope note when a finding is `Not Applicable`. A category containing only such findings displays `N/A` instead of a category score. When every reported finding is `Not Applicable`, the prominent overall score also displays `N/A`. The underlying report data and retained numeric index are not rewritten.
+
+The minimum-severity selector filters ordinary findings, but it always retains `Unknown` and `Not Applicable` results. These statuses describe evidence gaps or scope limits and must remain visible even in a high-severity report.
 
 Each recommended action states what was observed, why it matters, what it does not prove, the next safe validation step, and the risk of acting. Expand **Details** for commands, raw evidence, application identity, executable hashes, process context, and the full rule explanation.
 

@@ -14,6 +14,7 @@ import signal
 import threading
 import zipfile
 from contextlib import closing
+from dataclasses import replace
 from datetime import datetime, timezone
 from unittest.mock import patch
 from pathlib import Path
@@ -66,6 +67,7 @@ from macos_inspector.collectors.live_triage import (
     suspicious_processes,
 )
 from macos_inspector.collectors.yara_rules import discover_yara_rules, parse_yara_matches
+from macos_inspector.collectors.yara_rules import YARARulesCollector
 from macos_inspector.core.intelligence import (
     IntelligenceResource,
     fetch_cached_json,
@@ -421,6 +423,67 @@ class CoreTests(unittest.TestCase):
         confidence = confidence_for_finding(finding_payload)
         self.assertEqual(confidence["level"], "medium")
         self.assertIn("one structured evidence source", confidence["rationale"])
+
+    def test_not_applicable_checks_are_not_presented_as_normal_or_clean(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = [
+                ("yara-rules", YARARulesCollector(object(), settings={"yara": {"enabled": False, "targets": []}}, rules_directory=root).collect()[0], "Enable YARA"),
+                ("ioc", IOCCollector(object(), (root,)).collect()[0], "Import a trusted"),
+                ("browser-artifacts", BrowserArtifactsCollector(object(), home=root).collect()[0], "Confirm you scanned"),
+            ]
+            for collector_id, item, action in cases:
+                with self.subTest(collector=collector_id):
+                    report = {
+                        "metadata": {"scan_id": f"not-applicable-{collector_id}", "collectors": [collector_id]},
+                        "summary": {"collector_coverage": {collector_id: 100}},
+                        "findings": [item.to_dict()],
+                    }
+                    result = build_decision_support(report)
+                    guide = result["guidance"]
+                    self.assertEqual(guide["findings"][item.finding_id]["label"], "Not assessed")
+                    self.assertEqual(guide["counts"]["looks_normal_or_resolved"], 0)
+                    self.assertEqual(guide["counts"]["not_assessed"], 1)
+                    self.assertEqual(result["experience"]["assessment"]["id"], "limited-scope")
+                    self.assertEqual(result["experience"]["axes"]["coverage"]["percent"], 100)
+                    self.assertEqual(result["experience"]["axes"]["coverage"]["label"], "Checks finished; some not assessed")
+                    self.assertEqual(result["experience"]["axes"]["confidence"]["level"], "low")
+                    self.assertEqual(result["experience"]["axes"]["confidence"]["label"], "Some selected checks have no target evidence")
+                    self.assertIn(action, result["experience"]["next_actions"][0]["verify"])
+                    reviewed = build_guidance(report, {item.finding_id: {"status": "Expected", "current": True}})
+                    self.assertEqual(reviewed["counts"]["not_assessed"], 1)
+                    self.assertEqual(reviewed["counts"]["looks_normal_or_resolved"], 0)
+                    reviewed_experience = build_decision_support(report, investigations={
+                        item.finding_id: {"status": "Expected", "current": True},
+                    })["experience"]
+                    self.assertEqual(reviewed_experience["assessment"]["id"], "limited-scope")
+
+        unknown = finding(Severity.INFORMATIONAL, "Unknown")
+        unknown_report = {
+            "metadata": {"scan_id": "unknown-reviewed", "collectors": ["fixture"]},
+            "summary": {"collector_coverage": {"fixture": 0}}, "findings": [unknown.to_dict()],
+        }
+        unknown_result = build_decision_support(unknown_report, investigations={
+            unknown.finding_id: {"status": "Expected", "current": True},
+        })
+        self.assertEqual(unknown_result["guidance"]["counts"]["unable_to_verify"], 1)
+        self.assertEqual(unknown_result["guidance"]["counts"]["looks_normal_or_resolved"], 0)
+        self.assertEqual(unknown_result["experience"]["assessment"]["id"], "scan-incomplete")
+
+    def test_standalone_html_marks_unassessed_categories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            item = YARARulesCollector(
+                object(), settings={"yara": {"enabled": False, "targets": []}}, rules_directory=Path(directory)
+            ).collect()[0]
+            metadata = ScanMetadata("1.4.0", "not-assessed-html", "start", "end", "fixture", "macOS", "tester", ("yara-rules",))
+            result = ScanResult(metadata, (item,), 100, {"IOC Matches": 100}, {"IOC Matches": 100})
+            path = Path(directory) / "report.html"
+            REPORTERS["html"](result, path)
+            document = path.read_text(encoding="utf-8")
+            self.assertIn("Not Applicable is not a passing security result", document)
+            self.assertIn("Not assessed</small></span><strong>N/A", document)
+            self.assertIn('class="score">N/A<small>No assessed findings', document)
+            self.assertNotIn("100% coverage", document)
 
     def test_guidance_and_investigation_endpoints_require_local_protected_requests(self):
         report = {
@@ -2277,6 +2340,30 @@ enabled active teamID bundleID (version) name [state]
         self.assertEqual(result.total_finding_count, 2)
         self.assertEqual(len(result.findings), 1)
         self.assertEqual(result.to_dict()["summary"]["total_finding_count"], 2)
+
+    def test_severity_threshold_does_not_hide_unknown_or_unassessed_checks(self):
+        class MixedCollector:
+            def __init__(self, runner):
+                pass
+
+            def collect(self):
+                return [
+                    replace(finding(Severity.HIGH, "Fail"), finding_id="HIGH-FAIL"),
+                    replace(finding(Severity.INFORMATIONAL, "Unknown"), finding_id="LOW-UNKNOWN"),
+                    replace(finding(Severity.INFORMATIONAL, "Not Applicable"), finding_id="LOW-NOT-APPLICABLE"),
+                    replace(finding(Severity.LOW, "Pass"), finding_id="LOW-PASS"),
+                ]
+
+        with patch.dict("macos_inspector.core.scan.COLLECTORS", {"mixed": MixedCollector}, clear=True):
+            result = run_scan(["mixed"], Severity.HIGH, runner=object())
+        self.assertEqual({item.finding_id for item in result.findings}, {
+            "HIGH-FAIL", "LOW-UNKNOWN", "LOW-NOT-APPLICABLE",
+        })
+        self.assertEqual(result.total_finding_count, 4)
+        guidance = build_guidance(result.to_dict())
+        self.assertEqual(guidance["counts"]["attention"], 1)
+        self.assertEqual(guidance["counts"]["unable_to_verify"], 1)
+        self.assertEqual(guidance["counts"]["not_assessed"], 1)
 
     def test_all_reporters_write(self):
         metadata = ScanMetadata("0.1", "scan", "start", "end", "host", "platform", "user", ("test",))

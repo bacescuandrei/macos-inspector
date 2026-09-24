@@ -29,7 +29,7 @@ def run_scan(
     item_progress: Callable[[str, str | None, int, int], None] | None = None,
     target_application: Path | None = None,
 ) -> ScanResult:
-    """Run collectors and filter only the report view, never the score inputs."""
+    """Run collectors and keep evidence gaps visible above any severity threshold."""
     started = datetime.now(timezone.utc)
     all_findings, errors = [], []
     collector_coverage: dict[str, int] = {}
@@ -67,7 +67,10 @@ def run_scan(
     overall, category_scores = calculate_scores(all_findings)
     category_coverage = calculate_coverage(all_findings)
     visible_findings = sorted(
-        (finding for finding in all_findings if finding.severity >= minimum),
+        (
+            finding for finding in all_findings
+            if finding.severity >= minimum or finding.status.lower() in {"unknown", "not applicable"}
+        ),
         key=lambda finding: (-int(finding.severity), finding.category, finding.finding_id),
     )
     completed = datetime.now(timezone.utc)

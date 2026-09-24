@@ -99,6 +99,8 @@ Routine use does not require terminal commands. The CLI remains available for au
 
 The dashboard does not present the numeric rule outcome index as a safety score. Review priority, collection coverage, and evidence confidence are shown separately because they answer different questions. A scan can have broad coverage and still contain an urgent finding, or have no urgent finding while important checks remain incomplete.
 
+`Not Applicable` is not a passing security check. For example, disabled YARA scanning, no enabled IOC pack, or no supported browser profile means that section did not assess a target. The dashboard shows these as **Not assessed** with a specific next step. A completed collector can still have limited investigative scope.
+
 ## Practical examples
 
 ### Validate an unfamiliar application

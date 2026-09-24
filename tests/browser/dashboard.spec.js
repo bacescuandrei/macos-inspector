@@ -116,3 +116,37 @@ test('historical trust findings show a recheck cue without changing the recorded
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
+test('a skipped optional check is shown as limited scope, not a normal result', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 850 });
+  await page.evaluate(() => {
+    renderExperience({
+      assessment: {
+        id: 'limited-scope', label: 'Limited scan scope',
+        headline: 'Some selected checks did not assess a target.',
+        explanation: 'The checks ran, but one had no enabled rules.',
+      },
+      next_actions: [{
+        title: 'Managed YARA local scan', label: 'Not assessed', verdict: 'not-assessed',
+        observed: 'YARA scanning is disabled in local settings.',
+        why_it_matters: 'No files were checked against YARA rules.',
+        not_proof: 'This is not evidence that the Mac is safe or compromised.',
+        verify: 'Enable YARA and select trusted rules and explicit targets.',
+        action_risk: 'Changing YARA settings does not remove files.',
+      }],
+    });
+    renderGuidance({
+      headline: 'Some selected checks did not assess a target.',
+      plain_language_note: 'A review result is a reason to investigate, not proof of malware.',
+      counts: { attention: 0, unable_to_verify: 0, not_assessed: 1, looks_normal_or_resolved: 0, recorded_observations: 0 },
+      priorities: [], workflow: [],
+    });
+  });
+
+  await expect(page.locator('#experience-summary')).toContainText('Limited scan scope');
+  await expect(page.locator('#experience-summary')).toContainText('Not assessed');
+  await expect(page.locator('#guided-summary')).toContainText('1 not assessed');
+  await expect(page.locator('#guided-summary')).toContainText('0 normal or resolved');
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
