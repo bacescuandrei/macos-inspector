@@ -11,6 +11,8 @@ from macos_inspector import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = "macOS Inspector.command"
+# ZIP_STORED and a fixed timestamp keep hashes independent of checkout times and zlib versions.
+ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 
 def release_files() -> list[Path]:
@@ -43,14 +45,15 @@ def build_release(destination: Path | None = None) -> Path:
     destination = destination or ROOT / "dist" / f"macos-inspector-{__version__}-macos.zip"
     destination.parent.mkdir(parents=True, exist_ok=True)
     package_root = f"macOS Inspector {__version__}"
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_STORED) as archive:
         for path in release_files():
             relative = path.relative_to(ROOT)
-            info = zipfile.ZipInfo.from_file(path, f"{package_root}/{relative.as_posix()}")
+            info = zipfile.ZipInfo(f"{package_root}/{relative.as_posix()}", date_time=ZIP_TIMESTAMP)
+            info.create_system = 3
             permissions = 0o755 if relative.as_posix() == LAUNCHER else 0o644
             info.external_attr = (stat.S_IFREG | permissions) << 16
-            info.compress_type = zipfile.ZIP_DEFLATED
-            archive.writestr(info, path.read_bytes(), compresslevel=9)
+            info.compress_type = zipfile.ZIP_STORED
+            archive.writestr(info, path.read_bytes())
     checksum = hashlib.sha256(destination.read_bytes()).hexdigest()
     (destination.parent / "SHA256SUMS").write_text(
         f"{checksum}  {destination.name}\n", encoding="ascii",

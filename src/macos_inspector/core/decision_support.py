@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,12 @@ from macos_inspector.reporters.common import secure_write_text
 
 ATTENTION_VERDICTS = {"needs-review", "high-risk", "likely-unwanted"}
 SEVERITY_RANK = {"Informational": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}
+
+
+def _bounded_percent(value: Any) -> int:
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        return max(0, min(100, int(value)))
+    return 0
 
 
 def evidence_value(finding: dict[str, Any], kind: str) -> dict[str, Any]:
@@ -994,6 +1001,53 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
             "verify": next_actions[0] if isinstance(next_actions, list) and next_actions else "Open the result and validate the evidence.",
             "action_risk": action_risk,
         })
+    metadata = report.get("metadata", {})
+    summary = report.get("summary", {})
+    selected_collectors = [str(item) for item in metadata.get("collectors", []) if isinstance(item, str)]
+    collection_errors = metadata.get("collection_errors", [])
+    if not isinstance(collection_errors, list):
+        collection_errors = list(collection_errors) if isinstance(collection_errors, tuple) else []
+    recorded_coverage = summary.get("collector_coverage", {})
+    if selected_collectors and isinstance(recorded_coverage, dict) and recorded_coverage:
+        collector_coverage = {
+            collector_id: _bounded_percent(value)
+            for collector_id in selected_collectors
+            for value in (recorded_coverage.get(collector_id),)
+        }
+        coverage = round(sum(collector_coverage.values()) / len(selected_collectors))
+        incomplete_collectors = [name for name, percent in collector_coverage.items() if percent < 100]
+    else:
+        # Reports created before collector coverage was recorded retain their category estimate.
+        values = [
+            _bounded_percent(value) for value in summary.get("category_coverage", {}).values()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        ]
+        coverage = round(sum(values) / len(values)) if values and not collection_errors else None
+        incomplete_collectors = [
+            collector_id for collector_id in selected_collectors
+            if any(str(error).startswith(f"{collector_id}:") for error in collection_errors)
+        ]
+    incomplete = coverage is None or coverage < 100 or bool(collection_errors) or bool(incomplete_collectors)
+    if incomplete:
+        names = ", ".join(name.replace("-", " ").title() for name in incomplete_collectors[:3])
+        if len(incomplete_collectors) > 3:
+            names += f", and {len(incomplete_collectors) - 3} more"
+        observed = (
+            f"Selected sections with incomplete evidence: {names}."
+            if names else "One or more selected checks did not produce complete evidence."
+        )
+        candidates.append({
+            "finding_id": None,
+            "title": "Complete the missing checks",
+            "label": "Scan incomplete",
+            "verdict": "unable-to-verify",
+            "severity": "Informational",
+            "observed": observed,
+            "why_it_matters": "A missing result can hide an issue that the selected scan was meant to check.",
+            "not_proof": "Missing evidence does not mean the Mac is safe or compromised.",
+            "verify": "Open Collection readiness in Analyst view, resolve the relevant access or command error, then rerun the same scan.",
+            "action_risk": "Reviewing readiness and rerunning the scan are read-only.",
+        })
     candidates.sort(key=lambda item: (
         verdict_rank[str(item["verdict"])],
         -SEVERITY_RANK.get(str(item["severity"]), 0),
@@ -1028,30 +1082,24 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
             "explanation": "This is not a guarantee that the Mac is safe. Keep the report as a baseline and investigate unfamiliar behavior.",
         }
 
-    coverage_values = [
-        int(value) for value in report.get("summary", {}).get("category_coverage", {}).values()
-        if isinstance(value, (int, float))
-    ]
-    coverage = round(sum(coverage_values) / len(coverage_values)) if coverage_values else 0
-    collection_errors = report.get("metadata", {}).get("collection_errors", [])
-    coverage_label = "Complete for selected scope" if coverage == 100 and not collection_errors else "Partial for selected scope"
+    coverage_label = "Coverage unavailable for this report" if coverage is None else "Complete for selected scope" if not incomplete else "Partial for selected scope"
     confidence_levels = [
         str(guidance.get("findings", {}).get(item["finding_id"], {}).get("confidence", {}).get("level", "low"))
         for item in candidates[:3]
     ]
-    confidence = "low" if "low" in confidence_levels else "medium" if "medium" in confidence_levels else "high"
+    confidence = "low" if incomplete or "low" in confidence_levels else "medium" if "medium" in confidence_levels else "high"
     confidence_label = {
-        "high": "Strong supporting evidence",
+        "high": "Evidence available for selected checks" if not review_count else "Strong supporting evidence",
         "medium": "Some supporting evidence is missing",
         "low": "Important evidence is incomplete",
     }[confidence]
-    priority_label = "High priority" if high_priority else "Review needed" if review_count else "No immediate priority"
+    priority_label = "High priority" if high_priority else "Review needed" if review_count else "Recheck incomplete sections" if incomplete else "No immediate priority"
     return {
         "assessment": assessment,
         "next_actions": candidates[:3],
         "axes": {
             "priority": {"label": priority_label, "attention": review_count},
-            "coverage": {"label": coverage_label, "percent": coverage, "collection_errors": len(collection_errors)},
+            "coverage": {"label": coverage_label, "percent": coverage, "collection_errors": len(collection_errors), "incomplete_collectors": incomplete_collectors},
             "confidence": {"label": confidence_label, "level": confidence},
         },
         "score_note": "The rule outcome index is not a probability that this Mac is safe or compromised.",
@@ -1169,7 +1217,9 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
     priority_axis = axes.get("priority", {})
     coverage_axis = axes.get("coverage", {})
     confidence_axis = axes.get("confidence", {})
-    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Investigation summary {escape(scan_id)}</title><style>body{{margin:0;background:#0d1422;color:#edf3ff;font:15px/1.55 -apple-system,BlinkMacSystemFont,sans-serif}}main{{max-width:980px;margin:auto;padding:32px 18px 64px}}header,section{{margin-bottom:18px;padding:22px;border:1px solid #283954;border-radius:14px;background:#111b2d}}h1,h2,h3,p,small{{overflow-wrap:anywhere}}h1{{font-size:30px}}h2{{font-size:19px}}h3{{margin:5px 0;font-size:15px}}small,p,li{{color:#aebbd0}}.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}}.metrics div,article{{padding:13px;border:1px solid #283954;border-radius:10px;background:#16233a}}.metrics strong{{display:block;font-size:18px}}article{{margin-top:9px}}article span{{color:#78aaff;font-size:11px;text-transform:uppercase}}article small{{display:block;margin-top:7px}}@media print{{body{{background:white;color:#111}}header,section,article,.metrics div{{background:white;border-color:#bbb}}small,p,li{{color:#333}}}}</style></head><body><main><header><small>MACOS INSPECTOR | INVESTIGATION SUMMARY</small><h1>{escape(str(assessment.get('label', decision['final_summary']['headline'])))}</h1><p>{escape(str(assessment.get('headline', decision['final_summary']['headline'])))}</p><p>Scan {escape(scan_id)} | Host {hostname}</p>{target_html}<p>{escape(str(decision['final_summary']['conclusion']))}</p></header><section><h2>Current assessment</h2><div class=\"metrics\"><div><strong>{escape(str(priority_axis.get('label', 'Not calculated')))}</strong>review priority</div><div><strong>{escape(str(coverage_axis.get('percent', 0)))}%</strong>{escape(str(coverage_axis.get('label', 'coverage unknown')))}</div><div><strong>{escape(str(confidence_axis.get('label', 'Not calculated')))}</strong>evidence confidence</div></div><p>{escape(str(experience.get('score_note', 'Priority, coverage, and confidence answer different questions.')))}</p></section>{application_section}<section><h2>What to do next</h2>{priority_rows}</section><section><h2>Changes since the previous comparable scan</h2>{comparison_html}{change_rows}</section><section><h2>Correlated investigation stories</h2>{story_rows}</section><section><h2>Investigation state</h2><ul>{state_rows}</ul><p>Technical evidence remains in the original signed or exported scan report.</p></section></main></body></html>"""
+    coverage_percent = coverage_axis.get("percent")
+    coverage_display = f"{coverage_percent}%" if isinstance(coverage_percent, int) else "N/A"
+    html = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Investigation summary {escape(scan_id)}</title><style>body{{margin:0;background:#0d1422;color:#edf3ff;font:15px/1.55 -apple-system,BlinkMacSystemFont,sans-serif}}main{{max-width:980px;margin:auto;padding:32px 18px 64px}}header,section{{margin-bottom:18px;padding:22px;border:1px solid #283954;border-radius:14px;background:#111b2d}}h1,h2,h3,p,small{{overflow-wrap:anywhere}}h1{{font-size:30px}}h2{{font-size:19px}}h3{{margin:5px 0;font-size:15px}}small,p,li{{color:#aebbd0}}.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}}.metrics div,article{{padding:13px;border:1px solid #283954;border-radius:10px;background:#16233a}}.metrics strong{{display:block;font-size:18px}}article{{margin-top:9px}}article span{{color:#78aaff;font-size:11px;text-transform:uppercase}}article small{{display:block;margin-top:7px}}@media print{{body{{background:white;color:#111}}header,section,article,.metrics div{{background:white;border-color:#bbb}}small,p,li{{color:#333}}}}</style></head><body><main><header><small>MACOS INSPECTOR | INVESTIGATION SUMMARY</small><h1>{escape(str(assessment.get('label', decision['final_summary']['headline'])))}</h1><p>{escape(str(assessment.get('headline', decision['final_summary']['headline'])))}</p><p>Scan {escape(scan_id)} | Host {hostname}</p>{target_html}<p>{escape(str(decision['final_summary']['conclusion']))}</p></header><section><h2>Current assessment</h2><div class=\"metrics\"><div><strong>{escape(str(priority_axis.get('label', 'Not calculated')))}</strong>review priority</div><div><strong>{escape(coverage_display)}</strong>{escape(str(coverage_axis.get('label', 'coverage unknown')))}</div><div><strong>{escape(str(confidence_axis.get('label', 'Not calculated')))}</strong>evidence confidence</div></div><p>{escape(str(experience.get('score_note', 'Priority, coverage, and confidence answer different questions.')))}</p></section>{application_section}<section><h2>What to do next</h2>{priority_rows}</section><section><h2>Changes since the previous comparable scan</h2>{comparison_html}{change_rows}</section><section><h2>Correlated investigation stories</h2>{story_rows}</section><section><h2>Investigation state</h2><ul>{state_rows}</ul><p>Technical evidence remains in the original signed or exported scan report.</p></section></main></body></html>"""
     path = output / f"macos-inspector-{scan_id}-investigation-summary.html"
     secure_write_text(path, html)
     return path

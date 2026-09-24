@@ -544,20 +544,20 @@ function renderExperience(experience) {
   const panel = $('#experience-summary');
   if (!experience?.assessment) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
   const assessment = experience.assessment;
-  const actions = (experience.next_actions || []).map((item, index) => `<article class="experience-action"><div><span>${index + 1}</span><strong>${escapeHtml(item.title)}</strong><em class="verdict verdict-${escapeHtml(item.verdict || 'information')}">${escapeHtml(item.label || 'Review')}</em></div><p>${escapeHtml(item.observed)}</p><details><summary>Why this matters and how to verify it</summary><dl><div><dt>Why it matters</dt><dd>${escapeHtml(item.why_it_matters)}</dd></div><div><dt>What this does not prove</dt><dd>${escapeHtml(item.not_proof)}</dd></div><div><dt>Next safe step</dt><dd>${escapeHtml(item.verify)}</dd></div><div><dt>Action risk</dt><dd>${escapeHtml(item.action_risk)}</dd></div></dl></details><button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open technical result</button></article>`).join('');
+  const actions = (experience.next_actions || []).map((item, index) => `<article class="experience-action"><div><span>${index + 1}</span><strong>${escapeHtml(item.title)}</strong><em class="verdict verdict-${escapeHtml(item.verdict || 'information')}">${escapeHtml(item.label || 'Review')}</em></div><p>${escapeHtml(item.observed)}</p><details><summary>Why this matters and how to verify it</summary><dl><div><dt>Why it matters</dt><dd>${escapeHtml(item.why_it_matters)}</dd></div><div><dt>What this does not prove</dt><dd>${escapeHtml(item.not_proof)}</dd></div><div><dt>Next safe step</dt><dd>${escapeHtml(item.verify)}</dd></div><div><dt>Action risk</dt><dd>${escapeHtml(item.action_risk)}</dd></div></dl></details>${item.finding_id ? `<button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open technical result</button>` : '<button type="button" class="text-button" data-switch-analyst>Open collection details</button>'}</article>`).join('');
   const empty = '<p class="experience-clear">Keep this report as a baseline. Run the same scope again if the Mac changes or unfamiliar behavior appears.</p>';
   panel.className = `experience-summary experience-${assessment.id || 'needs-review'}`;
   panel.innerHTML = `<div class="experience-heading"><div><p class="eyebrow">CURRENT ASSESSMENT</p><span class="experience-state">${escapeHtml(assessment.label)}</span><h3 id="experience-summary-title">${escapeHtml(assessment.headline)}</h3><p>${escapeHtml(assessment.explanation)}</p></div><button type="button" class="secondary-button" data-switch-analyst>Show analyst view</button></div><div class="experience-actions"><h4>What to do next</h4>${actions || empty}</div>`;
   panel.classList.remove('hidden');
   panel.querySelectorAll('[data-review-finding]').forEach((button) => button.addEventListener('click', () => focusFinding(button.dataset.reviewFinding)));
-  panel.querySelector('[data-switch-analyst]')?.addEventListener('click', () => setViewMode('analyst'));
+  panel.querySelectorAll('[data-switch-analyst]').forEach((button) => button.addEventListener('click', () => setViewMode('analyst')));
 }
 
 function renderSummary(summary, experience = null) {
   const axes = experience?.axes || {};
   const cards = [
     ['Review priority', axes.priority?.label || 'Not calculated'],
-    ['Collection coverage', axes.coverage ? `${axes.coverage.percent}% | ${axes.coverage.label}` : 'Not calculated'],
+    ['Collection coverage', axes.coverage ? `${axes.coverage.percent == null ? 'N/A' : `${axes.coverage.percent}%`} | ${axes.coverage.label}` : 'Not calculated'],
     ['Evidence confidence', axes.confidence?.label || 'Not calculated'],
     ['Findings shown', `${summary.finding_count} of ${summary.total_finding_count ?? summary.finding_count}`],
   ];

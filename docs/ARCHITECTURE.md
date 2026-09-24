@@ -7,7 +7,7 @@ macOS Inspector is a local Python application with a browser-based interface. Th
 1. The CLI or dashboard selects registered collectors.
 2. Each collector uses `CommandRunner` for allowlisted commands with fixed argument rules and bounded default or per-call timeouts. Deep application signature and Gatekeeper checks receive longer bounds because large bundles can require more time without implying failure.
 3. Collectors return immutable `Finding` and `Evidence` records.
-4. The scan layer records metadata, errors, scores, coverage, and timeline events.
+4. The scan layer records metadata, errors, scores, per-category and per-collector coverage, and timeline events. A selected collector that fails or returns no findings has zero collector coverage.
 5. The guidance layer derives plain-language verdicts and next steps from the completed report without changing its findings.
 6. Reporters serialize the completed result without collecting additional evidence.
 

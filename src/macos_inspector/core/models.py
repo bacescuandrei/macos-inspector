@@ -93,6 +93,7 @@ class ScanResult:
     category_coverage: dict[str, int] = field(default_factory=dict)
     total_finding_count: int | None = None
     timeline: tuple[TimelineEvent, ...] = ()
+    collector_coverage: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -102,6 +103,7 @@ class ScanResult:
                 "overall_score": self.overall_score,
                 "category_scores": self.category_scores,
                 "category_coverage": self.category_coverage,
+                "collector_coverage": self.collector_coverage,
                 "finding_count": len(self.findings),
                 "displayed_finding_count": len(self.findings),
                 "total_finding_count": self.total_finding_count if self.total_finding_count is not None else len(self.findings),

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Record coverage for every selected collector, including collectors that fail or return no findings.
+- Treat missing collection evidence as an incomplete scan in the guided assessment and provide a recheck step.
+- Lower overall evidence confidence when selected checks are incomplete.
+- Build portable ZIP archives with fixed metadata and without environment-dependent compression so identical source files produce identical archives.
+
 ## 1.4.0 - 2026-09-21
 
 - Added Simple and Analyst dashboard views. Simple view keeps the recommended profiles, focused application check, current assessment, application review, reports, and history visible while Analyst view exposes complete collection and evidence controls.

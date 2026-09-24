@@ -7,6 +7,7 @@ import io
 import sqlite3
 import json
 import importlib.util
+import os
 import plistlib
 import re
 import signal
@@ -1487,6 +1488,22 @@ class CoreTests(unittest.TestCase):
             self.assertFalse(any("macos-inspector-reports" in name or "/tmp/" in name or "/output/" in name for name in names))
             self.assertFalse(any(".DS_Store" in name or ".egg-info/" in name or "/._" in name for name in names))
 
+    def test_release_archive_is_identical_after_source_timestamps_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            launcher = root / LAUNCHER
+            readme = root / "README.md"
+            launcher.write_bytes(b"#!/bin/sh\nexit 0\n")
+            readme.write_bytes(b"Release fixture\n")
+            with patch("scripts.build_release.ROOT", root), patch(
+                "scripts.build_release.release_files", return_value=[readme, launcher],
+            ):
+                first = build_release(root / "first" / "package.zip").read_bytes()
+                os.utime(launcher, (1_000_000_000, 1_000_000_000))
+                os.utime(readme, (2_000_000_000, 2_000_000_000))
+                second = build_release(root / "second" / "package.zip").read_bytes()
+            self.assertEqual(first, second)
+
     def test_public_documentation_relative_links_resolve(self):
         root = Path(__file__).resolve().parents[1]
         documents = (
@@ -1863,6 +1880,49 @@ enabled active teamID bundleID (version) name [state]
         self.assertEqual(captured["bundles"], (target,))
         self.assertEqual(result.metadata.target_application, str(target))
         self.assertEqual(result.to_dict()["metadata"]["target_application"], str(target))
+
+    def test_empty_and_failed_collectors_make_scan_incomplete(self):
+        class CompleteCollector:
+            def __init__(self, runner):
+                pass
+
+            def collect(self):
+                return [finding(Severity.INFORMATIONAL, "Pass")]
+
+        class EmptyCollector:
+            def __init__(self, runner):
+                pass
+
+            def collect(self):
+                return []
+
+        class FailedCollector:
+            def __init__(self, runner):
+                pass
+
+            def collect(self):
+                raise RuntimeError("Fixture collection failure")
+
+        collectors = {"complete": CompleteCollector, "empty": EmptyCollector, "failed": FailedCollector}
+        with patch.dict("macos_inspector.core.scan.COLLECTORS", collectors, clear=True):
+            result = run_scan(list(collectors), runner=object())
+        report = result.to_dict()
+        self.assertEqual(report["summary"]["collector_coverage"], {"complete": 100, "empty": 0, "failed": 0})
+        experience = build_decision_support(report)["experience"]
+        self.assertEqual(experience["assessment"]["id"], "scan-incomplete")
+        self.assertEqual(experience["axes"]["coverage"]["percent"], 33)
+        self.assertEqual(experience["axes"]["coverage"]["incomplete_collectors"], ["empty", "failed"])
+        self.assertEqual(experience["axes"]["confidence"]["level"], "low")
+        self.assertEqual(experience["next_actions"][0]["title"], "Complete the missing checks")
+        self.assertIn("Empty, Failed", experience["next_actions"][0]["observed"])
+
+        legacy = {"metadata": {"collectors": ["failed"], "collection_errors": ["failed: RuntimeError: Fixture collection failure"]}, "summary": {}, "findings": []}
+        legacy_experience = build_decision_support(legacy)["experience"]
+        self.assertEqual(legacy_experience["assessment"]["id"], "scan-incomplete")
+        self.assertIsNone(legacy_experience["axes"]["coverage"]["percent"])
+        with tempfile.TemporaryDirectory() as directory:
+            summary_path = write_investigation_summary(legacy, build_decision_support(legacy), Path(directory))
+            self.assertIn("<strong>N/A</strong>Coverage unavailable", summary_path.read_text(encoding="utf-8"))
 
     def test_dashboard_application_inventory_rejects_arbitrary_targets(self):
         with tempfile.TemporaryDirectory() as directory:

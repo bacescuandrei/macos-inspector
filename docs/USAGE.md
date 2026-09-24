@@ -15,7 +15,7 @@ The current assessment has four possible states:
 - `Action recommended`: at least one high-priority rule outcome needs prompt validation.
 - `Scan incomplete`: no immediate warning was identified, but important evidence could not be collected.
 
-The assessment shows review priority, collection coverage, and evidence confidence separately. The retained rule outcome index is a compatibility and comparison value, not a probability that the Mac is safe or compromised.
+The assessment shows review priority, collection coverage, and evidence confidence separately. Coverage includes every selected section, even when a section fails or returns no findings. Incomplete evidence lowers the confidence label and provides a step to check readiness and rerun the same scan. The retained rule outcome index is a compatibility and comparison value, not a probability that the Mac is safe or compromised.
 
 Each recommended action states what was observed, why it matters, what it does not prove, the next safe validation step, and the risk of acting. Expand **Details** for commands, raw evidence, application identity, executable hashes, process context, and the full rule explanation.
 

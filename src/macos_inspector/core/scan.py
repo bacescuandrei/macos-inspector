@@ -32,6 +32,7 @@ def run_scan(
     """Run collectors and filter only the report view, never the score inputs."""
     started = datetime.now(timezone.utc)
     all_findings, errors = [], []
+    collector_coverage: dict[str, int] = {}
     command_runner = runner or CommandRunner(cancel_event=cancel_event)
     for index, collector_id in enumerate(collector_ids, start=1):
         if cancel_event and cancel_event.is_set():
@@ -48,11 +49,16 @@ def run_scan(
                 set_progress_callback(
                     lambda item, completed, total, current=collector_id: item_progress(current, item, completed, total)
                 )
-            all_findings.extend(collector.collect())
+            collected = list(collector.collect())
+            all_findings.extend(collected)
+            collector_coverage[collector_id] = round(
+                100 * sum(finding.status.lower() != "unknown" for finding in collected) / len(collected)
+            ) if collected else 0
         except ScanCancelled:
             raise
         except Exception as exc:
             errors.append(f"{collector_id}: {type(exc).__name__}: {exc}")
+            collector_coverage[collector_id] = 0
         if cancel_event and cancel_event.is_set():
             raise ScanCancelled("Scan cancelled by user.")
         if progress:
@@ -74,7 +80,7 @@ def run_scan(
     )
     return ScanResult(
         metadata, tuple(visible_findings), overall, category_scores, category_coverage,
-        len(all_findings), build_timeline(visible_findings),
+        len(all_findings), build_timeline(visible_findings), collector_coverage,
     )
 
 
