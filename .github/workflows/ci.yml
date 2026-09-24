@@ -35,11 +35,28 @@ jobs:
       - name: Check dashboard JavaScript syntax
         run: node --check src/macos_inspector/webui/app.js
 
+  browser:
+    name: Browser smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install browser test dependencies
+        run: npm ci
+      - name: Install Chromium headless shell
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Test dashboard in Chromium
+        run: npm run test:browser
+
   package:
     name: Build portable package
     runs-on: macos-latest
     timeout-minutes: 15
-    needs: test
+    needs: [test, browser]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

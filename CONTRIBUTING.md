@@ -27,11 +27,14 @@ UI changes must remain usable at 320 CSS pixels, keep long evidence inside its c
 
 ## Local verification
 
-Run the unit tests and JavaScript syntax check before opening a pull request:
+Run the unit tests, JavaScript syntax check, browser smoke tests, and package build before opening a pull request:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 node --check src/macos_inspector/webui/app.js
+npm ci
+npx playwright install --only-shell chromium
+npm run test:browser
 PYTHONPATH=src python3 -m scripts.build_release
 ```
 

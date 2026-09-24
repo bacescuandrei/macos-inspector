@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Describe failed application trust checks as trust or integrity findings, not observed behavior. Indicator matches now enter the review queue without asserting that software is unwanted.
+- Add Chromium dashboard smoke tests for Simple and Analyst views, incomplete-scan messaging, and narrow-screen layout. GitHub CI runs them before packaging.
 - Record coverage for every selected collector, including collectors that fail or return no findings.
 - Treat missing collection evidence as an incomplete scan in the guided assessment and provide a recheck step.
 - Lower overall evidence confidence when selected checks are incomplete.

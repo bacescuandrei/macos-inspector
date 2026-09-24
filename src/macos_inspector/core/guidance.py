@@ -90,11 +90,14 @@ def _verdict(finding: dict[str, Any]) -> tuple[str, str]:
         return "unable-to-verify", "Unable to verify"
     if status in {"pass", "not applicable"}:
         return "looks-normal", "Looks normal"
-    if ("ioc" in category or "yara" in category or "ioc" in finding_id or "yara" in finding_id) and status == "fail" and severity >= 2:
-        return "likely-unwanted", "Likely unwanted"
+    indicator_result = "ioc" in category or "yara" in category or "ioc" in finding_id or "yara" in finding_id
+    if indicator_result and status == "match" and severity >= 2:
+        return "indicator-match", "Indicator match to validate"
     if status == "fail" and severity >= 3:
-        return "high-risk", "High-risk behavior"
-    if status in {"fail", "review"} or severity >= 2:
+        if finding_id.startswith("app-trust-"):
+            return "high-priority", "High-priority trust issue"
+        return "high-priority", "High-priority finding"
+    if status in {"fail", "review", "match"} or severity >= 2:
         return "needs-review", "Needs review"
     return "information", "Information"
 

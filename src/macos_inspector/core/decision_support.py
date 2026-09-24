@@ -10,7 +10,7 @@ from macos_inspector.core.guidance import build_guidance, finding_fingerprint
 from macos_inspector.reporters.common import secure_write_text
 
 
-ATTENTION_VERDICTS = {"needs-review", "high-risk", "likely-unwanted"}
+ATTENTION_VERDICTS = {"needs-review", "high-priority", "indicator-match"}
 SEVERITY_RANK = {"Informational": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
@@ -965,7 +965,7 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
     """Build a concise assessment without turning a rule score into a safety verdict."""
     findings = _findings(report)
     candidates: list[dict[str, Any]] = []
-    verdict_rank = {"high-risk": 0, "likely-unwanted": 0, "needs-review": 1, "unable-to-verify": 2}
+    verdict_rank = {"high-priority": 0, "indicator-match": 0, "needs-review": 1, "unable-to-verify": 2}
     for finding_id, guide in guidance.get("findings", {}).items():
         if not isinstance(guide, dict) or finding_id not in findings:
             continue
@@ -978,7 +978,7 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
         finding = findings[finding_id]
         if verdict == "unable-to-verify":
             not_proof = "An incomplete check is not evidence that the item is malicious or safe."
-        elif verdict == "likely-unwanted":
+        elif verdict == "indicator-match":
             not_proof = "A rule or indicator match still requires validation before it becomes a security conclusion."
         else:
             not_proof = "This observation raises review priority. It does not prove malware or compromise."
@@ -1054,7 +1054,7 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
         str(item["title"]),
     ))
 
-    high_priority = any(item["verdict"] in {"high-risk", "likely-unwanted"} for item in candidates)
+    high_priority = any(item["verdict"] in {"high-priority", "indicator-match"} for item in candidates)
     review_count = sum(item["verdict"] != "unable-to-verify" for item in candidates)
     unknown_count = sum(item["verdict"] == "unable-to-verify" for item in candidates)
     if high_priority:

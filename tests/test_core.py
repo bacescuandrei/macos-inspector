@@ -331,6 +331,32 @@ class CoreTests(unittest.TestCase):
             self.assertFalse(stale["current"])
             self.assertEqual(stale["previous_status"], "Expected")
 
+    def test_guidance_describes_trust_failures_and_indicator_matches_without_malware_verdicts(self):
+        cases = [
+            ("APP-TRUST-EXAMPLE", "Application Trust", "High", "Fail", "high-priority", "High-priority trust issue"),
+            ("IOC-PATH-EXAMPLE", "IOC", "High", "Match", "indicator-match", "Indicator match to validate"),
+            ("YARA-EXAMPLE", "YARA", "Medium", "Match", "indicator-match", "Indicator match to validate"),
+            ("IOC-LOW-EXAMPLE", "IOC", "Low", "Match", "needs-review", "Needs review"),
+        ]
+        for finding_id, category, severity, status, verdict, label in cases:
+            with self.subTest(finding_id=finding_id):
+                report = {"metadata": {"scan_id": "guidance-calibration"}, "summary": {}, "findings": [{
+                    "finding_id": finding_id, "category": category, "title": finding_id,
+                    "severity": severity, "status": status,
+                    "observed_result": "A local check returned this result.",
+                }]}
+                guidance = build_guidance(report)
+                item = guidance["findings"][finding_id]
+                self.assertEqual((item["verdict"], item["label"]), (verdict, label))
+                self.assertNotIn("malware", item["label"].lower())
+                experience = build_decision_support(report)["experience"]
+                self.assertEqual(experience["next_actions"][0]["verdict"], verdict)
+                self.assertTrue(experience["next_actions"][0]["not_proof"])
+                if verdict == "indicator-match":
+                    self.assertIn("requires validation", experience["next_actions"][0]["not_proof"])
+                if verdict in {"high-priority", "indicator-match"}:
+                    self.assertEqual(experience["assessment"]["id"], "action-recommended")
+
     def test_guidance_and_investigation_endpoints_require_local_protected_requests(self):
         report = {
             "metadata": {"scan_id": "guided-endpoint"},
