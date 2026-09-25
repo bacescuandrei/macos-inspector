@@ -18,13 +18,13 @@ def write_markdown(result: ScanResult, path: Path) -> None:
         f"**Analyst:** {_safe(result.metadata.analyst) or 'Not provided'}  ",
         f"**Rule outcome index:** **{result.rule_index_label()}**  ",
         "This index summarizes documented rule outcomes. It is not the probability that this Mac is safe or compromised.",
-        "", "## Category rule outcome indexes", "",
-        "| Category | Rule outcome index | Coverage |", "|---|---:|---:|",
+        "Status availability counts completed Not Applicable checks; it does not measure how many targets were assessed.",
     ]
     if result.metadata.target_application:
         lines.insert(7, f"**Target application:** {_safe(result.metadata.target_application)}  ")
     if result.assessed_count() == 0:
-        lines.extend(["No assessed findings. N/A is not a passing security result.", ""])
+        lines.extend(["", "No assessed findings. N/A is not a passing security result."])
+    lines.extend(["", "## Category rule outcome indexes", "", "| Category | Rule outcome index | Status availability |", "|---|---:|---:|"])
     lines.extend(f"| {_safe(category)} | {result.category_rule_index_label(category)} | {result.category_coverage.get(category, 100)}% |" for category in result.category_scores)
     if result.metadata.collection_errors:
         lines.extend(["", "## Collection errors", ""])

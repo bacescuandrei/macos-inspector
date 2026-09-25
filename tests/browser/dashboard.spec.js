@@ -175,3 +175,21 @@ test('history and comparisons do not show a numeric index for unassessed scans',
   await expect(page.locator('#comparison-summary')).toContainText('N/A');
   await expect(page.locator('#comparison-results')).toContainText('no assessed findings');
 });
+
+test('completion is labeled separately from target assessment', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 850 });
+  await page.evaluate(() => renderSummary(
+    { finding_count: 1, total_finding_count: 1 },
+    { axes: {
+      priority: { label: 'Check scan scope' },
+      coverage: { percent: 100, label: 'Checks finished; some not assessed' },
+      confidence: { label: 'Some selected checks have no target evidence' },
+    } },
+  ));
+
+  await expect(page.locator('#summary')).toContainText('Collection completion');
+  await expect(page.locator('#summary')).toContainText('100% | Checks finished; some not assessed');
+  await expect(page.locator('#summary')).not.toContainText('Collection coverage');
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});

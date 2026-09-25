@@ -14,7 +14,7 @@ PENALTIES = {
 
 
 def calculate_coverage(findings: list[Finding]) -> dict[str, int]:
-    """Percentage of findings that produced a definitive or observable result."""
+    """Percentage with a recorded status, including Not Applicable but not Unknown."""
     categories = sorted({finding.category for finding in findings})
     return {
         category: round(100 * sum(
@@ -26,7 +26,7 @@ def calculate_coverage(findings: list[Finding]) -> dict[str, int]:
 
 
 def calculate_scores(findings: list[Finding]) -> tuple[int, dict[str, int]]:
-    """Risk score adjusted by collection coverage, bounded from zero to 100."""
+    """Rule outcome index adjusted by status availability, bounded from zero to 100."""
     penalties: dict[str, int] = defaultdict(int)
     for finding in findings:
         if finding.status.lower() not in {"pass", "not applicable"}:
@@ -37,5 +37,11 @@ def calculate_scores(findings: list[Finding]) -> tuple[int, dict[str, int]]:
         category: round(max(0, 100 - penalties[category]) * coverage[category] / 100)
         for category in categories
     }
-    overall = round(sum(scores.values()) / len(scores)) if scores else 100
+    applicable_categories = {
+        finding.category for finding in findings if finding.status.lower() != "not applicable"
+    }
+    overall = (
+        round(sum(scores[category] for category in applicable_categories) / len(applicable_categories))
+        if applicable_categories else 100
+    )
     return overall, scores

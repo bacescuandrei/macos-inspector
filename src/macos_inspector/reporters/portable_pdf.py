@@ -211,6 +211,7 @@ def write_portable_pdf(result: ScanResult, path: Path) -> None:
     document.new_page()
     document.section("Executive summary")
     document.paragraph("The rule outcome index summarizes documented rule results. It is not the probability that this Mac is safe or compromised.", color=SLATE)
+    document.paragraph("Status availability includes completed Not Applicable checks; it does not measure targets assessed.", color=SLATE)
     if index_unavailable:
         document.paragraph("No assessed findings. N/A is not a passing security result.", color=SLATE)
     if result.category_scores:
@@ -220,7 +221,7 @@ def write_portable_pdf(result: ScanResult, path: Path) -> None:
             document.text(category, MARGIN + 10, document.y - 7, 9.5, "F2", NAVY)
             coverage = result.category_coverage.get(category, 100)
             index = result.category_rule_index_label(category)
-            document.text(f"Rule index {index}{'' if index == 'N/A' else '/100'}  |  Coverage {coverage}%", A4_WIDTH - MARGIN - 10, document.y - 7, 8.5, "F2", BLUE, align="right")
+            document.text(f"Index {index}{'' if index == 'N/A' else '/100'}  |  Status {coverage}%", A4_WIDTH - MARGIN - 10, document.y - 7, 8.5, "F2", BLUE, align="right")
             document.y -= 36
     else:
         document.paragraph("No category rule outcome indexes were generated.")

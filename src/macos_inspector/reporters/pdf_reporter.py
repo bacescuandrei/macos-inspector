@@ -85,11 +85,12 @@ def write_pdf(result: ScanResult, path: Path) -> None:
         story.extend([
             score_table,
             paragraph("The rule outcome index summarizes documented rule results. It is not the probability that this Mac is safe or compromised.", "Small"),
+            paragraph("Status availability counts completed Not Applicable checks; it does not measure how many targets were assessed.", "Small"),
             *([paragraph("No assessed findings. N/A is not a passing security result.", "Small")] if result.assessed_count() == 0 else []),
             PageBreak(), Paragraph("Executive summary", styles["Section"]),
         ])
 
-        category_rows = [[paragraph("Category", "TableHeader"), paragraph("Rule index", "TableHeader"), paragraph("Coverage", "TableHeader")]]
+        category_rows = [[paragraph("Category", "TableHeader"), paragraph("Rule index", "TableHeader"), paragraph("Status availability", "TableHeader")]]
         for category, score in result.category_scores.items():
             category_rows.append([paragraph(category), paragraph(result.category_rule_index_label(category)), paragraph(f"{result.category_coverage.get(category, 100)}%")])
         category_table = Table(category_rows, colWidths=[100 * mm, 25 * mm, 27 * mm], repeatRows=1)

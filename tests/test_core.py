@@ -499,7 +499,8 @@ class CoreTests(unittest.TestCase):
             with patch("macos_inspector.reporters.pdf_reporter.importlib.util.find_spec", return_value=None):
                 REPORTERS["pdf"](result, root / "report.pdf")
             self.assertIn("**Rule outcome index:** **N/A**", (root / "report.md").read_text())
-            self.assertIn("| Scope | N/A |", (root / "report.md").read_text())
+            markdown = (root / "report.md").read_text()
+            self.assertIn("| Category | Rule outcome index | Status availability |\n|---|---:|---:|\n| Scope | N/A |", markdown)
             sarif = json.loads((root / "report.sarif").read_text())
             properties = sarif["runs"][0]["invocations"][0]["properties"]
             self.assertIsNone(properties["overallScore"])
@@ -2136,7 +2137,7 @@ enabled active teamID bundleID (version) name [state]
         self.assertIsNone(legacy_experience["axes"]["coverage"]["percent"])
         with tempfile.TemporaryDirectory() as directory:
             summary_path = write_investigation_summary(legacy, build_decision_support(legacy), Path(directory))
-            self.assertIn("<strong>N/A</strong>Coverage unavailable", summary_path.read_text(encoding="utf-8"))
+            self.assertIn("<strong>N/A</strong>collection completion: Coverage unavailable", summary_path.read_text(encoding="utf-8"))
 
     def test_dashboard_application_inventory_rejects_arbitrary_targets(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -2353,6 +2354,17 @@ enabled active teamID bundleID (version) name [state]
         overall, categories = calculate_scores([finding(), finding(Severity.MEDIUM, "Pass")])
         self.assertEqual(overall, 82)
         self.assertEqual(categories["Persistence"], 82)
+
+    def test_unassessed_category_does_not_inflate_overall_index(self):
+        assessed = replace(finding(Severity.HIGH, "Fail"), category="Security")
+        not_applicable = replace(finding(Severity.INFORMATIONAL, "Not Applicable"), category="IOC Matches")
+        overall, categories = calculate_scores([assessed, not_applicable])
+        self.assertEqual(overall, 82)
+        self.assertEqual(categories, {"IOC Matches": 100, "Security": 82})
+        unknown = replace(finding(Severity.INFORMATIONAL, "Unknown"), category="Evidence gaps")
+        incomplete_overall, incomplete_categories = calculate_scores([assessed, unknown, not_applicable])
+        self.assertEqual(incomplete_categories["Evidence gaps"], 0)
+        self.assertEqual(incomplete_overall, 41)
 
     def test_timeline_extracts_collection_and_embedded_timestamps(self):
         item = finding()

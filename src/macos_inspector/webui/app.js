@@ -558,7 +558,7 @@ function renderSummary(summary, experience = null) {
   const axes = experience?.axes || {};
   const cards = [
     ['Review priority', axes.priority?.label || 'Not calculated'],
-    ['Collection coverage', axes.coverage ? `${axes.coverage.percent == null ? 'N/A' : `${axes.coverage.percent}%`} | ${axes.coverage.label}` : 'Not calculated'],
+    ['Collection completion', axes.coverage ? `${axes.coverage.percent == null ? 'N/A' : `${axes.coverage.percent}%`} | ${axes.coverage.label}` : 'Not calculated'],
     ['Evidence confidence', axes.confidence?.label || 'Not calculated'],
     ['Findings shown', `${summary.finding_count} of ${summary.total_finding_count ?? summary.finding_count}`],
   ];

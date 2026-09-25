@@ -86,7 +86,7 @@ See [Installation](docs/INSTALLATION.md) for source installation, permission beh
 
 1. Open the dashboard with the launcher.
 2. Select **Check this Mac** in the start guide. This runs the recommended offline Quick triage profile.
-3. Start in **Simple** view and read the current assessment, collection coverage, evidence confidence, and the three highest-priority next steps.
+3. Start in **Simple** view and read the current assessment, collection completion, evidence confidence, and the three highest-priority next steps.
 4. Switch to **Analyst** view when you need individual collectors, raw findings, commands, timelines, comparison details, cases, or evidence controls.
 5. Open an item listed under **Needs review**, **Action recommended**, or **Scan incomplete**.
 6. Follow the recommended next steps and expand **Details** when technical evidence is needed.
@@ -97,11 +97,12 @@ After a report loads, **Changes since last comparable scan** selects the newest 
 
 Routine use does not require terminal commands. The CLI remains available for automation and reproducible collections.
 
-The dashboard does not present the numeric rule outcome index as a safety score. Review priority, collection coverage, and evidence confidence are shown separately because they answer different questions. A scan can have broad coverage and still contain an urgent finding, or have no urgent finding while important checks remain incomplete.
+The dashboard does not present the numeric rule outcome index as a safety score. Review priority, collection completion, and evidence confidence are shown separately because they answer different questions. Completion means a check returned a status, not that a target was assessed. A scan can finish every selected check and still contain an urgent finding or an out-of-scope section.
 
 `Not Applicable` is not a passing security check. For example, disabled YARA scanning, no enabled IOC pack, or no supported browser profile means that section did not assess a target. The dashboard shows these as **Not assessed** with a specific next step. A completed collector can still have limited investigative scope.
 
 When a scan has no assessed findings, the history, comparisons, and human-readable exports show the rule outcome index as `N/A`. The JSON report retains its raw numeric value for compatibility and records the assessed-finding counts used for display.
+Categories containing only `Not Applicable` findings do not contribute to the overall rule outcome index. An `Unknown` category still lowers the raw index because a selected check lacked evidence; the dashboard explains the missing evidence separately.
 
 ## Practical examples
 
