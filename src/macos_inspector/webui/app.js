@@ -1049,6 +1049,11 @@ async function checkHealth() {
   }
 }
 
+function ruleOutcomeIndex(summary) {
+  if (summary?.assessed_finding_count === 0) return 'N/A (no assessed findings)';
+  return summary?.overall_score ?? 'N/A';
+}
+
 function renderHistory() {
   const query = $('#history-search').value.trim().toLowerCase();
   const matching = state.historyScans.filter((job) => !query || [job.scan_id, job.case_reference, job.analyst, job.target_application, job.state, ...(job.collectors || [])].join(' ').toLowerCase().includes(query));
@@ -1059,7 +1064,7 @@ function renderHistory() {
   $('#history').innerHTML = visible.map((job) => {
     const actions = job.reports?.json ? `<button type="button" class="history-baseline${state.baselineJob?.job_id === job.job_id ? ' selected' : ''}" data-baseline-id="${escapeHtml(job.job_id)}">Baseline</button><button type="button" class="history-compare" data-compare-id="${escapeHtml(job.job_id)}">Compare</button><button type="button" class="history-open" data-history-id="${escapeHtml(job.job_id)}">View</button>` : '';
     const target = job.target_application ? ` | target ${job.target_application.split('/').pop()}` : '';
-    return `<div class="history-row"><div class="history-main"><strong>${job.case_reference ? `<span class="case-tag">${escapeHtml(job.case_reference)}</span> ` : ''}${escapeHtml((job.collectors || []).join(' | '))}</strong><small>${escapeHtml(job.completed_at || job.created_at || '')} | rule outcome index ${escapeHtml(job.summary?.overall_score ?? 'N/A')}${escapeHtml(target)}${job.analyst ? ` | ${escapeHtml(job.analyst)}` : ''}${job.error ? ` | ${escapeHtml(job.error)}` : ''}<code>${escapeHtml(job.scan_id || '')}</code></small></div><span class="status-pill status-${escapeHtml(job.state)}">${escapeHtml(job.state)}</span>${actions}</div>`;
+    return `<div class="history-row"><div class="history-main"><strong>${job.case_reference ? `<span class="case-tag">${escapeHtml(job.case_reference)}</span> ` : ''}${escapeHtml((job.collectors || []).join(' | '))}</strong><small>${escapeHtml(job.completed_at || job.created_at || '')} | rule outcome index ${escapeHtml(ruleOutcomeIndex(job.summary))}${escapeHtml(target)}${job.analyst ? ` | ${escapeHtml(job.analyst)}` : ''}${job.error ? ` | ${escapeHtml(job.error)}` : ''}<code>${escapeHtml(job.scan_id || '')}</code></small></div><span class="status-pill status-${escapeHtml(job.state)}">${escapeHtml(job.state)}</span>${actions}</div>`;
   }).join('') + (matching.length > 50 ? `<p class="muted">Showing the 50 most recent matches.</p>` : '');
   document.querySelectorAll('[data-history-id]').forEach((button) => button.addEventListener('click', () => loadHistoryJob(state.historyScans.find((item) => item.job_id === button.dataset.historyId))));
   document.querySelectorAll('[data-baseline-id]').forEach((button) => button.addEventListener('click', () => setBaseline(state.historyScans.find((item) => item.job_id === button.dataset.baselineId))));
@@ -1069,7 +1074,7 @@ function renderHistory() {
 function setBaseline(job) {
   if (!job?.scan_id || !job.reports?.json) return setMessage('This scan has no JSON report and cannot be used as a baseline.', true);
   state.baselineJob = job;
-  setMessage(`Baseline selected: ${job.scan_id.slice(0, 8)} | rule outcome index ${job.summary?.overall_score ?? 'N/A'}. Choose Compare on another scan.`);
+  setMessage(`Baseline selected: ${job.scan_id.slice(0, 8)} | rule outcome index ${ruleOutcomeIndex(job.summary)}. Choose Compare on another scan.`);
   document.querySelectorAll('[data-baseline-id]').forEach((button) => button.classList.toggle('selected', button.dataset.baselineId === job.job_id));
 }
 
@@ -1088,7 +1093,7 @@ async function compareWithBaseline(job) {
 }
 
 function renderComparison(comparison) {
-  const delta = comparison.score_delta > 0 ? `+${comparison.score_delta}` : String(comparison.score_delta);
+  const delta = comparison.score_delta === null ? 'N/A' : comparison.score_delta > 0 ? `+${comparison.score_delta}` : String(comparison.score_delta);
   $('#comparison-summary').innerHTML = [['Rule outcome index change', delta], ['New', comparison.counts.new], ['Resolved', comparison.counts.resolved], ['Changed', comparison.counts.changed]].map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
   const rows = [
     ...comparison.new.map((finding) => ({kind: 'New', id: finding.finding_id, title: finding.title, detail: `${finding.severity} | ${finding.status}`})),
@@ -1098,7 +1103,8 @@ function renderComparison(comparison) {
   const targetChange = comparison.scope?.baseline_target_application || comparison.scope?.current_target_application ? ` Previous target: ${escapeHtml(comparison.scope.baseline_target_application || 'all applications')}. Current target: ${escapeHtml(comparison.scope.current_target_application || 'all applications')}.` : '';
   const scopeWarning = comparison.scope?.changed ? `<div class="comparison-warning"><strong>Collection scope changed.</strong> Added: ${escapeHtml(comparison.scope.added_collectors.join(', ') || 'none')}. Removed: ${escapeHtml(comparison.scope.removed_collectors.join(', ') || 'none')}.${targetChange} New and resolved counts may reflect collection coverage rather than a host-state change.</div>` : '';
   const exports = comparison.reports ? `<div class="comparison-exports"><strong>Comparison reports</strong><a href="${escapeHtml(comparison.reports.comparison_html)}" target="_blank" rel="noreferrer">Open HTML</a><a href="${escapeHtml(comparison.reports.comparison_json)}" target="_blank" rel="noreferrer">Open JSON</a></div>` : '';
-  $('#comparison-results').innerHTML = exports + scopeWarning + (rows.length ? rows.slice(0, 200).map((row) => `<div class="comparison-row"><span class="comparison-kind comparison-${row.kind.toLowerCase()}">${escapeHtml(row.kind)}</span><div><strong>${escapeHtml(row.title)}</strong><code>${escapeHtml(row.id)}</code><small>${escapeHtml(row.detail)}</small></div></div>`).join('') + (rows.length > 200 ? `<p class="muted">Showing 200 of ${rows.length} changes.</p>` : '') : '<p class="muted">No finding-level changes were detected.</p>');
+  const indexNote = comparison.score_delta === null ? '<div class="comparison-warning">The index change is N/A because at least one scan had no assessed findings. Finding-level changes remain available.</div>' : '';
+  $('#comparison-results').innerHTML = exports + indexNote + scopeWarning + (rows.length ? rows.slice(0, 200).map((row) => `<div class="comparison-row"><span class="comparison-kind comparison-${row.kind.toLowerCase()}">${escapeHtml(row.kind)}</span><div><strong>${escapeHtml(row.title)}</strong><code>${escapeHtml(row.id)}</code><small>${escapeHtml(row.detail)}</small></div></div>`).join('') + (rows.length > 200 ? `<p class="muted">Showing 200 of ${rows.length} changes.</p>` : '') : '<p class="muted">No finding-level changes were detected.</p>');
   $('#comparison-panel').classList.remove('hidden');
 }
 

@@ -65,7 +65,7 @@ def write_pdf(result: ScanResult, path: Path) -> None:
         )
         story = [Spacer(1, 32 * mm), Paragraph("macOS Inspector", styles["CoverTitle"]), paragraph("Read-only security and DFIR assessment", "Heading2"), Spacer(1, 10 * mm)]
         score_rows = [
-            [paragraph("RULE OUTCOME INDEX", "Small"), paragraph(f"{result.overall_score}/100", "Heading1")],
+            [paragraph("RULE OUTCOME INDEX", "Small"), paragraph(result.rule_index_label(), "Heading1")],
             [paragraph("SCAN ID", "Small"), paragraph(result.metadata.scan_id, "Small")],
             [paragraph("CASE REFERENCE", "Small"), paragraph(result.metadata.case_reference or "Not provided", "Small")],
             [paragraph("ANALYST", "Small"), paragraph(result.metadata.analyst or "Not provided", "Small")],
@@ -85,12 +85,13 @@ def write_pdf(result: ScanResult, path: Path) -> None:
         story.extend([
             score_table,
             paragraph("The rule outcome index summarizes documented rule results. It is not the probability that this Mac is safe or compromised.", "Small"),
+            *([paragraph("No assessed findings. N/A is not a passing security result.", "Small")] if result.assessed_count() == 0 else []),
             PageBreak(), Paragraph("Executive summary", styles["Section"]),
         ])
 
         category_rows = [[paragraph("Category", "TableHeader"), paragraph("Rule index", "TableHeader"), paragraph("Coverage", "TableHeader")]]
         for category, score in result.category_scores.items():
-            category_rows.append([paragraph(category), paragraph(score), paragraph(f"{result.category_coverage.get(category, 100)}%")])
+            category_rows.append([paragraph(category), paragraph(result.category_rule_index_label(category)), paragraph(f"{result.category_coverage.get(category, 100)}%")])
         category_table = Table(category_rows, colWidths=[100 * mm, 25 * mm, 27 * mm], repeatRows=1)
         category_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), navy), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),

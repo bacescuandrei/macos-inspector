@@ -84,6 +84,13 @@ def run_scan(
     return ScanResult(
         metadata, tuple(visible_findings), overall, category_scores, category_coverage,
         len(all_findings), build_timeline(visible_findings), collector_coverage,
+        sum(finding.status.lower() not in {"unknown", "not applicable"} for finding in all_findings),
+        {
+            category: sum(
+                finding.category == category and finding.status.lower() not in {"unknown", "not applicable"}
+                for finding in all_findings
+            ) for category in category_scores
+        },
     )
 
 

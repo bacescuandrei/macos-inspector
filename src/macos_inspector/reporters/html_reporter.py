@@ -41,21 +41,13 @@ def write_html(result: ScanResult, path: Path) -> None:
 <div class="body"><p>{html.escape(finding.description)}</p><dl><dt>Why it matters</dt><dd>{html.escape(finding.why_it_matters)}</dd><dt>Checked</dt><dd>{html.escape(finding.what_was_checked)}</dd><dt>Expected</dt><dd>{html.escape(finding.expected_result)}</dd><dt>Observed</dt><dd>{html.escape(finding.observed_result)}</dd><dt>Recommendation</dt><dd>{html.escape(finding.recommendation)}</dd><dt>MITRE ATT&amp;CK</dt><dd>{attacks}</dd><dt>Commands used</dt><dd><ul>{commands}</ul></dd><dt>References</dt><dd><ul>{references}</ul></dd></dl><details><summary>Evidence</summary><pre>{evidence}</pre></details></div></article>''')
     category_options = "".join(f'<option>{html.escape(category)}</option>' for category in result.category_scores)
     not_assessed = [finding for finding in result.findings if finding.status.lower() == "not applicable"]
-    only_not_assessed = (
-        bool(result.findings) and len(not_assessed) == len(result.findings)
-        and (result.total_finding_count is None or result.total_finding_count == len(result.findings))
-    )
-    overall_display = "N/A" if only_not_assessed else str(result.overall_score)
-    category_findings = {
-        category: [finding for finding in result.findings if finding.category == category]
-        for category in result.category_scores
-    }
+    no_assessed_findings = result.assessed_count() == 0
+    overall_display = "N/A" if no_assessed_findings else str(result.overall_score)
     score_rows = []
-    for category, score in result.category_scores.items():
-        findings = category_findings[category]
-        not_assessed_only = bool(findings) and all(finding.status.lower() == "not applicable" for finding in findings)
-        label = "Not assessed" if not_assessed_only else f"{result.category_coverage.get(category, 100)}% status availability"
-        displayed_score = "N/A" if not_assessed_only else str(score)
+    for category in result.category_scores:
+        not_assessed_category = result.category_assessed_count(category) == 0
+        label = "No assessed findings" if not_assessed_category else f"{result.category_coverage.get(category, 100)}% status availability"
+        displayed_score = result.category_rule_index_label(category)
         score_rows.append(
             f'<div><span>{html.escape(category)} <small class="muted">{label}</small></span><strong>{displayed_score}</strong></div>'
         )
@@ -87,7 +79,7 @@ def write_html(result: ScanResult, path: Path) -> None:
         if result.metadata.target_application else ""
     )
     document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector report</title><style>{CSS}</style></head><body><main>
-<section class="hero"><div><h1>macOS Inspector</h1>{case_html}{scope_html}<div class="meta">{html.escape(result.metadata.hostname)} | {html.escape(result.metadata.completed_at)} | scan {html.escape(result.metadata.scan_id)}</div><p class="muted">The rule outcome index summarizes documented rule results. It is not the probability that this Mac is safe or compromised.</p></div><div class="score">{overall_display}<small>{'No assessed findings' if only_not_assessed else '/100 rule outcome index'}</small></div></section>
+<section class="hero"><div><h1>macOS Inspector</h1>{case_html}{scope_html}<div class="meta">{html.escape(result.metadata.hostname)} | {html.escape(result.metadata.completed_at)} | scan {html.escape(result.metadata.scan_id)}</div><p class="muted">The rule outcome index summarizes documented rule results. It is not the probability that this Mac is safe or compromised.</p></div><div class="score">{overall_display}<small>{'No assessed findings' if no_assessed_findings else '/100 rule outcome index'}</small></div></section>
 {errors}{scope_note}<section class="scores">{scores}</section>{timeline}<section class="toolbar"><input id="q" aria-label="Search" placeholder="Search findings"><select id="severity"><option value="">All severities</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option><option>Informational</option></select><select id="category"><option value="">All categories</option>{category_options}</select><button id="theme">Theme</button></section>
 <p id="count"></p><section id="findings">{''.join(cards)}</section></main><script>{SCRIPT}</script></body></html>'''
     secure_write_text(path, document)

@@ -23,7 +23,7 @@ def write_comparison_reports(comparison: dict, output: Path) -> dict[str, Path]:
 
     counts = comparison["counts"]
     delta = comparison["score_delta"]
-    delta_label = f"+{delta}" if delta > 0 else str(delta)
+    delta_label = "N/A" if delta is None else f"+{delta}" if delta > 0 else str(delta)
     scope = comparison.get("scope", {})
     scope_html = ""
     if scope.get("changed"):
@@ -36,7 +36,7 @@ def write_comparison_reports(comparison: dict, output: Path) -> dict[str, Path]:
             targets = f" Previous target: {html.escape(before)}. Current target: {html.escape(after)}."
         scope_html = f'<section class="scope"><strong>Collection scope changed.</strong> Added: {html.escape(added)}. Removed: {html.escape(removed)}.{targets} Counts may reflect collector coverage rather than a host-state change.</section>'
     category_rows = "".join(
-        f"<tr><td>{html.escape(category)}</td><td>{'+' if value > 0 else ''}{value}</td></tr>"
+        f"<tr><td>{html.escape(category)}</td><td>{'N/A' if value is None else ('+' if value > 0 else '') + str(value)}</td></tr>"
         for category, value in comparison.get("category_deltas", {}).items()
     ) or '<tr><td colspan="2">No category scores</td></tr>'
     rows = []
@@ -50,6 +50,7 @@ def write_comparison_reports(comparison: dict, output: Path) -> dict[str, Path]:
         f'<article class="change"><span class="kind {kind}">{kind}</span><div><strong>{html.escape(str(title or ""))}</strong><code>{html.escape(str(finding_id or ""))}</code><small>{html.escape(detail)}</small></div></article>'
         for kind, finding_id, title, detail in rows
     ) or '<p class="meta">No finding-level changes were detected.</p>'
-    document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector comparison</title><style>{CSS}</style></head><body><main><h1>Scan comparison</h1><p class="meta">Baseline {html.escape(baseline)} -> current {html.escape(current)}</p><p class="meta">The rule outcome index summarizes documented rule results. It is not a probability of safety or compromise.</p><section class="summary"><div><span>Rule outcome index change</span><strong>{delta_label}</strong></div><div><span>New</span><strong>{counts['new']}</strong></div><div><span>Resolved</span><strong>{counts['resolved']}</strong></div><div><span>Changed</span><strong>{counts['changed']}</strong></div></section>{scope_html}<section class="categories"><h2>Category rule outcome index changes</h2><table><thead><tr><th>Category</th><th>Delta</th></tr></thead><tbody>{category_rows}</tbody></table></section><h2>Finding changes</h2>{changes_html}</main></body></html>'''
+    unavailable_note = '<p class="meta">N/A means at least one scan had no assessed findings for that index. Finding-level changes remain available.</p>' if delta is None or any(value is None for value in comparison.get("category_deltas", {}).values()) else ""
+    document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector comparison</title><style>{CSS}</style></head><body><main><h1>Scan comparison</h1><p class="meta">Baseline {html.escape(baseline)} -> current {html.escape(current)}</p><p class="meta">The rule outcome index summarizes documented rule results. It is not a probability of safety or compromise.</p><section class="summary"><div><span>Rule outcome index change</span><strong>{delta_label}</strong></div><div><span>New</span><strong>{counts['new']}</strong></div><div><span>Resolved</span><strong>{counts['resolved']}</strong></div><div><span>Changed</span><strong>{counts['changed']}</strong></div></section>{unavailable_note}{scope_html}<section class="categories"><h2>Category rule outcome index changes</h2><table><thead><tr><th>Category</th><th>Delta</th></tr></thead><tbody>{category_rows}</tbody></table></section><h2>Finding changes</h2>{changes_html}</main></body></html>'''
     secure_write_text(html_path, document)
     return {"comparison_json": json_path, "comparison_html": html_path}

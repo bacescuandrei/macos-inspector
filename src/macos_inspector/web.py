@@ -23,7 +23,7 @@ from macos_inspector.collectors import COLLECTORS, LOCAL_COLLECTORS
 from macos_inspector.collectors.application_trust import discover_applications
 from macos_inspector.collectors.ioc import MAX_PACK_BYTES, load_ioc_pack
 from macos_inspector.core.io import read_json_limited, read_text_limited
-from macos_inspector.core.models import Severity
+from macos_inspector.core.models import Severity, summary_with_assessment_counts
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.decision_support import build_decision_support, write_investigation_summary
 from macos_inspector.core.guidance import build_guidance
@@ -444,7 +444,7 @@ class DashboardState:
         for _, path in sorted(candidates, reverse=True)[:MAX_HISTORY_SCANS]:
             try:
                 payload = read_json_limited(path, MAX_REPORT_JSON_BYTES)
-                metadata, summary = payload["metadata"], payload["summary"]
+                metadata, summary = payload["metadata"], summary_with_assessment_counts(payload)
                 scan_id = metadata["scan_id"]
                 if scan_id in known_scans:
                     continue

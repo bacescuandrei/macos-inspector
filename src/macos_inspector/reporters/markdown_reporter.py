@@ -16,14 +16,16 @@ def write_markdown(result: ScanResult, path: Path) -> None:
         f"**Host:** `{result.metadata.hostname}`  ", f"**Completed:** {result.metadata.completed_at}  ",
         f"**Case reference:** {_safe(result.metadata.case_reference) or 'Not provided'}  ",
         f"**Analyst:** {_safe(result.metadata.analyst) or 'Not provided'}  ",
-        f"**Rule outcome index:** **{result.overall_score}/100**  ",
+        f"**Rule outcome index:** **{result.rule_index_label()}**  ",
         "This index summarizes documented rule outcomes. It is not the probability that this Mac is safe or compromised.",
         "", "## Category rule outcome indexes", "",
         "| Category | Rule outcome index | Coverage |", "|---|---:|---:|",
     ]
     if result.metadata.target_application:
         lines.insert(7, f"**Target application:** {_safe(result.metadata.target_application)}  ")
-    lines.extend(f"| {_safe(category)} | {score} | {result.category_coverage.get(category, 100)}% |" for category, score in result.category_scores.items())
+    if result.assessed_count() == 0:
+        lines.extend(["No assessed findings. N/A is not a passing security result.", ""])
+    lines.extend(f"| {_safe(category)} | {result.category_rule_index_label(category)} | {result.category_coverage.get(category, 100)}% |" for category in result.category_scores)
     if result.metadata.collection_errors:
         lines.extend(["", "## Collection errors", ""])
         lines.extend(f"- {_safe(error)}" for error in result.metadata.collection_errors)

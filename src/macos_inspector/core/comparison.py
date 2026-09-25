@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .models import summary_with_assessment_counts
+
 
 TRACKED_FIELDS = ("status", "severity", "observed_result")
 
@@ -24,19 +26,28 @@ def compare_scan_payloads(baseline: dict[str, Any], current: dict[str, Any]) -> 
         if changes:
             changed.append({"finding_id": finding_id, "title": after.get("title") or before.get("title"), "changes": changes})
 
-    baseline_summary, current_summary = baseline.get("summary", {}), current.get("summary", {})
+    baseline_summary, current_summary = summary_with_assessment_counts(baseline), summary_with_assessment_counts(current)
     baseline_collectors = set(baseline.get("metadata", {}).get("collectors", []))
     current_collectors = set(current.get("metadata", {}).get("collectors", []))
     baseline_target = str(baseline.get("metadata", {}).get("target_application", ""))
     current_target = str(current.get("metadata", {}).get("target_application", ""))
     baseline_score = int(baseline_summary.get("overall_score", 0))
     current_score = int(current_summary.get("overall_score", 0))
-    categories = set(baseline_summary.get("category_scores", {})) | set(current_summary.get("category_scores", {}))
+    baseline_categories = baseline_summary.get("category_scores", {})
+    current_categories = current_summary.get("category_scores", {})
+    categories = set(baseline_categories) | set(current_categories)
     category_deltas = {
-        category: int(current_summary.get("category_scores", {}).get(category, 0))
-        - int(baseline_summary.get("category_scores", {}).get(category, 0))
-        for category in sorted(categories)
+        category: (
+            None if category not in baseline_categories or category not in current_categories
+            or baseline_summary.get("category_assessed_counts", {}).get(category) == 0
+            or current_summary.get("category_assessed_counts", {}).get(category) == 0
+            else int(current_categories[category]) - int(baseline_categories[category])
+        ) for category in sorted(categories)
     }
+    score_comparable = (
+        baseline_summary.get("assessed_finding_count") != 0
+        and current_summary.get("assessed_finding_count") != 0
+    )
     scope = {
         "changed": baseline_collectors != current_collectors or baseline_target != current_target,
         "added_collectors": sorted(current_collectors - baseline_collectors),
@@ -50,7 +61,7 @@ def compare_scan_payloads(baseline: dict[str, Any], current: dict[str, Any]) -> 
         "current_scan_id": current.get("metadata", {}).get("scan_id"),
         "baseline_score": baseline_score,
         "current_score": current_score,
-        "score_delta": current_score - baseline_score,
+        "score_delta": current_score - baseline_score if score_comparable else None,
         "scope": scope,
         "counts": {
             "new": len(new), "resolved": len(resolved), "changed": len(changed),

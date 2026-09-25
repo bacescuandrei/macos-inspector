@@ -101,6 +101,8 @@ The dashboard does not present the numeric rule outcome index as a safety score.
 
 `Not Applicable` is not a passing security check. For example, disabled YARA scanning, no enabled IOC pack, or no supported browser profile means that section did not assess a target. The dashboard shows these as **Not assessed** with a specific next step. A completed collector can still have limited investigative scope.
 
+When a scan has no assessed findings, the history, comparisons, and human-readable exports show the rule outcome index as `N/A`. The JSON report retains its raw numeric value for compatibility and records the assessed-finding counts used for display.
+
 ## Practical examples
 
 ### Validate an unfamiliar application

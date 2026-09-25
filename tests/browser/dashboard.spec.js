@@ -150,3 +150,28 @@ test('a skipped optional check is shown as limited scope, not a normal result', 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 });
+
+test('history and comparisons do not show a numeric index for unassessed scans', async ({ page }) => {
+  await page.evaluate(() => {
+    state.historyScans = [{
+      job_id: 'unassessed-job', scan_id: 'unassessed-scan', state: 'completed',
+      collectors: ['yara-rules'], completed_at: '2026-01-01T00:00:00Z',
+      summary: { overall_score: 100, assessed_finding_count: 0 },
+      reports: { json: '/reports/unassessed.json' },
+    }, {
+      job_id: 'legacy-job', scan_id: 'legacy-scan', state: 'completed',
+      collectors: ['security'], completed_at: '2025-01-01T00:00:00Z',
+      summary: { overall_score: 85 }, reports: { json: '/reports/legacy.json' },
+    }];
+    renderHistory();
+    renderComparison({
+      score_delta: null, counts: { new: 0, resolved: 0, changed: 0 },
+      scope: { changed: false }, new: [], resolved: [], changed: [],
+    });
+  });
+
+  await expect(page.locator('#history')).toContainText('N/A (no assessed findings)');
+  await expect(page.locator('#history')).toContainText('rule outcome index 85');
+  await expect(page.locator('#comparison-summary')).toContainText('N/A');
+  await expect(page.locator('#comparison-results')).toContainText('no assessed findings');
+});

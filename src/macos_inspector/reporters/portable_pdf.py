@@ -190,8 +190,10 @@ def write_portable_pdf(result: ScanResult, path: Path) -> None:
     document.rectangle(0, A4_HEIGHT - 255, A4_WIDTH, 255, NAVY)
     document.text("macOS Inspector", MARGIN, A4_HEIGHT - 104, 30, "F2", WHITE)
     document.text("READ-ONLY SECURITY AND DFIR ASSESSMENT", MARGIN, A4_HEIGHT - 132, 10, "F2", (0.65, 0.78, 1.0))
-    document.text(f"{result.overall_score}", MARGIN, A4_HEIGHT - 213, 46, "F2", WHITE)
-    document.text("/ 100 RULE OUTCOME INDEX", MARGIN + 74, A4_HEIGHT - 203, 10, "F2", WHITE)
+    index_unavailable = result.assessed_count() == 0
+    document.text("N/A" if index_unavailable else str(result.overall_score), MARGIN, A4_HEIGHT - 213, 46, "F2", WHITE)
+    index_caption = "RULE OUTCOME INDEX" if index_unavailable else "/ 100 RULE OUTCOME INDEX"
+    document.text(index_caption, MARGIN + (105 if index_unavailable else 74), A4_HEIGHT - 203, 10, "F2", WHITE)
     document.y = A4_HEIGHT - 305
     metadata_rows = [
         ("Scan ID", result.metadata.scan_id),
@@ -209,13 +211,16 @@ def write_portable_pdf(result: ScanResult, path: Path) -> None:
     document.new_page()
     document.section("Executive summary")
     document.paragraph("The rule outcome index summarizes documented rule results. It is not the probability that this Mac is safe or compromised.", color=SLATE)
+    if index_unavailable:
+        document.paragraph("No assessed findings. N/A is not a passing security result.", color=SLATE)
     if result.category_scores:
-        for category, score in result.category_scores.items():
+        for category in result.category_scores:
             document.ensure(34)
             document.rectangle(MARGIN, document.y - 18, A4_WIDTH - 2 * MARGIN, 28, PALE)
             document.text(category, MARGIN + 10, document.y - 7, 9.5, "F2", NAVY)
             coverage = result.category_coverage.get(category, 100)
-            document.text(f"Rule index {score}/100  |  Coverage {coverage}%", A4_WIDTH - MARGIN - 10, document.y - 7, 8.5, "F2", BLUE, align="right")
+            index = result.category_rule_index_label(category)
+            document.text(f"Rule index {index}{'' if index == 'N/A' else '/100'}  |  Coverage {coverage}%", A4_WIDTH - MARGIN - 10, document.y - 7, 8.5, "F2", BLUE, align="right")
             document.y -= 36
     else:
         document.paragraph("No category rule outcome indexes were generated.")

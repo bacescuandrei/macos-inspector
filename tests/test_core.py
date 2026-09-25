@@ -13,6 +13,7 @@ import re
 import signal
 import threading
 import zipfile
+import zlib
 from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -481,9 +482,68 @@ class CoreTests(unittest.TestCase):
             REPORTERS["html"](result, path)
             document = path.read_text(encoding="utf-8")
             self.assertIn("Not Applicable is not a passing security result", document)
-            self.assertIn("Not assessed</small></span><strong>N/A", document)
+            self.assertIn("No assessed findings</small></span><strong>N/A", document)
             self.assertIn('class="score">N/A<small>No assessed findings', document)
             self.assertNotIn("100% coverage", document)
+
+    def test_unassessed_scan_does_not_present_a_numeric_index_in_exports(self):
+        metadata = ScanMetadata("1.4.0", "unassessed-export", "start", "end", "fixture", "macOS", "tester", ("test",))
+        item = replace(finding(Severity.INFORMATIONAL, "Not Applicable"), category="Scope")
+        result = ScanResult(metadata, (item,), 100, {"Scope": 100}, {"Scope": 100})
+        self.assertEqual(result.to_dict()["summary"]["assessed_finding_count"], 0)
+        self.assertEqual(result.to_dict()["summary"]["category_assessed_counts"], {"Scope": 0})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            REPORTERS["markdown"](result, root / "report.md")
+            REPORTERS["sarif"](result, root / "report.sarif")
+            with patch("macos_inspector.reporters.pdf_reporter.importlib.util.find_spec", return_value=None):
+                REPORTERS["pdf"](result, root / "report.pdf")
+            self.assertIn("**Rule outcome index:** **N/A**", (root / "report.md").read_text())
+            self.assertIn("| Scope | N/A |", (root / "report.md").read_text())
+            sarif = json.loads((root / "report.sarif").read_text())
+            properties = sarif["runs"][0]["invocations"][0]["properties"]
+            self.assertIsNone(properties["overallScore"])
+            self.assertEqual(properties["assessedFindingCount"], 0)
+            pdf = (root / "report.pdf").read_bytes()
+            streams = [zlib.decompress(stream) for stream in re.findall(rb"stream\n(.*?)\nendstream", pdf, re.DOTALL)]
+            self.assertTrue(any(b"N/A" in stream for stream in streams))
+
+    def test_comparison_marks_unassessed_index_deltas_unavailable(self):
+        baseline = {
+            "metadata": {"scan_id": "unassessed", "collectors": ["test"]},
+            "summary": {"overall_score": 100, "assessed_finding_count": 0,
+                        "category_scores": {"Scope": 100}, "category_assessed_counts": {"Scope": 0}},
+            "findings": [],
+        }
+        current = {
+            "metadata": {"scan_id": "assessed", "collectors": ["test"]},
+            "summary": {"overall_score": 91, "assessed_finding_count": 1,
+                        "category_scores": {"Scope": 91}, "category_assessed_counts": {"Scope": 1}},
+            "findings": [],
+        }
+        comparison = compare_scan_payloads(baseline, current)
+        self.assertIsNone(comparison["score_delta"])
+        self.assertIsNone(comparison["category_deltas"]["Scope"])
+        with tempfile.TemporaryDirectory() as directory:
+            reports = write_comparison_reports(comparison, Path(directory))
+            document = reports["comparison_html"].read_text()
+            self.assertIn("N/A", document)
+            self.assertIn("no assessed findings", document)
+
+        legacy = {
+            "metadata": {"scan_id": "legacy-unassessed", "collectors": ["test"]},
+            "summary": {"overall_score": 100, "category_scores": {"Scope": 100}, "total_finding_count": 1},
+            "findings": [{"finding_id": "NO-TARGET", "category": "Scope", "status": "Not Applicable"}],
+        }
+        self.assertIsNone(compare_scan_payloads(legacy, current)["score_delta"])
+        current["summary"]["category_scores"]["New category"] = 100
+        current["summary"]["category_assessed_counts"]["New category"] = 1
+        self.assertIsNone(compare_scan_payloads(legacy, current)["category_deltas"]["New category"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "macos-inspector-legacy-unassessed.json").write_text(json.dumps(legacy))
+            history = DashboardState(root).list_jobs()
+            self.assertEqual(history[0]["summary"]["assessed_finding_count"], 0)
 
     def test_guidance_and_investigation_endpoints_require_local_protected_requests(self):
         report = {
@@ -2340,6 +2400,8 @@ enabled active teamID bundleID (version) name [state]
         self.assertEqual(result.total_finding_count, 2)
         self.assertEqual(len(result.findings), 1)
         self.assertEqual(result.to_dict()["summary"]["total_finding_count"], 2)
+        self.assertEqual(result.to_dict()["summary"]["assessed_finding_count"], 2)
+        self.assertEqual(result.to_dict()["summary"]["category_assessed_counts"], {"Persistence": 2})
 
     def test_severity_threshold_does_not_hide_unknown_or_unassessed_checks(self):
         class MixedCollector:
