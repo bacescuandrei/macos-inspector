@@ -508,6 +508,10 @@ class CoreTests(unittest.TestCase):
             pdf = (root / "report.pdf").read_bytes()
             streams = [zlib.decompress(stream) for stream in re.findall(rb"stream\n(.*?)\nendstream", pdf, re.DOTALL)]
             self.assertTrue(any(b"N/A" in stream for stream in streams))
+            if importlib.util.find_spec("reportlab") is not None:
+                reportlab_path = root / "report-reportlab.pdf"
+                REPORTERS["pdf"](result, reportlab_path)
+                self.assertTrue(reportlab_path.read_bytes().startswith(b"%PDF-"))
 
     def test_comparison_marks_unassessed_index_deltas_unavailable(self):
         baseline = {
@@ -1747,9 +1751,21 @@ class CoreTests(unittest.TestCase):
         installation = (root / "docs" / "INSTALLATION.md").read_text(encoding="utf-8")
         artifact = f"macos-inspector-{__version__}-macos.zip"
         self.assertIn(f'version = "{__version__}"', pyproject)
-        self.assertIn(f"Current release: `v{__version__}`", readme)
+        self.assertIn(f"Package version in this checkout: `v{__version__}`", readme)
         self.assertIn(artifact, readme)
         self.assertIn(artifact, installation)
+
+    def test_release_notes_match_the_current_source_build(self):
+        from macos_inspector import __version__
+
+        root = Path(__file__).resolve().parents[1]
+        notes = (root / ".github" / "release-notes" / f"v{__version__}.md").read_text(encoding="utf-8")
+        artifact = f"macos-inspector-{__version__}-macos.zip"
+        self.assertIn(f"Filename: {artifact}", notes)
+        with tempfile.TemporaryDirectory() as directory:
+            archive = build_release(Path(directory) / artifact)
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        self.assertIn(f"SHA-256: {digest}", notes)
 
     def test_gitea_workflow_tests_and_verifies_release_without_secrets(self):
         root = Path(__file__).resolve().parents[1]

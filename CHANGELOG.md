@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.1 - 2026-09-25
 
 - Separate `Not Applicable` from passing checks in guided review. Disabled YARA, absent IOC packs, and missing supported browser profiles now appear as "Not assessed" with a relevant setup or scope check, rather than "Looks normal".
 - Show a limited-scope assessment when a selected check finishes without an applicable target. Execution coverage remains distinct from whether the check assessed files or activity.
@@ -14,6 +14,10 @@
 - Treat missing collection evidence as an incomplete scan in the guided assessment and provide a recheck step.
 - Lower overall evidence confidence when selected checks are incomplete.
 - Build portable ZIP archives with fixed metadata and without environment-dependent compression so identical source files produce identical archives.
+- Show `N/A` instead of a numeric rule outcome index when no findings were assessed in dashboard history, comparisons, HTML, Markdown, and PDF. Preserve the raw JSON score with assessed-finding counts for compatibility, and use a null SARIF score for unassessed scans.
+- Infer assessment counts for complete older reports without rewriting them. Keep finding-level comparison available when an index delta is not meaningful.
+- Label the percentage shown to users as collection completion, not target assessment. An all-`Not Applicable` category no longer inflates the overall rule outcome index; unknown evidence still reduces it.
+- Explain status availability in exported category tables and preserve clear scope notes for checks that did not assess a target.
 
 ## 1.4.0 - 2026-09-21
 

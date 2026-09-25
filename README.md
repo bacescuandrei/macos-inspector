@@ -10,7 +10,7 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current release: `v1.4.0`
+Package version in this checkout: `v1.4.1`
 
 ## What it can help answer
 
@@ -63,11 +63,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.4.0-macos.zip` and `SHA256SUMS` from the latest GitHub release.
+1. Once version 1.4.1 is published, download `macos-inspector-1.4.1-macos.zip` and `SHA256SUMS` from its GitHub release.
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.4.0-macos.zip
+   shasum -a 256 macos-inspector-1.4.1-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
