@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.1 - 2026-09-25
+## 1.4.1 - 2026-09-26
 
 - Separate `Not Applicable` from passing checks in guided review. Disabled YARA, absent IOC packs, and missing supported browser profiles now appear as "Not assessed" with a relevant setup or scope check, rather than "Looks normal".
 - Show a limited-scope assessment when a selected check finishes without an applicable target. Execution coverage remains distinct from whether the check assessed files or activity.

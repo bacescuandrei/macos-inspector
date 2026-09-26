@@ -14,7 +14,7 @@ The portable release does not require administrator privileges, `sudo`, a packag
 
 ### Download and verify
 
-Once version 1.4.1 is published, download these two files from the same GitHub release:
+Download these two files from the same GitHub release:
 
 - `macos-inspector-1.4.1-macos.zip`
 - `SHA256SUMS`

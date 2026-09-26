@@ -1751,7 +1751,7 @@ class CoreTests(unittest.TestCase):
         installation = (root / "docs" / "INSTALLATION.md").read_text(encoding="utf-8")
         artifact = f"macos-inspector-{__version__}-macos.zip"
         self.assertIn(f'version = "{__version__}"', pyproject)
-        self.assertIn(f"Package version in this checkout: `v{__version__}`", readme)
+        self.assertIn(f"Current release: `v{__version__}`", readme)
         self.assertIn(artifact, readme)
         self.assertIn(artifact, installation)
 
