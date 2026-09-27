@@ -68,6 +68,8 @@ def finding_fingerprint(finding: dict[str, Any]) -> str:
             "gatekeeper_accepted": gatekeeper.get("accepted"),
             "notarized": gatekeeper.get("notarized"),
         }
+        if gatekeeper.get("assessment_applicable") is False:
+            identity["application"]["gatekeeper_applicable"] = False
     elif finding_id in {"LIVE-PROCESS-TREE", "LIVE-NETWORK-PROCESSES"}:
         identity["processes"] = _process_identities(finding)
     else:
@@ -201,8 +203,9 @@ def _context(finding: dict[str, Any]) -> dict[str, Any]:
             "version": app.get("version"),
             "path": next((item.get("source") for item in finding.get("evidence", []) if isinstance(item, dict) and item.get("kind") == "application_bundle"), None),
             "publisher_team_id": signature.get("team_identifier"),
-            "signature_valid": signature.get("valid"),
-            "gatekeeper_accepted": gatekeeper.get("accepted"),
+            "signature_valid": signature.get("valid") if signature.get("verification_completed") is not False else None,
+            "gatekeeper_accepted": gatekeeper.get("accepted") if gatekeeper.get("assessment_completed") is not False and gatekeeper.get("assessment_applicable") is not False else None,
+            "gatekeeper_applicable": gatekeeper.get("assessment_applicable") is not False,
             "executable_sha256": executable.get("sha256"),
         }
     if finding_id in {"LIVE-PROCESS-TREE", "LIVE-NETWORK-PROCESSES"}:

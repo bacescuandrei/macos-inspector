@@ -148,8 +148,20 @@ def command_completed(result: CommandResult) -> bool:
         result.timed_out
         or result.returncode in {124, 126, 127}
         or "internal error in code signing subsystem" in output
+        or "cssmerr_tp_not_trusted" in output
         or "resource temporarily unavailable" in output
         or "internal error" in output
+    )
+
+
+def apple_system_app_not_assessable(result: CommandResult, details: SignatureDetails | None) -> bool:
+    """Identify signed Apple components that Gatekeeper cannot assess as standalone apps."""
+    return bool(
+        details
+        and details.identifier
+        and details.identifier.startswith("com.apple.")
+        and details.signature_type == "Apple"
+        and "does not seem to be an app" in f"{result.stdout}\n{result.stderr}".lower()
     )
 
 
@@ -499,14 +511,12 @@ def classify_trust(
     unsigned = "code object is not signed" in combined or "not signed at all" in combined
     if not executable_exists:
         return Severity.HIGH, "Fail", "The application bundle's declared executable is missing."
-    if signature_result.timed_out or signature_result.returncode in {124, 126, 127}:
-        return Severity.INFORMATIONAL, "Unknown", "Code-signature verification was unavailable or timed out."
-    if any(token in combined for token in (
-        "cssmerr_tp_not_trusted", "internal error in code signing subsystem", "resource temporarily unavailable",
-    )):
+    if not command_completed(signature_result):
+        if signature_result.timed_out or signature_result.returncode in {124, 126, 127}:
+            return Severity.INFORMATIONAL, "Unknown", "Code-signature verification was unavailable or timed out."
         return Severity.INFORMATIONAL, "Unknown", "The local code-signing trust service could not complete verification."
     if signature_result.returncode != 0:
-        if assessment_result.returncode == 0 and any(token in combined for token in (
+        if assessment_result.returncode == 0 and command_completed(assessment_result) and any(token in combined for token in (
             "resource fork, finder information, or similar detritus not allowed",
             "disallowed xattr",
         )):
@@ -519,16 +529,9 @@ def classify_trust(
             return Severity.HIGH, "Fail", "The signed application bundle is incomplete: one or more sealed resources are missing or invalid."
         reason = "The application is unsigned." if unsigned else "The code signature is invalid or could not be verified."
         return Severity.HIGH, "Fail", reason
-    if assessment_result.timed_out or assessment_result.returncode in {124, 126, 127} or "internal error" in assessment_output:
+    if not command_completed(assessment_result):
         return Severity.INFORMATIONAL, "Unknown", "Gatekeeper assessment was unavailable or returned an internal error."
-    if (
-        assessment_result.returncode != 0
-        and "does not seem to be an app" in assessment_output
-        and details
-        and details.identifier
-        and details.identifier.startswith("com.apple.")
-        and details.signature_type == "Apple"
-    ):
+    if assessment_result.returncode != 0 and apple_system_app_not_assessable(assessment_result, details):
         return Severity.INFORMATIONAL, "Pass", "The Apple system application's signature is valid; Gatekeeper reported that this protected component is not an independently assessable app."
     if assessment_result.returncode != 0 and "rejected" in assessment_output:
         return Severity.MEDIUM, "Fail", "Gatekeeper did not accept the application."
@@ -669,6 +672,15 @@ class ApplicationTrustCollector(Collector):
         entitlements, entitlements_error = parse_entitlements(entitlements_output)
         sensitive_entitlements, entitlement_severity = assess_entitlements(entitlements)
         gatekeeper = parse_gatekeeper_details(f"{assessment.stdout}\n{assessment.stderr}")
+        gatekeeper_applicable = not (
+            signature.returncode == 0
+            and command_completed(signature)
+            and assessment.returncode != 0
+            and command_completed(assessment)
+            and apple_system_app_not_assessable(assessment, details)
+        )
+        if not gatekeeper_applicable:
+            gatekeeper = GatekeeperDetails(gatekeeper.source, gatekeeper.origin, None)
         quarantine_details = parse_quarantine(quarantine.stdout) if quarantine.returncode == 0 else QuarantineDetails()
         download_sources, download_sources_error = parse_where_froms_hex(where_froms.stdout) if where_froms.returncode == 0 else ((), None)
         supplemental_assessments = list(assess_file_integrity(executable_integrity))
@@ -757,8 +769,9 @@ class ApplicationTrustCollector(Collector):
                 "parse_error": entitlements_error, "command_returncode": entitlements_result.returncode,
             }),
             Evidence("gatekeeper_assessment", str(bundle), {
-                "accepted": assessment.returncode == 0 if command_completed(assessment) else None,
+                "accepted": assessment.returncode == 0 if command_completed(assessment) and gatekeeper_applicable else None,
                 "assessment_completed": command_completed(assessment),
+                "assessment_applicable": gatekeeper_applicable,
                 "timed_out": assessment.timed_out,
                 "returncode": assessment.returncode,
                 "stdout": assessment.stdout, "stderr": assessment.stderr,

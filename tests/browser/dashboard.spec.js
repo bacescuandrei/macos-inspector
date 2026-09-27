@@ -117,6 +117,29 @@ test('historical trust findings show a recheck cue without changing the recorded
   expect(overflow).toBeLessThanOrEqual(1);
 });
 
+test('Apple components that Gatekeeper cannot assess are not labeled rejected or unknown', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 850 });
+  await page.evaluate(() => renderApplicationReview({
+    available: true, conclusion: 'Review recorded trust results in context.', total: 1,
+    counts: { checks_passed: 1 },
+    applications: [{
+      finding_id: 'APP-TRUST-APPLE', group: 'checks_passed', group_label: 'Checks passed',
+      name: 'Apple component', path: '/System/Applications/Example.app',
+      explanation: 'The Apple signature is valid. Gatekeeper cannot assess this component independently.',
+      signature_valid: true, gatekeeper_accepted: null, gatekeeper_applicable: false,
+      notarized: null, signals: [],
+    }],
+  }));
+  await page.getByRole('button', { name: 'All applications 1' }).click();
+
+  const card = page.locator('#application-review');
+  await expect(card).toContainText('Gatekeeper not applicable');
+  await expect(card).not.toContainText('Gatekeeper rejected');
+  await expect(card).not.toContainText('Gatekeeper unknown');
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+});
+
 test('a skipped optional check is shown as limited scope, not a normal result', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 850 });
   await page.evaluate(() => {

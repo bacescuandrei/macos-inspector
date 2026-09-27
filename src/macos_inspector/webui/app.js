@@ -434,7 +434,7 @@ function renderApplicationReview(review) {
     const facts = [
       item.publisher_team_id ? `Team ID ${item.publisher_team_id}` : 'Team ID unavailable',
       item.signature_valid === true ? 'Signature valid' : item.signature_valid === false ? 'Signature invalid' : item.legacy_verification ? 'Signature completion not recorded' : 'Signature check not completed',
-      item.gatekeeper_accepted === true ? 'Gatekeeper accepted' : item.gatekeeper_accepted === false ? 'Gatekeeper rejected' : 'Gatekeeper unknown',
+      item.gatekeeper_applicable === false ? 'Gatekeeper not applicable' : item.gatekeeper_accepted === true ? 'Gatekeeper accepted' : item.gatekeeper_accepted === false ? 'Gatekeeper rejected' : 'Gatekeeper unknown',
       item.notarized === true ? 'Notarized' : item.notarized === false ? 'Notarization not confirmed' : 'Notarization not separately reported',
     ];
     if (item.legacy_verification) facts.unshift('Historical check: recheck required');
@@ -668,7 +668,7 @@ function renderInvestigationContext(context) {
       ['Application', context.name], ['Version', context.version], ['Location', context.path],
       ['Publisher Team ID', context.publisher_team_id || 'Not available'],
       ['Signature', context.signature_valid === true ? 'Valid' : context.signature_valid === false ? 'Invalid' : 'Unknown'],
-      ['Gatekeeper', context.gatekeeper_accepted === true ? 'Accepted' : context.gatekeeper_accepted === false ? 'Rejected' : 'Unknown'],
+      ['Gatekeeper', context.gatekeeper_applicable === false ? 'Not applicable' : context.gatekeeper_accepted === true ? 'Accepted' : context.gatekeeper_accepted === false ? 'Rejected' : 'Unknown'],
       ['Executable SHA-256', context.executable_sha256],
     ].filter(([, value]) => value !== null && value !== undefined && value !== '');
     const reputation = context.executable_sha256 ? `<div class="reputation-action"><button type="button" class="secondary-button" data-hash-reputation="${escapeHtml(context.executable_sha256)}">Check hash reputation</button><span data-reputation-result></span><small>Manual opt-in. Only the SHA-256 is sent to enabled providers; the file is never uploaded.</small></div>` : '';

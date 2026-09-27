@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Keep Application Trust verdicts consistent with verification-completion evidence when macOS trust services return internal errors.
+- Label signed Apple components that Gatekeeper cannot assess as standalone apps as "Gatekeeper not applicable", not rejected or unknown.
+- Base application evidence confidence on completed checks and make release-checksum tests compatible with post-release development.
+
 ## 1.4.1 - 2026-09-26
 
 - Separate `Not Applicable` from passing checks in guided review. Disabled YARA, absent IOC packs, and missing supported browser profiles now appear as "Not assessed" with a relevant setup or scope check, rather than "Looks normal".

@@ -11,6 +11,7 @@ import os
 import plistlib
 import re
 import signal
+import subprocess
 import threading
 import zipfile
 import zlib
@@ -424,6 +425,24 @@ class CoreTests(unittest.TestCase):
         confidence = confidence_for_finding(finding_payload)
         self.assertEqual(confidence["level"], "medium")
         self.assertIn("one structured evidence source", confidence["rationale"])
+
+    def test_application_confidence_uses_completed_checks_and_gatekeeper_applicability(self):
+        finding_payload = {"finding_id": "APP-TRUST-EXAMPLE", "status": "Review", "evidence": [
+            {"kind": "code_signature", "value": {"valid": True, "verification_completed": False}},
+            {"kind": "gatekeeper_assessment", "value": {"accepted": True, "assessment_completed": True}},
+            {"kind": "executable_integrity", "value": {"sha256": "a" * 64}},
+        ]}
+        incomplete = confidence_for_finding(finding_payload)
+        self.assertEqual(incomplete["level"], "medium")
+        self.assertIn("Code-signature result", incomplete["missing"])
+
+        finding_payload["evidence"][0]["value"]["verification_completed"] = True
+        finding_payload["evidence"][1]["value"] = {
+            "accepted": None, "assessment_completed": True, "assessment_applicable": False,
+        }
+        not_assessable = confidence_for_finding(finding_payload)
+        self.assertEqual(not_assessable["level"], "high")
+        self.assertIn("cannot assess this Apple component", not_assessable["rationale"])
 
     def test_not_applicable_checks_are_not_presented_as_normal_or_clean(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1762,10 +1781,30 @@ class CoreTests(unittest.TestCase):
         notes = (root / ".github" / "release-notes" / f"v{__version__}.md").read_text(encoding="utf-8")
         artifact = f"macos-inspector-{__version__}-macos.zip"
         self.assertIn(f"Filename: {artifact}", notes)
+        published_digest = re.search(r"^SHA-256: ([0-9a-f]{64})$", notes, re.MULTILINE)
+        self.assertIsNotNone(published_digest)
         with tempfile.TemporaryDirectory() as directory:
             archive = build_release(Path(directory) / artifact)
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-        self.assertIn(f"SHA-256: {digest}", notes)
+            rebuilt = build_release(Path(directory) / "second" / artifact)
+            self.assertEqual(digest, hashlib.sha256(rebuilt.read_bytes()).hexdigest())
+
+        tag = subprocess.run(
+            ["git", "rev-parse", "--verify", f"v{__version__}^{{commit}}"],
+            cwd=root, capture_output=True, text=True, check=False,
+        )
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root, capture_output=True, text=True, check=False,
+        )
+        changed = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=root, capture_output=True, text=True, check=False,
+        )
+        if tag.returncode == head.returncode == changed.returncode == 0 and (
+            tag.stdout.strip() == head.stdout.strip() and not changed.stdout.strip()
+        ):
+            self.assertEqual(digest, published_digest.group(1))
 
     def test_gitea_workflow_tests_and_verifies_release_without_secrets(self):
         root = Path(__file__).resolve().parents[1]
@@ -2063,6 +2102,15 @@ enabled active teamID bundleID (version) name [state]
         timed_out = CommandResult(("codesign",), 124, "", "partial verification", True)
         self.assertFalse(command_completed(timed_out))
         self.assertEqual(classify_trust(True, timed_out, accepted)[:2], (Severity.INFORMATIONAL, "Unknown"))
+        internal_error = CommandResult(("codesign",), 1, "", "internal error during verification")
+        self.assertFalse(command_completed(internal_error))
+        self.assertEqual(classify_trust(True, internal_error, accepted)[:2], (Severity.INFORMATIONAL, "Unknown"))
+        trust_service_error = CommandResult(("codesign",), 1, "", "CSSMERR_TP_NOT_TRUSTED")
+        self.assertFalse(command_completed(trust_service_error))
+        self.assertEqual(classify_trust(True, trust_service_error, accepted)[:2], (Severity.INFORMATIONAL, "Unknown"))
+        gatekeeper_error = CommandResult(("spctl",), 1, "", "internal error; rejected")
+        self.assertFalse(command_completed(gatekeeper_error))
+        self.assertEqual(classify_trust(True, valid, gatekeeper_error)[:2], (Severity.INFORMATIONAL, "Unknown"))
         ad_hoc = SignatureDetails(identifier="local.app", signature_type="Ad hoc")
         self.assertEqual(classify_trust(True, valid, accepted, ad_hoc)[:2], (Severity.LOW, "Review"))
         metadata_only = CommandResult(("codesign",), 1, "", "resource fork, Finder information, or similar detritus not allowed")
@@ -2298,6 +2346,42 @@ enabled active teamID bundleID (version) name [state]
             risky_finding = collector._inspect(bundle)
             self.assertEqual((risky_finding.severity, risky_finding.status), (Severity.MEDIUM, "Review"))
             self.assertIn("group-writable", risky_finding.observed_result)
+
+            executable.chmod(0o751)
+
+            class AppleComponentRunner(FakeRunner):
+                def run(self, argv):
+                    command = tuple(argv)
+                    if argv[0] == "codesign" and "--verbose=4" in argv:
+                        return CommandResult(command, 0, "", "Identifier=com.apple.Test\nAuthority=Apple Mac OS Application Signing")
+                    if argv[0] == "spctl":
+                        return CommandResult(command, 3, "", "rejected (the code is valid but does not seem to be an app)")
+                    return super().run(argv)
+
+            apple_result = ApplicationTrustCollector(AppleComponentRunner(), bundles=(bundle,)).collect()[0]
+            apple_gatekeeper = next(item for item in apple_result.evidence if item.kind == "gatekeeper_assessment")
+            self.assertEqual(apple_result.status, "Pass")
+            self.assertIsNone(apple_gatekeeper.value["accepted"])
+            self.assertFalse(apple_gatekeeper.value["assessment_applicable"])
+            self.assertIsNone(apple_gatekeeper.value["notarized"])
+            apple_report = {"metadata": {"tool_version": "1.4.1"}, "findings": [apple_result.to_dict()]}
+            apple_review = build_decision_support(apple_report)["application_review"]["applications"][0]
+            self.assertIsNone(apple_review["gatekeeper_accepted"])
+            self.assertFalse(apple_review["gatekeeper_applicable"])
+            self.assertNotIn("Gatekeeper did not accept the application.", apple_review["signals"])
+
+            class InternalErrorRunner(FakeRunner):
+                def run(self, argv):
+                    command = tuple(argv)
+                    if argv[0] == "codesign" and "--verify" in argv:
+                        return CommandResult(command, 1, "", "internal error during verification")
+                    return super().run(argv)
+
+            internal_result = ApplicationTrustCollector(InternalErrorRunner(), bundles=(bundle,)).collect()[0]
+            internal_signature = next(item for item in internal_result.evidence if item.kind == "code_signature")
+            self.assertEqual(internal_result.status, "Unknown")
+            self.assertIsNone(internal_signature.value["valid"])
+            self.assertFalse(internal_signature.value["verification_completed"])
 
     def test_scan_forwards_collector_item_progress(self):
         class ProgressCollector:

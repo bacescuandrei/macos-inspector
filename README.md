@@ -125,6 +125,8 @@ Interpretation: the application met the checks shown in the finding. This does n
 
 If an older report asks you to recheck a trust failure, use **Recheck this app** before treating its signature or Gatekeeper label as current. Historical results without check-completion evidence are shown with lower confidence; the original evidence is preserved.
 
+Some Apple-signed system components cannot be assessed by Gatekeeper as standalone apps. Their card says **Gatekeeper not applicable** when macOS reports this specific condition and the signature check succeeds. This is different from Gatekeeper rejection, and it does not turn the signature result into a general safety verdict.
+
 ### Investigate a listening process
 
 Goal: connect a network listener to its owning process and execution context.

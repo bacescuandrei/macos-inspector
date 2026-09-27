@@ -42,6 +42,8 @@ def _signature_result(finding: dict[str, Any], signature: dict[str, Any]) -> boo
 
 
 def _gatekeeper_result(finding: dict[str, Any], gatekeeper: dict[str, Any]) -> bool | None:
+    if gatekeeper.get("assessment_applicable") is False:
+        return None
     completed = gatekeeper.get("assessment_completed")
     if completed is False:
         return None
@@ -56,6 +58,8 @@ def _gatekeeper_result(finding: dict[str, Any], gatekeeper: dict[str, Any]) -> b
 
 
 def _notarization_result(gatekeeper: dict[str, Any]) -> bool | None:
+    if gatekeeper.get("assessment_applicable") is False:
+        return None
     if "app store" in str(gatekeeper.get("source") or "").lower():
         return None
     value = gatekeeper.get("notarized")
@@ -78,16 +82,24 @@ def confidence_for_finding(finding: dict[str, Any]) -> dict[str, Any]:
         signature = evidence_value(finding, "code_signature")
         executable = evidence_value(finding, "executable_integrity")
         gatekeeper = evidence_value(finding, "gatekeeper_assessment")
-        if signature.get("valid") is None:
+        if _signature_result(finding, signature) is None:
             missing.append("Code-signature result")
         if not executable.get("sha256"):
             missing.append("Executable SHA-256")
-        if gatekeeper.get("accepted") is None:
+        gatekeeper_not_applicable = (
+            gatekeeper.get("assessment_applicable") is False
+            and gatekeeper.get("assessment_completed") is True
+        )
+        if not gatekeeper_not_applicable and _gatekeeper_result(finding, gatekeeper) is None:
             missing.append("Gatekeeper result")
         if not missing:
             return {
                 "level": "high", "label": "High evidence confidence",
-                "rationale": "The result includes a signature check, Gatekeeper assessment, and executable hash.",
+                "rationale": (
+                    "The result includes a signature check and executable hash; Gatekeeper cannot assess this Apple component independently."
+                    if gatekeeper_not_applicable else
+                    "The result includes a signature check, Gatekeeper assessment, and executable hash."
+                ),
                 "missing": [],
             }
         return {
@@ -157,6 +169,7 @@ def _applications(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "signature_type": signature.get("signature_type"),
             "hardened_runtime": signature.get("hardened_runtime"),
             "gatekeeper_accepted": gatekeeper_accepted,
+            "gatekeeper_applicable": gatekeeper.get("assessment_applicable") is not False,
             "notarized": notarized,
             "sha256": executable.get("sha256"),
             "executable_permissions": executable.get("permissions"),
@@ -367,6 +380,7 @@ def build_application_review(
             "signature_valid": app.get("signature_valid"),
             "signature_type": signature.get("signature_type"),
             "gatekeeper_accepted": app.get("gatekeeper_accepted"),
+            "gatekeeper_applicable": app.get("gatekeeper_applicable"),
             "notarized": app.get("notarized"),
             "hardened_runtime": signature.get("hardened_runtime"),
             "sha256": executable.get("sha256"),
