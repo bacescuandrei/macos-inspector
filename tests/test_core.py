@@ -433,7 +433,7 @@ class CoreTests(unittest.TestCase):
             {"kind": "executable_integrity", "value": {"sha256": "a" * 64}},
         ]}
         incomplete = confidence_for_finding(finding_payload)
-        self.assertEqual(incomplete["level"], "medium")
+        self.assertEqual(incomplete["level"], "low")
         self.assertIn("Code-signature result", incomplete["missing"])
 
         finding_payload["evidence"][0]["value"]["verification_completed"] = True
@@ -2346,6 +2346,25 @@ enabled active teamID bundleID (version) name [state]
             risky_finding = collector._inspect(bundle)
             self.assertEqual((risky_finding.severity, risky_finding.status), (Severity.MEDIUM, "Review"))
             self.assertIn("group-writable", risky_finding.observed_result)
+
+            incomplete_risky = ApplicationTrustCollector(timeout_runner, bundles=(bundle,)).collect()[0]
+            self.assertEqual(incomplete_risky.status, "Review")
+            mixed_report = {
+                "metadata": {"scan_id": "mixed-trust", "tool_version": "1.4.1", "collectors": ["application-trust"]},
+                "summary": {"collector_coverage": {"application-trust": 100}},
+                "findings": [incomplete_risky.to_dict()],
+            }
+            mixed_result = build_decision_support(mixed_report)
+            mixed_guide = mixed_result["guidance"]["findings"][incomplete_risky.finding_id]
+            self.assertEqual(mixed_guide["verdict"], "needs-review")
+            self.assertEqual(mixed_guide["confidence"]["level"], "low")
+            self.assertEqual(mixed_guide["verification_gaps"], ["Code-signature verification did not finish"])
+            self.assertIn("writable by its owning group", mixed_guide["simple_explanation"])
+            self.assertIn("Code-signature verification did not finish", mixed_guide["simple_explanation"])
+            self.assertIn("Recheck this app", mixed_guide["next_actions"][0])
+            self.assertEqual(mixed_result["experience"]["axes"]["coverage"]["percent"], 100)
+            self.assertEqual(mixed_result["experience"]["axes"]["coverage"]["label"], "Collector finished; some trust checks incomplete")
+            self.assertEqual(mixed_result["experience"]["axes"]["confidence"]["level"], "low")
 
             executable.chmod(0o751)
 

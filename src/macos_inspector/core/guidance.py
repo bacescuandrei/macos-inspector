@@ -127,6 +127,20 @@ def _legacy_app_trust_result(finding: dict[str, Any], tool_version: object) -> b
     )
 
 
+def _application_verification_gaps(finding: dict[str, Any]) -> list[str]:
+    """Report explicit trust-check failures without changing a separate review finding."""
+    if not str(finding.get("finding_id", "")).startswith("APP-TRUST-"):
+        return []
+    signature = _evidence(finding, "code_signature")
+    gatekeeper = _evidence(finding, "gatekeeper_assessment")
+    gaps = []
+    if signature.get("verification_completed") is False:
+        gaps.append("Code-signature verification did not finish")
+    if gatekeeper.get("assessment_completed") is False:
+        gaps.append("Gatekeeper assessment did not finish")
+    return gaps
+
+
 def _next_actions(finding: dict[str, Any], verdict: str) -> list[str]:
     finding_id = str(finding.get("finding_id", ""))
     if verdict == "unable-to-verify":
@@ -175,7 +189,9 @@ def _simple_explanation(finding: dict[str, Any], verdict: str) -> str:
             return "One or more application trust checks could not be completed."
         lowered = observed.lower()
         if "world-writable" in lowered:
-            return "macOS accepts this app, but one or more app files can be modified by other local users."
+            return "An application file is writable by every local user. Check who can change it and why."
+        if "group-writable" in lowered:
+            return "An application file is writable by its owning group. Check whether that group should be able to change it."
         if "sealed resources" in lowered or "signature" in lowered and "invalid" in lowered:
             return "The app failed an integrity check because signed files are missing, changed, or invalid."
         if "gatekeeper did not accept" in lowered:
@@ -226,8 +242,12 @@ def build_guidance(report: dict[str, Any], investigations: dict[str, dict[str, A
         finding_id = str(finding.get("finding_id", ""))
         verdict, label = _verdict(finding)
         legacy_verification = _legacy_app_trust_result(finding, report.get("metadata", {}).get("tool_version"))
+        verification_gaps = _application_verification_gaps(finding)
         next_actions = _next_actions(finding, verdict)
         explanation = _simple_explanation(finding, verdict)
+        if verification_gaps:
+            explanation += " " + "; ".join(verification_gaps) + ". Do not treat the missing trust result as a pass or a confirmed failure."
+            next_actions = ["Recheck this app to complete the missing trust verification before deciding whether to use it.", *next_actions]
         if legacy_verification:
             explanation = "This older report recorded a trust result without confirming whether every verification check finished. Recheck the app before treating the result as current."
             next_actions = ["Recheck this app with the current version before drawing a conclusion.", *next_actions]
@@ -237,6 +257,7 @@ def build_guidance(report: dict[str, Any], investigations: dict[str, dict[str, A
             "label": label,
             "simple_explanation": explanation,
             "next_actions": next_actions,
+            "verification_gaps": verification_gaps,
             "legacy_verification": legacy_verification,
             "context": _context(finding),
             "investigation": investigation,

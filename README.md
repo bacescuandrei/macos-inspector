@@ -127,6 +127,8 @@ If an older report asks you to recheck a trust failure, use **Recheck this app**
 
 Some Apple-signed system components cannot be assessed by Gatekeeper as standalone apps. Their card says **Gatekeeper not applicable** when macOS reports this specific condition and the signature check succeeds. This is different from Gatekeeper rejection, and it does not turn the signature result into a general safety verdict.
 
+If a signature or Gatekeeper command does not finish but a separate file-integrity or permission issue needs review, the card keeps the concrete review item and also calls out the incomplete trust check. A finished collector does not mean every trust result was verified; evidence confidence is reduced until the app is rechecked.
+
 ### Investigate a listening process
 
 Goal: connect a network listener to its owning process and execution context.

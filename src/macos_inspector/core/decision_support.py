@@ -82,6 +82,10 @@ def confidence_for_finding(finding: dict[str, Any]) -> dict[str, Any]:
         signature = evidence_value(finding, "code_signature")
         executable = evidence_value(finding, "executable_integrity")
         gatekeeper = evidence_value(finding, "gatekeeper_assessment")
+        incomplete_trust_checks = (
+            signature.get("verification_completed") is False
+            or gatekeeper.get("assessment_completed") is False
+        )
         if _signature_result(finding, signature) is None:
             missing.append("Code-signature result")
         if not executable.get("sha256"):
@@ -92,6 +96,12 @@ def confidence_for_finding(finding: dict[str, Any]) -> dict[str, Any]:
         )
         if not gatekeeper_not_applicable and _gatekeeper_result(finding, gatekeeper) is None:
             missing.append("Gatekeeper result")
+        if incomplete_trust_checks:
+            return {
+                "level": "low", "label": "Low evidence confidence",
+                "rationale": "A selected application trust check did not finish. Other observations may still require review.",
+                "missing": missing,
+            }
         if not missing:
             return {
                 "level": "high", "label": "High evidence confidence",
@@ -1086,6 +1096,10 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
     review_count = sum(item["verdict"] in ATTENTION_VERDICTS for item in candidates)
     unknown_count = sum(item["verdict"] == "unable-to-verify" for item in candidates)
     not_assessed_count = sum(item["verdict"] == "not-assessed" for item in candidates)
+    trust_verification_gaps = any(
+        isinstance(item, dict) and item.get("verification_gaps")
+        for item in guidance.get("findings", {}).values()
+    )
     if high_priority:
         assessment = {
             "id": "action-recommended", "label": "Action recommended",
@@ -1123,13 +1137,15 @@ def build_user_experience(report: dict[str, Any], guidance: dict[str, Any]) -> d
         coverage_label = "Partial for selected scope"
     elif not_assessed_count:
         coverage_label = "Checks finished; some not assessed"
+    elif trust_verification_gaps:
+        coverage_label = "Collector finished; some trust checks incomplete"
     else:
         coverage_label = "Complete for selected scope"
     confidence_levels = [
         str(guidance.get("findings", {}).get(item["finding_id"], {}).get("confidence", {}).get("level", "low"))
         for item in candidates[:3]
     ]
-    confidence = "low" if incomplete or not_assessed_count or "low" in confidence_levels else "medium" if "medium" in confidence_levels else "high"
+    confidence = "low" if incomplete or not_assessed_count or trust_verification_gaps or "low" in confidence_levels else "medium" if "medium" in confidence_levels else "high"
     confidence_label = {
         "high": "Evidence available for selected checks" if not review_count else "Strong supporting evidence",
         "medium": "Some supporting evidence is missing",
