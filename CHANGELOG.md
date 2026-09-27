@@ -6,6 +6,7 @@
 - Label signed Apple components that Gatekeeper cannot assess as standalone apps as "Gatekeeper not applicable", not rejected or unknown.
 - Base application evidence confidence on completed checks and make release-checksum tests compatible with post-release development.
 - Keep a separate permissions or integrity review visible when signature or Gatekeeper verification is incomplete, while showing the missing check and lowering evidence confidence.
+- Require a Live Triage process snapshot no more than 15 minutes old and recheck the recorded process start, owner, parent, and executable before sending a termination signal; older reports cannot be used for process response.
 
 ## 1.4.1 - 2026-09-26
 

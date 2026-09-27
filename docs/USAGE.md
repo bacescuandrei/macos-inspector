@@ -262,11 +262,11 @@ Interpretation: the combined signals raised priority. A listener, a temporary pa
 
 Next step: identify the process owner and parent, validate the executable and launch mechanism, inspect the listening address, compare with approved services, and acquire volatile evidence before containment.
 
-For a process listed in the finding's **Process response** section, use **Terminate** to request a normal `SIGTERM`. The server acts only if the PID is still owned by the dashboard user and still resolves to the executable recorded in that scan. Run Live Triage again afterward to confirm the current state.
+For a process listed in the finding's **Process response** section, use **Terminate** to request a normal `SIGTERM`. The Live Triage snapshot must be less than 15 minutes old. The server acts only if the PID still has the recorded owner, parent, executable, and process start. Older reports and reports without a process start identity cannot be used for response; run Live Triage again. Run it again afterward to confirm the current state.
 
 Use **Force kill** only when a validated process did not respond to normal termination and immediate containment is operationally justified. It sends `SIGKILL`, prevents application cleanup, and can lose unsaved data. Both actions require confirmation and are recorded in the private local response log. A zombie is already dead and cannot receive either signal; review its parent process and the reason it has not reaped the child.
 
-Limitations: this is a point-in-time snapshot. Short-lived processes and connections can disappear during collection. A review candidate is not proof of malware. The identity check reduces PID-reuse risk but does not replace analyst validation. Command arguments are bounded and common secret forms are redacted, but complete secret detection is not guaranteed.
+Limitations: this is a point-in-time snapshot. Short-lived processes and connections can disappear during collection. A review candidate is not proof of malware. The identity check reduces PID-reuse risk but cannot eliminate the narrow race between final revalidation and signal delivery; it does not replace analyst validation. Command arguments are bounded and common secret forms are redacted, but complete secret detection is not guaranteed.
 
 ### IOC and YARA rules
 

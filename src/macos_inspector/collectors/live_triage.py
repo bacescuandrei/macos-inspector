@@ -92,10 +92,31 @@ def parse_process_context(text: str) -> dict[int, dict[str, object]]:
     return context
 
 
+def parse_process_starts(text: str) -> dict[int, str]:
+    """Keep the kernel-reported start label used to revalidate a process before signaling."""
+    starts: dict[int, str] = {}
+    for line in text.splitlines()[:MAX_PROCESSES]:
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        if pid > 1 and parts[1].strip():
+            starts[pid] = parts[1].strip()
+    return starts
+
+
 def merge_process_context(
-    processes: list[dict[str, object]], context: dict[int, dict[str, object]]
+    processes: list[dict[str, object]], context: dict[int, dict[str, object]],
+    starts: dict[int, str] | None = None,
 ) -> list[dict[str, object]]:
-    return [{**item, **context.get(int(item["pid"]), {})} for item in processes]
+    starts = starts or {}
+    return [
+        {**item, **context.get(int(item["pid"]), {}), "process_start": starts.get(int(item["pid"]))}
+        for item in processes
+    ]
 
 
 def sanitize_command_line(value: str) -> tuple[str, bool]:
@@ -360,10 +381,14 @@ class LiveTriageCollector(Collector):
     def collect(self) -> list[Finding]:
         process_result = self.runner.run(("ps", "-axo", "pid=,ppid=,uid=,user=,stat=,comm="))
         context_result = self.runner.run(("ps", "-axo", "pid=,etime=,args="))
+        starts_result = self.runner.run(("ps", "-axo", "pid=,lstart="))
         network_result = self.runner.run(("lsof", "-nP", "-i", "-FpcnT"))
         processes = parse_processes(process_result.stdout) if process_result.returncode == 0 else []
-        if context_result.returncode == 0:
-            processes = merge_process_context(processes, parse_process_context(context_result.stdout))
+        processes = merge_process_context(
+            processes,
+            parse_process_context(context_result.stdout) if context_result.returncode == 0 else {},
+            parse_process_starts(starts_result.stdout) if starts_result.returncode == 0 else {},
+        )
         connections = deduplicate_connections(
             parse_lsof_fields(network_result.stdout) if network_result.returncode in {0, 1} else []
         )
@@ -385,7 +410,7 @@ class LiveTriageCollector(Collector):
         high, medium, local_only = network_risk_candidates(correlated, processes, suspicious, cwds)
         network_commands = (network_result.command,) + ((cwd_result.command,) if cwd_result else ())
         return [
-            self._process_finding((process_result.command, context_result.command), processes, suspicious, process_result.stderr),
+            self._process_finding((process_result.command, context_result.command, starts_result.command), processes, suspicious, process_result.stderr),
             self._network_finding(network_commands, correlated, high, medium, local_only, network_result.stderr),
         ]
 
@@ -402,7 +427,7 @@ class LiveTriageCollector(Collector):
             finding_id="LIVE-PROCESS-TREE", category="Live Triage", title="Running process tree snapshot",
             severity=severity,
             status="Review" if suspicious else ("Observed" if available else "Unknown"),
-            description="Captures PID, parent PID, numeric owner, process state, runtime, executable path and command line without modifying process state.",
+            description="Captures PID, parent PID, numeric owner, process state, runtime, and executable path, plus start identity and bounded command context for review candidates, without modifying process state.",
             why_it_matters="Unexpected execution paths and missing parent relationships can identify activity that warrants preservation and deeper analysis.",
             what_was_checked="Current process table",
             expected_result="Processes run from expected protected locations with explainable parent relationships.",

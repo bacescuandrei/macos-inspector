@@ -146,7 +146,7 @@ Observed: 1 listener, 0 established connections, 1 high-priority candidate,
 
 Interpretation: the combined context raised review priority. A listener alone is not malicious. Confirm whether the service is expected, identify its owner, inspect its files and launch mechanism, and compare it with a known-good baseline.
 
-If containment is required, expand the finding and use **Terminate** first. This sends `SIGTERM` only after the dashboard confirms that the PID still belongs to the same executable and current user recorded in the scan. **Force kill** sends `SIGKILL`, is separately confirmed, and can cause data loss. Preserve volatile evidence before either action and rerun Live Triage afterward. A zombie has already exited and cannot be killed; its parent must reap it.
+If containment is required, expand the finding and use **Terminate** first. This sends `SIGTERM` only from a Live Triage snapshot less than 15 minutes old, after the dashboard confirms the PID still has the same owner, parent, executable, and process start as the scan. Older reports require a fresh Live Triage scan before process response. **Force kill** sends `SIGKILL`, is separately confirmed, and can cause data loss. Preserve volatile evidence before either action and rerun Live Triage afterward. A zombie has already exited and cannot be killed; its parent must reap it.
 
 ### Review macOS vulnerability exposure
 
@@ -173,7 +173,7 @@ More workflows, including privacy grants, persistence, IOC/YARA matches, scan co
 - The dashboard binds to loopback only. Non-local bind addresses, non-loopback `Host` authorities, and non-local browser origins are rejected.
 - Collectors use an allowlist of read-only commands without a shell. The tool does not execute browser-supplied commands.
 - Collection remains read-only. The only host-changing response action is an explicit, confirmed signal to a current-user process already listed as a Live Triage review candidate.
-- Process response is disabled when the dashboard runs as root, rejects arbitrary PIDs and stale process identities, protects the dashboard and its parent, and records successful actions in a private local log.
+- Process response is disabled when the dashboard runs as root, rejects arbitrary PIDs and stale snapshots or process identities, protects the dashboard and its parent, and records successful actions in a private local log. Revalidation reduces but cannot eliminate the narrow race between the final identity check and signal delivery.
 - The tool does not delete or quarantine files, install software, invoke `sudo`, elevate privileges, or change macOS configuration.
 - Local profiles and the default CLI collection do not contact intelligence providers.
 - The online profile is opt-in. It sends only public Apple CVE identifiers to the enabled Apple, CISA, FIRST, and NIST endpoints.

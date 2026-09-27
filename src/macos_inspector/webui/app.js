@@ -1,4 +1,5 @@
 const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map(), viewMode: 'simple' };
+const PROCESS_RESPONSE_MAX_AGE_MS = 15 * 60 * 1000;
 
 const COPY = {
     manage:'Manage', introTitle:'Collect evidence without terminal commands', introText:'Choose audit sections, run a read-only scan, inspect findings, and explicitly contain a reported process when necessary.', safety:'Local-first | online OSINT is opt-in | containment requires confirmation', operationsTitle:'Cases, sources and rules', localSettings:'Local settings | private permissions', casesTitle:'Case management', casesHelp:'Organize scans, analyst identity and investigation notes.', activeCase:'Active case', caseReference:'Reference', caseTitle:'Case title', analyst:'Analyst', archived:'Archived', caseNotes:'Local notes', saveCase:'Save case', osintHelp:'Enable providers and inspect local-cache provenance.', cacheHours:'Cache (hours)', saveSettings:'Save settings', clearCache:'Clear cache', rulesHelp:'Import versioned packs and scan explicit targets only.', chooseFile:'Choose file', enableYara:'Enable YARA scanning', yaraOptional:'Requires the yara executable in a trusted path.', yaraTargets:'Explicit YARA targets | one path per line', saveYara:'Save YARA targets', evidenceProtection:'Evidence protection', evidenceHelp:'Built-in HMAC, with Ed25519 and AES-256-GCM when cryptographic support is available.', generateKey:'Generate signing identity', signManifests:'Sign manifests automatically', keyPrivacy:'The secret or private key remains local with 0600 permissions and is never included in reports or bundles.', attachCase:'Attach a saved case', bundlePassword:'Encrypted bundle password | minimum 12 characters', noSavedCase:'No saved case', configured:'configured', notConfigured:'not configured',
@@ -742,10 +743,16 @@ function processCandidates(finding) {
     if (!Array.isArray(rows)) return;
     rows.forEach((candidate) => {
       const pid = Number(candidate?.pid);
-      if (Number.isInteger(pid) && pid > 1 && !candidates.has(pid)) candidates.set(pid, candidate);
+      if (Number.isInteger(pid) && pid > 1 && !candidates.has(pid)) candidates.set(pid, {...candidate, snapshot_at: evidence.collected_at});
     });
   });
   return [...candidates.values()];
+}
+
+function processSnapshotFresh(candidate) {
+  const snapshotTime = Date.parse(candidate.snapshot_at || '');
+  const age = Date.now() - snapshotTime;
+  return Number.isFinite(snapshotTime) && age >= -30000 && age <= PROCESS_RESPONSE_MAX_AGE_MS;
 }
 
 function renderProcessResponseControls(finding) {
@@ -757,9 +764,10 @@ function renderProcessResponseControls(finding) {
     state.processCandidates.set(key, {...candidate, finding_id:finding.finding_id});
     const reasons = Array.isArray(candidate.reasons) ? candidate.reasons.join(' | ') : '';
     const zombie = Boolean(candidate.zombie) || String(candidate.stat || '').toUpperCase().includes('Z');
-    const legacy = !Number.isInteger(candidate.uid);
-    const disabled = capability.available === false || zombie || legacy;
-    const note = zombie ? 'Zombie process: it has already exited. Review or restart its parent so it can be reaped.' : legacy ? 'Run Live Triage again with the current version before using process response.' : capability.reason;
+    const missingIdentity = !Number.isInteger(candidate.uid) || !candidate.process_start;
+    const stale = !processSnapshotFresh(candidate);
+    const disabled = capability.available === false || zombie || missingIdentity || stale;
+    const note = zombie ? 'Zombie process: it has already exited. Review or restart its parent so it can be reaped.' : missingIdentity ? 'Run Live Triage again to record this process start identity before using process response.' : stale ? 'This process snapshot is older than 15 minutes. Run Live Triage again before acting.' : capability.reason;
     const actions = disabled
       ? `<span class="process-action-note">${escapeHtml(note || 'Process response unavailable.')}</span>`
       : `<div class="process-buttons"><button type="button" data-process-key="${escapeHtml(key)}" data-process-action="terminate">Terminate</button><button type="button" class="force" data-process-key="${escapeHtml(key)}" data-process-action="kill">Force kill</button></div>`;
@@ -771,6 +779,12 @@ function renderProcessResponseControls(finding) {
 async function respondToProcess(button) {
   const candidate = state.processCandidates.get(button.dataset.processKey);
   if (!candidate || !state.currentScanId) return setMessage('The process action is not tied to a loaded scan. Reload the report.', true);
+  if (!processSnapshotFresh(candidate)) {
+    const message = 'This process snapshot has expired. Run Live Triage again before acting.';
+    button.closest('.process-action-row').querySelector('.process-action-result').textContent = message;
+    button.closest('.process-action-row').querySelectorAll('button').forEach((item) => { item.disabled = true; });
+    return setMessage(message, true);
+  }
   const mode = button.dataset.processAction;
   const force = mode === 'kill';
   const prompt = force

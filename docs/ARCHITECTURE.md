@@ -28,7 +28,7 @@ Host commands, local files, imported rules, intelligence responses, and browser 
 
 Online intelligence is separate from local collection. Providers receive public vulnerability identifiers or an indicator entered by the analyst. Collected host evidence is not uploaded. Explicit hash reputation sends only a confirmed SHA-256 to enabled providers and never uploads the application file.
 
-Process response is separate from collection. The web API loads a managed report, accepts only candidates produced by two Live Triage findings, and delegates identity revalidation and signaling to `core.process_control`. The response module cannot accept an arbitrary command line. It exposes only `SIGTERM` and `SIGKILL`, after an exact UID and executable match, and the dashboard records the result locally.
+Process response is separate from collection. The web API loads a managed report, accepts only candidates produced by two Live Triage findings, and delegates identity revalidation and signaling to `core.process_control`. The response module cannot accept an arbitrary command line. It exposes only `SIGTERM` and `SIGKILL` from a snapshot no more than 15 minutes old, after matching UID, parent PID, executable, and process start; the dashboard records the result locally.
 
 Targeted Application Trust is also bounded by server-side discovery. The dashboard lists application bundles found under the standard macOS application roots and accepts only an exact path from that current inventory. The browser cannot submit an arbitrary file-system target. Target scope is written into report metadata and participates in comparable-baseline selection.
 

@@ -27,7 +27,7 @@ The alternative of relying only on a custom request header was rejected because 
 
 ### Process response
 
-Process response is not an arbitrary PID or signal API. A request must reference a managed JSON report and a `Review` candidate from the Live Triage process-tree or process/network finding. The recorded numeric owner must match the dashboard user. Immediately before acting, the server resolves the PID again and requires the live numeric owner and executable path to match the report. This check limits stale-report and PID-reuse errors.
+Process response is not an arbitrary PID or signal API. A request must reference a managed JSON report and a `Review` candidate from the Live Triage process-tree or process/network finding. Its evidence snapshot must be no more than 15 minutes old and must contain a process start identity. The recorded numeric owner must match the dashboard user. Immediately before acting, the server resolves the PID again and requires the live numeric owner, parent PID, executable path, and process start to match the report. These checks reduce stale-report and PID-reuse errors, but cannot eliminate the race between final revalidation and signal delivery.
 
 PID 1, the dashboard process, and its parent are protected. Response is disabled when the dashboard runs as root. `SIGTERM` and `SIGKILL` are separate choices with separate local confirmations; `SIGKILL` is presented as a last resort because it prevents cleanup and can lose data. A zombie has already exited and is never signaled. Successful actions are appended to a bounded owner-only local audit log.
 

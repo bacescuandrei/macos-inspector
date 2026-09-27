@@ -140,6 +140,54 @@ test('Apple components that Gatekeeper cannot assess are not labeled rejected or
   expect(overflow).toBeLessThanOrEqual(1);
 });
 
+test('process response requires a recent snapshot with process start identity', async ({ page }) => {
+  const controls = await page.evaluate(() => {
+    const candidate = { pid: 4242, ppid: 12, uid: 501, user: 'alice', stat: 'S',
+      executable: '/private/tmp/agent', process_start: 'Sun Sep 27 12:00:00 2026' };
+    const finding = (row, collectedAt) => ({
+      finding_id: 'LIVE-PROCESS-TREE', status: 'Review',
+      evidence: [{ collected_at: collectedAt, value: { review_candidates: [row] } }],
+    });
+    const fresh = renderProcessResponseControls(finding(candidate, new Date().toISOString()));
+    const legacy = renderProcessResponseControls(finding({ ...candidate, process_start: null }, new Date().toISOString()));
+    const stale = renderProcessResponseControls(finding(candidate, new Date(Date.now() - 16 * 60 * 1000).toISOString()));
+    return { fresh, legacy, stale };
+  });
+  expect(controls.fresh).toContain('>Terminate</button>');
+  expect(controls.legacy).not.toContain('>Terminate</button>');
+  expect(controls.legacy).toContain('record this process start identity');
+  expect(controls.stale).not.toContain('>Terminate</button>');
+  expect(controls.stale).toContain('older than 15 minutes');
+});
+
+test('process response rechecks snapshot age when the button is pressed', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const row = document.createElement('div');
+    row.className = 'process-action-row';
+    row.innerHTML = '<button type="button" data-process-key="candidate" data-process-action="terminate">Terminate</button><span class="process-action-result"></span>';
+    document.body.append(row);
+    state.currentScanId = 'test-scan';
+    state.processCandidates.set('candidate', {
+      pid: 4242, executable: '/private/tmp/agent',
+      snapshot_at: new Date(Date.now() - 16 * 60 * 1000).toISOString(),
+    });
+    let confirmations = 0;
+    const originalConfirm = window.confirm;
+    window.confirm = () => { confirmations += 1; return true; };
+    try {
+      await respondToProcess(row.querySelector('button'));
+      return { confirmations, disabled: row.querySelector('button').disabled,
+        message: row.querySelector('.process-action-result').textContent };
+    } finally {
+      window.confirm = originalConfirm;
+      row.remove();
+    }
+  });
+  expect(result.confirmations).toBe(0);
+  expect(result.disabled).toBe(true);
+  expect(result.message).toContain('expired');
+});
+
 test('a skipped optional check is shown as limited scope, not a normal result', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 850 });
   await page.evaluate(() => {

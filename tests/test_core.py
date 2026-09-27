@@ -63,6 +63,7 @@ from macos_inspector.collectors.live_triage import (
     parse_lsof_fields,
     parse_process_context,
     parse_processes,
+    parse_process_starts,
     merge_process_context,
     socket_exposure,
     sanitize_command_line,
@@ -1240,6 +1241,9 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(zombie["zombie"])
         self.assertEqual(zombie["priority"], "medium")
         self.assertIn("zombie", zombie["reasons"][0])
+        self.assertEqual(parse_process_starts("42 Sun Sep 27 12:00:00 2026\ninvalid row\n77 Sun Sep 27 11:59:00 2026"), {
+            42: "Sun Sep 27 12:00:00 2026", 77: "Sun Sep 27 11:59:00 2026",
+        })
         sockets = parse_lsof_fields("p42\ncagent\nn*:8080\nTST=LISTEN\nn1.2.3.4:443\nTST=ESTABLISHED\n")
         self.assertEqual([item["state"] for item in sockets], ["LISTEN", "ESTABLISHED"])
 
@@ -1248,6 +1252,8 @@ class CoreTests(unittest.TestCase):
                 if argv[0] == "ps":
                     if "etime" in argv[2]:
                         return CommandResult(tuple(argv), 0, "1 01:00 /sbin/launchd\n42 00:30 /private/tmp/agent", "")
+                    if "lstart" in argv[2]:
+                        return CommandResult(tuple(argv), 0, "1 Mon Sep 21 10:25:07 2026\n42 Sun Sep 27 12:00:00 2026", "")
                     return CommandResult(tuple(argv), 0, "1 0 0 root Ss /sbin/launchd\n42 1 501 alice S /private/tmp/agent", "")
                 return CommandResult(tuple(argv), 0, "p42\ncagent\nn*:8080\nTST=LISTEN", "")
 
@@ -1257,38 +1263,47 @@ class CoreTests(unittest.TestCase):
         process_snapshot = findings["LIVE-PROCESS-TREE"].evidence[0].value
         self.assertEqual(len(process_snapshot["running_processes"]), 2)
         self.assertNotIn("command_line", process_snapshot["running_processes"][0])
+        self.assertEqual(process_snapshot["review_candidates"][0]["process_start"], "Sun Sep 27 12:00:00 2026")
         self.assertEqual(findings["LIVE-NETWORK-PROCESSES"].severity, Severity.HIGH)
 
     def test_process_response_requires_reported_current_user_identity_and_logs_action(self):
+        now = datetime(2026, 9, 27, 12, 1, tzinfo=timezone.utc)
+        snapshot_at = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc).isoformat()
+        process_start = "Sun Sep 27 12:00:00 2026"
         candidate = {
             "pid": 4242, "ppid": 12, "uid": 501, "user": "alice", "stat": "S", "zombie": False,
             "executable": "/private/tmp/agent", "priority": "medium", "reasons": ["fixture"],
+            "process_start": process_start,
         }
         report = {
             "metadata": {"scan_id": "response-scan", "collectors": ["live-triage"]},
             "summary": {"overall_score": 80},
             "findings": [{
                 "finding_id": "LIVE-PROCESS-TREE", "status": "Review",
-                "evidence": [{"kind": "process_snapshot", "value": {"review_candidates": [candidate]}}],
+                "evidence": [{"kind": "process_snapshot", "collected_at": snapshot_at, "value": {"review_candidates": [candidate]}}],
             }],
         }
 
         class ProcessRunner:
-            def __init__(self, executable="/private/tmp/agent", stat="S"):
+            def __init__(self, executable="/private/tmp/agent", stat="S", start=process_start, ppid=12):
                 self.executable = executable
                 self.stat = stat
+                self.start = start
+                self.ppid = ppid
 
             def run(self, argv):
-                return CommandResult(tuple(argv), 0, f"4242 12 501 alice {self.stat} {self.executable}", "")
+                if "lstart" in argv[-1]:
+                    return CommandResult(tuple(argv), 0, f"4242 {self.start}", "")
+                return CommandResult(tuple(argv), 0, f"4242 {self.ppid} 501 alice {self.stat} {self.executable}", "")
 
         signals = []
         result = terminate_reported_process(
             report, 4242, "terminate", runner=ProcessRunner(), kill_process=lambda pid, value: signals.append((pid, value)),
-            effective_uid=501, protected_pids={1, 100, 101},
+            effective_uid=501, protected_pids={1, 100, 101}, now=now,
         )
         self.assertEqual(signals, [(4242, signal.SIGTERM)])
         self.assertEqual(result["status"], "signal_sent")
-        self.assertEqual(review_process_candidates(report), [candidate])
+        self.assertEqual(review_process_candidates(report), [{**candidate, "snapshot_at": snapshot_at}])
 
         with self.assertRaises(PermissionError):
             terminate_reported_process(report, 9999, "terminate", runner=ProcessRunner(), effective_uid=501, protected_pids={1})
@@ -1299,13 +1314,30 @@ class CoreTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "dashboard user"):
             terminate_reported_process(cross_user_report, 4242, "terminate", runner=ProcessRunner(), effective_uid=501, protected_pids={1})
         with self.assertRaisesRegex(RuntimeError, "different process"):
-            terminate_reported_process(report, 4242, "kill", runner=ProcessRunner("/tmp/reused"), effective_uid=501, protected_pids={1})
+            terminate_reported_process(report, 4242, "kill", runner=ProcessRunner("/tmp/reused"), effective_uid=501, protected_pids={1}, now=now)
+        with self.assertRaisesRegex(RuntimeError, "different process"):
+            terminate_reported_process(report, 4242, "kill", runner=ProcessRunner(start="Sun Sep 27 12:00:01 2026"), effective_uid=501, protected_pids={1}, now=now)
+        with self.assertRaisesRegex(RuntimeError, "different process"):
+            terminate_reported_process(report, 4242, "kill", runner=ProcessRunner(ppid=99), effective_uid=501, protected_pids={1}, now=now)
+        with self.assertRaisesRegex(RuntimeError, "too old"):
+            terminate_reported_process(report, 4242, "kill", runner=ProcessRunner(), effective_uid=501, protected_pids={1}, now=now.replace(minute=16))
+        undated_report = json.loads(json.dumps(report))
+        del undated_report["findings"][0]["evidence"][0]["collected_at"]
+        with self.assertRaisesRegex(RuntimeError, "no valid timestamp"):
+            terminate_reported_process(undated_report, 4242, "kill", runner=ProcessRunner(), effective_uid=501, protected_pids={1}, now=now)
+        legacy_report = json.loads(json.dumps(report))
+        del legacy_report["findings"][0]["evidence"][0]["value"]["review_candidates"][0]["process_start"]
+        with self.assertRaisesRegex(RuntimeError, "no process start identity"):
+            terminate_reported_process(legacy_report, 4242, "kill", runner=ProcessRunner(), effective_uid=501, protected_pids={1}, now=now)
+        with self.assertRaisesRegex(RuntimeError, "different process"):
+            terminate_reported_process(report, 4242, "kill", runner=ProcessRunner(start=""), effective_uid=501, protected_pids={1}, now=now)
         with self.assertRaisesRegex(PermissionError, "runs as root"):
             terminate_reported_process(report, 4242, "terminate", runner=ProcessRunner(), effective_uid=0, protected_pids={1})
         zombie_report = json.loads(json.dumps(report))
         zombie_report["findings"][0]["evidence"][0]["value"]["review_candidates"][0].update({"stat": "Z", "zombie": True})
         with self.assertRaisesRegex(RuntimeError, "zombie"):
-            terminate_reported_process(zombie_report, 4242, "kill", runner=ProcessRunner("/private/tmp/agent", "Z"), effective_uid=501, protected_pids={1})
+            terminate_reported_process(zombie_report, 4242, "kill", runner=ProcessRunner("/private/tmp/agent", "Z"), effective_uid=501, protected_pids={1}, now=now)
+        self.assertEqual(signals, [(4242, signal.SIGTERM)])
 
         with tempfile.TemporaryDirectory() as directory:
             state = DashboardState(Path(directory))
@@ -1313,7 +1345,7 @@ class CoreTests(unittest.TestCase):
             report_path.write_text(json.dumps(report), encoding="utf-8")
             state_result = state.terminate_process(
                 "response-scan", 4242, "kill", runner=ProcessRunner(), kill_process=lambda pid, value: signals.append((pid, value)),
-                effective_uid=501, protected_pids={1},
+                effective_uid=501, protected_pids={1}, now=now,
             )
             self.assertEqual(state_result["signal"], "SIGKILL")
             self.assertTrue(state_result["audit_logged"])
