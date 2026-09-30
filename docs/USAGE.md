@@ -260,6 +260,8 @@ Observed: 1 listener, 0 established connections, 1 high-priority candidate,
 
 Interpretation: the combined signals raised priority. A listener, a temporary path, or a development server is not malicious by itself. Loopback-only tools remain context unless other evidence raises their priority.
 
+An isolated low-priority signal in the process tree, such as a hidden user-profile path or a parent that disappeared during collection, remains an informational observation. It is visible in the technical snapshot but does not create a process-response target on its own. Medium- and high-priority process correlations remain `Review` findings.
+
 Next step: identify the process owner and parent, validate the executable and launch mechanism, inspect the listening address, compare with approved services, and acquire volatile evidence before containment.
 
 For a process listed in the finding's **Process response** section, use **Terminate** to request a normal `SIGTERM`. The Live Triage snapshot must be less than 15 minutes old. The server acts only if the PID still has the recorded owner, parent, executable, and process start. Older reports and reports without a process start identity cannot be used for response; run Live Triage again. Run it again afterward to confirm the current state.

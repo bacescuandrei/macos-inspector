@@ -146,6 +146,8 @@ Observed: 1 listener, 0 established connections, 1 high-priority candidate,
 
 Interpretation: the combined context raised review priority. A listener alone is not malicious. Confirm whether the service is expected, identify its owner, inspect its files and launch mechanism, and compare it with a known-good baseline.
 
+An isolated low-priority process signal, such as execution from a hidden user directory, is recorded as context rather than an immediate review or termination target. A second signal, such as a concerning location combined with a remotely reachable socket, can raise its priority. Neither case is proof of malware.
+
 If containment is required, expand the finding and use **Terminate** first. This sends `SIGTERM` only from a Live Triage snapshot less than 15 minutes old, after the dashboard confirms the PID still has the same owner, parent, executable, and process start as the scan. Older reports require a fresh Live Triage scan before process response. **Force kill** sends `SIGKILL`, is separately confirmed, and can cause data loss. Preserve volatile evidence before either action and rerun Live Triage afterward. A zombie has already exited and cannot be killed; its parent must reap it.
 
 ### Review macOS vulnerability exposure

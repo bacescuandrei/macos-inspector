@@ -199,6 +199,11 @@ def _simple_explanation(finding: dict[str, Any], verdict: str) -> str:
         return "This app has a trust or integrity result that needs validation before you rely on it."
     if finding_id in {"LIVE-PROCESS-TREE", "LIVE-NETWORK-PROCESSES"}:
         if verdict == "information":
+            if finding_id == "LIVE-PROCESS-TREE":
+                snapshot = _evidence(finding, "process_snapshot")
+                summary = snapshot.get("priority_summary", {})
+                if isinstance(summary, dict) and summary.get("low", 0):
+                    return "Low-priority process context was recorded, but no immediate review candidate was identified. Check the details if a process is unfamiliar."
             return "Running processes and network activity were recorded. No high-priority candidate was identified."
         if verdict == "unable-to-verify":
             return "Some live process or network information could not be checked."

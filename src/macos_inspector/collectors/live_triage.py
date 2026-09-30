@@ -420,22 +420,23 @@ class LiveTriageCollector(Collector):
         severity = (
             Severity.HIGH if priority_counts["high"]
             else Severity.MEDIUM if priority_counts["medium"]
-            else Severity.LOW if suspicious
             else Severity.INFORMATIONAL
         )
+        review_count = priority_counts["high"] + priority_counts["medium"]
         return Finding(
             finding_id="LIVE-PROCESS-TREE", category="Live Triage", title="Running process tree snapshot",
             severity=severity,
-            status="Review" if suspicious else ("Observed" if available else "Unknown"),
+            status="Review" if review_count else ("Observed" if available else "Unknown"),
             description="Captures PID, parent PID, numeric owner, process state, runtime, and executable path, plus start identity and bounded command context for review candidates, without modifying process state.",
             why_it_matters="Unexpected execution paths and missing parent relationships can identify activity that warrants preservation and deeper analysis.",
             what_was_checked="Current process table",
             expected_result="Processes run from expected protected locations with explainable parent relationships.",
             observed_result=(
-                f"Observed {len(processes)} processes and {len(suspicious)} review candidate(s): "
-                f"{priority_counts['high']} high, {priority_counts['medium']} medium and {priority_counts['low']} low priority."
+                f"Observed {len(processes)} processes, {priority_counts['high']} high-priority and "
+                f"{priority_counts['medium']} medium-priority review candidate(s), plus "
+                f"{priority_counts['low']} low-priority context observation(s)."
             ) if available else (error or "Process table unavailable."),
-            recommendation="Validate review candidates against expected software, preserve volatile evidence and inspect code signatures before remediation.",
+            recommendation="Validate medium- and high-priority candidates against expected software before remediation. Corroborate isolated low-priority context before escalating it.",
             evidence=(Evidence("process_snapshot", "local", {
                 "process_count": len(processes),
                 "running_processes": [

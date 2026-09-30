@@ -1266,6 +1266,33 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(process_snapshot["review_candidates"][0]["process_start"], "Sun Sep 27 12:00:00 2026")
         self.assertEqual(findings["LIVE-NETWORK-PROCESSES"].severity, Severity.HIGH)
 
+    def test_isolated_low_priority_process_signal_is_context_not_response_target(self):
+        class LowOnlyRunner:
+            def run(self, argv):
+                command = tuple(argv)
+                if argv[0] == "ps":
+                    if "etime" in argv[2]:
+                        return CommandResult(command, 0, "42 00:30 /Users/alice/.tool/agent", "")
+                    if "lstart" in argv[2]:
+                        return CommandResult(command, 0, "42 Wed Sep 30 10:00:00 2026", "")
+                    return CommandResult(command, 0, "42 1 501 alice S /Users/alice/.tool/agent", "")
+                return CommandResult(command, 1, "", "")
+
+        findings = LiveTriageCollector(LowOnlyRunner()).collect()
+        process = next(item for item in findings if item.finding_id == "LIVE-PROCESS-TREE")
+        self.assertEqual((process.status, process.severity), ("Observed", Severity.INFORMATIONAL))
+        self.assertIn("1 low-priority context observation", process.observed_result)
+        report = {
+            "metadata": {"scan_id": "low-only", "tool_version": "1.4.1", "collectors": ["live-triage"]},
+            "summary": {"collector_coverage": {"live-triage": 100}},
+            "findings": [item.to_dict() for item in findings],
+        }
+        self.assertEqual(review_process_candidates(report), [])
+        guide = build_guidance(report)["findings"][process.finding_id]
+        self.assertEqual(guide["verdict"], "information")
+        self.assertIn("Low-priority process context", guide["simple_explanation"])
+        self.assertEqual(calculate_scores(findings)[0], 100)
+
     def test_process_response_requires_reported_current_user_identity_and_logs_action(self):
         now = datetime(2026, 9, 27, 12, 1, tzinfo=timezone.utc)
         snapshot_at = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc).isoformat()
