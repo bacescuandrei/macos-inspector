@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.2 - 2026-10-02
 
 - Keep Application Trust verdicts consistent with verification-completion evidence when macOS trust services return internal errors.
 - Label signed Apple components that Gatekeeper cannot assess as standalone apps as "Gatekeeper not applicable", not rejected or unknown.
