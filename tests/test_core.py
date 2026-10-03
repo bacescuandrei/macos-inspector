@@ -84,7 +84,7 @@ from macos_inspector.core.intelligence import (
 from macos_inspector.core.io import read_json_limited
 from macos_inspector.core.storage import CaseStore, InvestigationStore, SettingsStore
 from macos_inspector.core.guidance import build_guidance, finding_fingerprint
-from macos_inspector.core.decision_support import build_decision_support, confidence_for_finding, write_investigation_summary
+from macos_inspector.core.decision_support import analyze_changes, build_decision_support, confidence_for_finding, write_investigation_summary
 from macos_inspector.core.models import Evidence, Finding, ScanMetadata, ScanResult, Severity
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.process_control import review_process_candidates, terminate_reported_process
@@ -664,6 +664,11 @@ class CoreTests(unittest.TestCase):
             "metadata": {"scan_id": "current", "tool_version": "1.3.3", "hostname": "fixture", "collectors": ["application-trust", "live-triage"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-02T00:00:00+00:00"},
             "summary": {}, "findings": [current_app, process, network, persistence],
         }
+        for report in (baseline, current):
+            report["summary"] = {
+                "total_finding_count": len(report["findings"]),
+                "collector_coverage": {collector: 100 for collector in report["metadata"]["collectors"]},
+            }
         result = build_decision_support(current, baseline)
         app_guidance = result["guidance"]["findings"]["APP-TRUST-EXAMPLE"]
         self.assertEqual(app_guidance["confidence"]["level"], "high")
@@ -872,6 +877,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(regression["priority"], "high")
 
         removed_report = {**current, "findings": [process, network, persistence]}
+        removed_report["summary"] = {**current["summary"], "total_finding_count": 3}
         removed_changes = build_decision_support(removed_report, baseline)["changes"]
         removed_change = next(item for item in removed_changes["highlights"] if item["kind"] == "removed-application")
         self.assertEqual(removed_changes["counts"]["removed_applications"], 1)
@@ -1121,7 +1127,7 @@ class CoreTests(unittest.TestCase):
         def report(scan_id, entries):
             return {
                 "metadata": {"scan_id": scan_id, "collectors": ["background-items"], "completed_at": f"2026-01-0{1 if scan_id == 'old' else 2}T00:00:00+00:00"},
-                "summary": {},
+                "summary": {"total_finding_count": 1, "collector_coverage": {"background-items": 100}},
                 "findings": [{
                     "finding_id": "BACKGROUND-SYSTEM", "category": "Background Items",
                     "title": "ServiceManagement disabled map: system", "severity": "Medium", "status": "Review",
@@ -1140,6 +1146,117 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(changes["counts"]["changed_startup_items"], 1)
         self.assertIn("New startup item", {item["label"] for item in changes["highlights"]})
         self.assertIn("Startup item changed", {item["label"] for item in changes["highlights"]})
+
+    def test_change_analysis_does_not_infer_disappearance_from_missing_evidence(self):
+        app = {
+            "finding_id": "APP-TRUST-EXAMPLE", "title": "Example", "status": "Pass", "severity": "Informational",
+            "evidence": [{"kind": "application_bundle", "source": "/Applications/Example.app", "value": {"name": "Example"}}],
+        }
+        network = {
+            "finding_id": "LIVE-NETWORK-PROCESSES", "status": "Observed", "severity": "Informational",
+            "evidence": [{"kind": "network_process_snapshot", "value": {"listeners": [
+                {"executable": "/Applications/Example.app/Contents/MacOS/Example", "endpoint": "127.0.0.1:8000"},
+            ]}}],
+        }
+        collectors = ["application-trust", "live-triage"]
+        baseline = {
+            "metadata": {"scan_id": "before", "collectors": collectors, "minimum_severity": "Informational"},
+            "summary": {"total_finding_count": 2, "collector_coverage": dict.fromkeys(collectors, 100)},
+            "findings": [app, network],
+        }
+        complete = {
+            "metadata": {**baseline["metadata"], "scan_id": "after"},
+            "summary": {"total_finding_count": 0, "collector_coverage": dict.fromkeys(collectors, 100)},
+            "findings": [],
+        }
+        result = analyze_changes(baseline, complete)
+        self.assertEqual(result["counts"]["removed_applications"], 1)
+        self.assertEqual(result["counts"]["closed_network_listeners"], 1)
+        self.assertEqual(result["counts"]["resolved_findings"], 2)
+        self.assertFalse(result["comparison_context"]["limited"])
+        incomplete_variants = [
+            {**complete, "summary": {**complete["summary"], "collector_coverage": dict.fromkeys(collectors, 0)}},
+            {**complete, "metadata": {**complete["metadata"], "collection_errors": ["application-trust: failed", "live-triage: failed"]}},
+            {**complete, "summary": {**complete["summary"], "total_finding_count": 2}},
+            {**complete, "metadata": {**complete["metadata"], "minimum_severity": "High"}},
+            {**complete, "summary": {}},
+            {**complete, "summary": {**complete["summary"], "collector_coverage": dict.fromkeys(collectors, True)}},
+            {**complete, "metadata": {**complete["metadata"], "collection_errors": ["Unattributed failure"]}},
+        ]
+        for current in incomplete_variants:
+            with self.subTest(current=current):
+                changes = analyze_changes(baseline, current)
+                for key in ("removed_applications", "closed_network_listeners", "resolved_findings"):
+                    self.assertIsNone(changes["counts"][key])
+                self.assertFalse(any(item["kind"] == "removed-application" for item in changes["highlights"]))
+                self.assertTrue(changes["comparison_context"]["limited"])
+                additions = analyze_changes(current, baseline)
+                for key in ("new_applications", "new_network_listeners", "new_findings"):
+                    self.assertIsNone(additions["counts"][key])
+                self.assertFalse(any(item["kind"] in {"new-application", "new-listener"} for item in additions["highlights"]))
+
+        legacy_complete = {**baseline, "metadata": {"scan_id": "legacy", "collectors": collectors}}
+        self.assertEqual(analyze_changes(legacy_complete, complete)["counts"]["removed_applications"], 1)
+        shared_current = json.loads(json.dumps(baseline))
+        shared_current["metadata"]["minimum_severity"] = "High"
+        shared_current["findings"][0]["evidence"][0]["value"]["version"] = "2.0"
+        shared = analyze_changes(baseline, shared_current)
+        self.assertEqual(shared["counts"]["changed_applications"], 1)
+        self.assertIsNone(shared["counts"]["removed_applications"])
+        self.assertTrue(any(item["kind"] == "changed-application" for item in shared["highlights"]))
+
+        partial = {**complete, "summary": {**complete["summary"], "collector_coverage": {"application-trust": 0, "live-triage": 100}}}
+        partial_changes = analyze_changes(baseline, partial)
+        self.assertIsNone(partial_changes["counts"]["removed_applications"])
+        self.assertEqual(partial_changes["counts"]["closed_network_listeners"], 1)
+        with tempfile.TemporaryDirectory() as directory:
+            decision = build_decision_support(partial, baseline)
+            path = write_investigation_summary(partial, decision, Path(directory))
+            html = path.read_text(encoding="utf-8")
+            self.assertIn("Some changes are not comparable", html)
+            self.assertIn("Some changes could not be assessed", html)
+            self.assertNotIn("Application no longer present", html)
+            self.assertIn("Recorded minimum severity: Informational", html)
+
+    def test_startup_additions_require_complete_earlier_collection(self):
+        baseline = {
+            "metadata": {"collectors": ["background-items"]},
+            "summary": {"total_finding_count": 0, "collector_coverage": {"background-items": 0}}, "findings": [],
+        }
+        current = {
+            "metadata": {"collectors": ["background-items"]},
+            "summary": {"total_finding_count": 1, "collector_coverage": {"background-items": 100}},
+            "findings": [{"finding_id": "BACKGROUND-SYSTEM", "evidence": [{"kind": "launchctl_services", "value": {
+                "scope": "system", "entries": [{"label": "com.example.agent", "state": "enabled"}],
+            }}]}],
+        }
+        changes = analyze_changes(baseline, current)
+        self.assertIsNone(changes["counts"]["new_startup_items"])
+        self.assertFalse(any(item["kind"] == "new-persistence" for item in changes["highlights"]))
+
+    def test_control_changes_remain_visible_with_partial_comparison(self):
+        baseline = {
+            "metadata": {"collectors": ["security"]},
+            "summary": {"total_finding_count": 1, "collector_coverage": {"security": 100}},
+            "findings": [{"finding_id": "CONTROL-SIP", "title": "System Integrity Protection", "status": "Pass", "severity": "Informational"}],
+        }
+        current = {
+            "metadata": {"collectors": ["security"], "minimum_severity": "High"},
+            "summary": {"total_finding_count": 2, "collector_coverage": {"security": 50}},
+            "findings": [{"finding_id": "CONTROL-SIP", "title": "System Integrity Protection", "status": "Fail", "severity": "High"}],
+        }
+        changes = analyze_changes(baseline, current)
+        self.assertEqual(changes["counts"]["changed_controls"], 1)
+        self.assertIsNone(changes["counts"]["resolved_findings"])
+        self.assertEqual(changes["highlights"][0]["kind"], "control-change")
+        self.assertEqual(changes["highlights"][0]["detail"], "Pass to Fail")
+        self.assertEqual(changes["highlights"][0]["priority"], "high")
+        self.assertFalse(any("application inventory" in note for note in changes["comparison_context"]["limitations"]))
+        current["findings"][0]["status"] = "Unknown"
+        unknown = analyze_changes(baseline, current)["highlights"][0]
+        self.assertEqual(unknown["label"], "Security control check changed")
+        self.assertEqual(unknown["priority"], "review")
+        self.assertIn("Complete the missing check", unknown["next_action"])
 
     def test_goal_profiles_are_local_and_problem_oriented(self):
         goals = {profile["id"]: profile for profile in SCAN_PROFILES if profile.get("goal")}
@@ -2634,6 +2751,7 @@ enabled active teamID bundleID (version) name [state]
         self.assertEqual(result.to_dict()["summary"]["total_finding_count"], 2)
         self.assertEqual(result.to_dict()["summary"]["assessed_finding_count"], 2)
         self.assertEqual(result.to_dict()["summary"]["category_assessed_counts"], {"Persistence": 2})
+        self.assertEqual(result.to_dict()["metadata"]["minimum_severity"], "High")
 
     def test_severity_threshold_does_not_hide_unknown_or_unassessed_checks(self):
         class MixedCollector:

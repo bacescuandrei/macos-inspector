@@ -506,14 +506,17 @@ function renderDecisionSupport(decision) {
   const changes = decision.changes || {};
   const counts = changes.counts || {};
   const comparisonMessage = changes.comparison_context?.message || '';
+  const limits = changes.comparison_context?.limitations || [];
+  const limitsHtml = limits.length ? `<div class="comparison-caveat"><strong>Some changes are not comparable</strong><p>Incomplete or filtered evidence is not treated as an addition or disappearance. Recheck the affected sections with all findings included.</p><details class="more-changes"><summary>Why these counts are unavailable</summary><ul>${limits.map((note) => `<li>${escapeHtml(note)}</li>`).join('')}</ul></details></div>` : '';
+  const count = (key) => Number.isSafeInteger(counts[key]) && counts[key] >= 0 ? counts[key] : null;
   const changeMetrics = changes.available ? [
-    ['New apps', counts.new_applications || 0], ['Changed apps', counts.changed_applications || 0],
-    ['Apps no longer present', counts.removed_applications || 0],
-    ['Coverage updates', counts.application_coverage_changes || 0],
-    ['New startup items', counts.new_startup_items || 0], ['Changed startup items', counts.changed_startup_items || 0],
-    ['New listeners', counts.new_network_listeners || 0], ['Listeners no longer recorded', counts.closed_network_listeners || 0],
-    ['Changed security controls', counts.changed_controls || 0], ['New finding records', counts.new_findings || 0],
-    ['Findings no longer recorded', counts.resolved_findings || 0],
+    ['New apps', count('new_applications')], ['Changed apps', count('changed_applications')],
+    ['Apps no longer present', count('removed_applications')],
+    ['Coverage updates', count('application_coverage_changes')],
+    ['New startup items', count('new_startup_items')], ['Changed startup items', count('changed_startup_items')],
+    ['New listeners', count('new_network_listeners')], ['Listeners no longer recorded', count('closed_network_listeners')],
+    ['Changed security controls', count('changed_controls')], ['New finding records', count('new_findings')],
+    ['Findings no longer recorded', count('resolved_findings')],
   ] : [];
   const highlightRows = (changes.highlights || []).map((item) => {
     const content = `<span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small>${item.next_action ? `<small class="change-action">Next: ${escapeHtml(item.next_action)}</small>` : ''}`;
@@ -524,11 +527,11 @@ function renderDecisionSupport(decision) {
   const highlights = highlightRows.slice(0, 3).join('') + (highlightRows.length > 3 ? `<details class="more-changes"><summary>More recorded changes (${highlightRows.length - 3})</summary>${highlightRows.slice(3).join('')}</details>` : '');
   const baseline = changes.available ? `<div class="comparison-baseline"><dl><div><dt>Earlier scan completed</dt><dd>${formatRecordedTime(changes.baseline_completed_at)}</dd></div><div><dt>Earlier scan ID</dt><dd>${escapeHtml(changes.baseline_scan_id || 'Not recorded')}</dd></div></dl>${changes.baseline_scan_id ? '<button type="button" class="secondary-button" id="open-comparison-baseline">View earlier scan</button>' : ''}</div>` : '';
   const absenceNote = changes.available ? `<p class="comparison-caveat"><strong>What a difference means</strong>${escapeHtml(changes.evidence_note || 'These are differences between recorded snapshots, not confirmed security incidents or fixes. Missing findings can reflect collection gaps, filters, or changed rules. A process or listener absent from the later snapshot may have stopped normally.')}</p>` : '';
-  const empty = changes.available ? 'No highlighted application, startup, listener, or security-control change was identified in the compared evidence. This is not proof that the Mac is safe or that an earlier concern was resolved.' : (changes.message || 'No comparison is available.');
+  const empty = changes.available ? (limits.length ? 'Some changes could not be assessed. Review the comparison limits and collect complete, unfiltered evidence before interpreting missing records.' : 'No highlighted application, startup, listener, or security-control change was identified in the compared evidence. This is not proof that the Mac is safe or that an earlier concern was resolved.') : (changes.message || 'No comparison is available.');
   const visibleMetrics = changeMetrics.filter(([, value]) => value > 0).slice(0, 4);
-  const metricsHtml = (metrics) => metrics.map(([label, value]) => `<span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>`).join('');
+  const metricsHtml = (metrics) => metrics.map(([label, value]) => `<span${value === null ? ' class="comparison-unavailable"' : ''}><strong>${escapeHtml(value === null ? 'Not comparable' : value)}</strong>${escapeHtml(label)}</span>`).join('');
   const stories = (decision.stories || []).map((story) => `<article class="story-card"><span>${escapeHtml(story.confidence)} confidence correlation</span><h4>${escapeHtml(story.title)}</h4><p>${escapeHtml(story.narrative)}</p><details><summary>Signals and next steps</summary><ul>${(story.signals || []).map((signal) => `<li>${escapeHtml(signal.type)} | ${escapeHtml(signal.detail)}</li>`).join('')}</ul><ol>${(story.next_actions || []).map((action) => `<li>${escapeHtml(action)}</li>`).join('')}</ol></details></article>`).join('');
-  panel.innerHTML = `<div class="decision-heading"><div><p class="eyebrow">COMPARE RECORDED SNAPSHOTS</p><h3 id="decision-support-title">Changes since last comparable scan</h3><p>${escapeHtml(changes.message || '')}</p></div><button type="button" class="secondary-button" id="export-investigation-summary">Export investigation summary</button></div>${baseline}${comparisonMessage ? `<p class="comparison-caveat"><strong>Comparison note</strong>${escapeHtml(comparisonMessage)}</p>` : ''}${visibleMetrics.length ? `<div class="change-metrics">${metricsHtml(visibleMetrics)}</div>` : ''}${changeMetrics.length ? `<details class="more-changes"><summary>All comparison counts</summary><div class="change-metrics">${metricsHtml(changeMetrics)}</div></details>` : ''}<div class="decision-columns"><section><h4>Changes to review</h4>${highlights || `<p class="muted">${escapeHtml(empty)}</p>`}</section><section class="analyst-only"><h4>Correlated investigation stories</h4>${stories || '<p class="muted">No finding is currently connected across multiple evidence types.</p>'}</section></div>${absenceNote}<p class="report-action-message" data-scan-message></p>`;
+  panel.innerHTML = `<div class="decision-heading"><div><p class="eyebrow">COMPARE RECORDED SNAPSHOTS</p><h3 id="decision-support-title">Changes since last comparable scan</h3><p>${escapeHtml(changes.message || '')}</p></div><button type="button" class="secondary-button" id="export-investigation-summary">Export investigation summary</button></div>${baseline}${limitsHtml}${comparisonMessage ? `<p class="comparison-caveat"><strong>Comparison note</strong>${escapeHtml(comparisonMessage)}</p>` : ''}${visibleMetrics.length ? `<div class="change-metrics">${metricsHtml(visibleMetrics)}</div>` : ''}${changeMetrics.length ? `<details class="more-changes"><summary>All comparison counts</summary><div class="change-metrics">${metricsHtml(changeMetrics)}<small class="comparison-count-note">Not comparable means the relevant section was outside the scan scope or its collection and filtering evidence could not support this count.</small></div></details>` : ''}<div class="decision-columns"><section><h4>Changes to review</h4>${highlights || `<p class="muted">${escapeHtml(empty)}</p>`}</section><section class="analyst-only"><h4>Correlated investigation stories</h4>${stories || '<p class="muted">No finding is currently connected across multiple evidence types.</p>'}</section></div>${absenceNote}<p class="report-action-message" data-scan-message></p>`;
   panel.classList.remove('hidden');
   panel.querySelectorAll('[data-review-finding]').forEach((button) => button.addEventListener('click', () => focusFinding(button.dataset.reviewFinding)));
   $('#export-investigation-summary').addEventListener('click', exportInvestigationSummary);
@@ -636,6 +639,14 @@ function renderReportContext() {
   panel.innerHTML = `<div class="report-context-heading"><div><p class="eyebrow">RECORDED SNAPSHOT</p><h3 id="report-context-title">About this scan</h3></div><button id="rerun-report" type="button" class="secondary-button">Run these checks again</button></div><dl><div><dt>Started</dt><dd>${formatRecordedTime(metadata.started_at)}</dd></div><div><dt>Completed</dt><dd>${formatRecordedTime(metadata.completed_at)}</dd></div><div><dt>Report age</dt><dd id="report-age"></dd></div><div><dt>Tool version</dt><dd>${escapeHtml(metadata.tool_version || 'Not recorded')}</dd></div><div class="report-scope"><dt>Checks in this report</dt><dd>${escapeHtml(sections || 'Section list not recorded')}</dd></div><div class="report-scope"><dt>Application target</dt><dd>${escapeHtml(metadata.target_application || 'No focused application')}</dd></div></dl><p id="report-time-note"></p><small>Times use the browser's local timezone. Repeating uses your current scan settings and case fields. Online checks ask for confirmation. Automatic comparison uses the latest earlier scan with matching sections, application target, and recorded host, not necessarily the report you repeated.</small>${scope.error ? `<p class="report-rerun-note">${escapeHtml(scope.error)}</p>` : ''}<p class="report-action-message" data-scan-message></p>`;
   panel.classList.remove('hidden');
   $('#rerun-report').addEventListener('click', rerunReportScope);
+  const filter = document.createElement('div');
+  const filterTitle = document.createElement('dt');
+  const filterValue = document.createElement('dd');
+  filterTitle.textContent = 'Recorded finding filter';
+  const severity = metadata.minimum_severity;
+  filterValue.textContent = severity === 'Informational' ? 'All findings' : ['Low', 'Medium', 'High', 'Critical'].includes(severity) ? `${severity} and above` : severity == null ? 'Not recorded' : 'Unsupported recorded filter';
+  filter.append(filterTitle, filterValue);
+  panel.querySelector('dl').append(filter);
   updateReportAge();
   updateRunAvailability();
 }

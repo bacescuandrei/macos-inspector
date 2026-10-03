@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Record the scan's minimum severity in report metadata and show its finding filter in the dashboard and investigation summary.
+- Withhold automatic inventory additions or disappearances when the relevant snapshot is filtered, incomplete, or missing collection-completion evidence. Preserve changes between records observed in both scans.
+- Display unavailable comparison counts as "Not comparable", with explicit reasons, instead of silently substituting zero. Keep complete sections comparable when a different section fails.
+- Include the collector's `CONTROL-` findings in security-control change highlights, including shared-record regressions in otherwise limited comparisons.
 - Show comparable-scan changes in both dashboard views, including the earlier report's completion time and ID, a read-only action to open it, and expandable counts and highlights.
 - Select automatic baselines by timezone-aware completion time rather than timestamp text, and require matching recorded hosts, valid section lists, and consistent report file identities.
 - Describe missing findings and listeners as no longer recorded, not automatically resolved, and include baseline identity and interpretation limits in investigation summaries.

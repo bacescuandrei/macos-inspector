@@ -719,6 +719,47 @@ def _application_change(
     }
 
 
+def _presence_comparison_limit(report: dict[str, Any], collectors: tuple[str, ...] | None = None) -> str:
+    """Require complete, unfiltered collection before interpreting an absent record."""
+    metadata = report.get("metadata", {})
+    summary = report.get("summary", {})
+    minimum = metadata.get("minimum_severity")
+    if minimum is not None and minimum != "Informational":
+        return "The report uses a severity filter or has an unsupported recorded filter."
+    total = summary.get("total_finding_count")
+    findings = report.get("findings")
+    if (
+        not isinstance(total, int) or isinstance(total, bool)
+        or not isinstance(findings, list) or total != len(findings)
+        or any(not isinstance(item, dict) for item in findings)
+    ):
+        return "The report does not establish that all collected finding records are included."
+    selected = metadata.get("collectors", [])
+    if not isinstance(selected, (list, tuple)) or not selected or any(not isinstance(item, str) for item in selected):
+        return "The recorded collection scope is unavailable."
+    required = collectors if collectors is not None else tuple(selected)
+    if any(collector not in selected for collector in required):
+        return "The required collection section was not selected."
+    errors = metadata.get("collection_errors", [])
+    if not isinstance(errors, (list, tuple)):
+        return "Collection error metadata is unavailable."
+    if any(not isinstance(error, str) or not any(error.startswith(f"{collector}:") for collector in selected) for error in errors):
+        return "A collection error cannot be attributed to a recorded section."
+    if any(any(str(error).startswith(f"{collector}:") for collector in required) for error in errors):
+        return "A required collection section reported an error."
+    if collectors is None and errors:
+        return "The scan reported collection errors."
+    coverage = summary.get("collector_coverage", {})
+    if not isinstance(coverage, dict) or any(
+        isinstance(coverage.get(collector), bool)
+        or not isinstance(coverage.get(collector), (int, float))
+        or coverage.get(collector) != 100
+        for collector in required
+    ):
+        return "Required collection completion is missing or incomplete."
+    return ""
+
+
 def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) -> dict[str, Any]:
     if not baseline:
         return {
@@ -743,8 +784,37 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
             if tool_version_changed else ""
         ),
     }
+    limits: list[str] = []
+
+    def presence_available(report: dict[str, Any], side: str, label: str, collectors: tuple[str, ...] | None = None) -> bool:
+        if collectors is not None and not any(
+            collector in snapshot.get("metadata", {}).get("collectors", [])
+            for snapshot in (baseline, current) for collector in collectors
+        ):
+            return False
+        reason = _presence_comparison_limit(report, collectors)
+        if reason:
+            note = f"{side} scan, {label}: {reason}"
+            if note not in limits:
+                limits.append(note)
+        return not reason
+
+    new_apps_available = presence_available(baseline, "Earlier", "application inventory", ("application-trust",))
+    removed_apps_available = presence_available(current, "Later", "application inventory", ("application-trust",))
+    startup_collectors = tuple(
+        collector for collector in ("persistence", "background-items")
+        if collector in baseline.get("metadata", {}).get("collectors", [])
+        or collector in current.get("metadata", {}).get("collectors", [])
+    ) or ("persistence", "background-items")
+    new_startup_available = presence_available(baseline, "Earlier", "startup inventory", startup_collectors)
+    new_listeners_available = presence_available(baseline, "Earlier", "network listeners", ("live-triage",))
+    closed_listeners_available = presence_available(current, "Later", "network listeners", ("live-triage",))
+    new_findings_available = presence_available(baseline, "Earlier", "finding inventory")
+    missing_findings_available = presence_available(current, "Later", "finding inventory")
+    comparison_context["limitations"] = limits
+    comparison_context["limited"] = bool(limits)
     application_changes: list[dict[str, Any]] = []
-    for finding_id in sorted(after_apps.keys() - before_apps.keys()):
+    for finding_id in sorted(after_apps.keys() - before_apps.keys()) if new_apps_available else []:
         app = after_apps[finding_id]
         priority = _application_change_priority(app)
         application_changes.append({
@@ -771,7 +841,7 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
             else:
                 changed_apps.append(finding_id)
     highlights = list(application_changes)
-    for finding_id in sorted(before_apps.keys() - after_apps.keys()):
+    for finding_id in sorted(before_apps.keys() - after_apps.keys()) if removed_apps_available else []:
         app = before_apps[finding_id]
         highlights.append({
             "kind": "removed-application", "label": "Application no longer present", "priority": "review",
@@ -793,14 +863,14 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
         if after_startup[key].get("state") != before_startup[key].get("state")
         or after_startup[key].get("detail") != before_startup[key].get("detail")
     }
-    for key in sorted(new_startup_keys)[:20]:
+    for key in sorted(new_startup_keys)[:20] if new_startup_available else []:
         item = after_startup[key]
         highlights.append({"kind": "new-persistence", "label": "New startup item", "title": str(item["title"]), "detail": str(item["detail"]), "finding_id": item["finding_id"]})
     for key in sorted(changed_startup_keys)[:20]:
         before, after = before_startup[key], after_startup[key]
         highlights.append({"kind": "changed-persistence", "label": "Startup item changed", "title": str(after["title"]), "detail": f"{before.get('detail', 'Previous state')} to {after.get('detail', 'current state')}", "finding_id": after["finding_id"]})
     before_listeners, after_listeners = _network_listeners(baseline), _network_listeners(current)
-    for key in sorted(after_listeners.keys() - before_listeners.keys())[:20]:
+    for key in sorted(after_listeners.keys() - before_listeners.keys())[:20] if new_listeners_available else []:
         row = after_listeners[key]
         highlights.append({"kind": "new-listener", "label": "New network listener", "title": str(row.get("command") or row.get("executable") or "Process"), "detail": f"{row.get('endpoint', 'unknown endpoint')} | {row.get('executable', 'unknown executable')}", "finding_id": "LIVE-NETWORK-PROCESSES"})
     changed_controls = []
@@ -808,9 +878,22 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
         before, after = baseline_findings[finding_id], current_findings[finding_id]
         if before.get("status") == after.get("status") and before.get("severity") == after.get("severity"):
             continue
-        if finding_id.startswith(("SECURITY-", "ACCOUNTS-", "MANAGEMENT-", "SYSTEMEXT-")):
+        if finding_id.startswith(("CONTROL-", "SECURITY-", "ACCOUNTS-", "MANAGEMENT-", "SYSTEMEXT-")):
             changed_controls.append(finding_id)
-            highlights.append({"kind": "control-change", "label": "Security control changed", "title": str(after.get("title", finding_id)), "detail": f"{before.get('status', 'Unknown')} to {after.get('status', 'Unknown')}", "finding_id": finding_id})
+            incomplete_check = str(before.get("status", "")).lower() == "unknown" or str(after.get("status", "")).lower() == "unknown"
+            current_status = str(after.get("status", "")).lower()
+            priority = (
+                "review" if incomplete_check else
+                "high" if current_status in {"fail", "review"} and after.get("severity") in {"High", "Critical"} else
+                "context" if current_status == "pass" else "review"
+            )
+            highlights.append({
+                "kind": "control-change", "label": "Security control check changed" if incomplete_check else "Security control changed",
+                "priority": priority, "title": str(after.get("title", finding_id)),
+                "detail": f"{before.get('status', 'Unknown')} to {after.get('status', 'Unknown')}",
+                "next_action": "Recheck the control and confirm whether the recorded configuration change was intentional." if not incomplete_check else "Complete the missing check before interpreting this as a configuration change.",
+                "finding_id": finding_id,
+            })
     return {
         "available": True,
         "baseline_scan_id": baseline.get("metadata", {}).get("scan_id"),
@@ -822,17 +905,17 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
             "A process or listener absent from the later snapshot may have stopped normally."
         ),
         "counts": {
-            "new_applications": len(after_apps.keys() - before_apps.keys()),
+            "new_applications": len(after_apps.keys() - before_apps.keys()) if new_apps_available else None,
             "changed_applications": len(changed_apps),
             "application_coverage_changes": len(coverage_updates),
-            "removed_applications": len(before_apps.keys() - after_apps.keys()),
-            "new_startup_items": len(new_startup_keys),
+            "removed_applications": len(before_apps.keys() - after_apps.keys()) if removed_apps_available else None,
+            "new_startup_items": len(new_startup_keys) if new_startup_available else None,
             "changed_startup_items": len(changed_startup_keys),
-            "new_network_listeners": len(after_listeners.keys() - before_listeners.keys()),
-            "closed_network_listeners": len(before_listeners.keys() - after_listeners.keys()),
+            "new_network_listeners": len(after_listeners.keys() - before_listeners.keys()) if new_listeners_available else None,
+            "closed_network_listeners": len(before_listeners.keys() - after_listeners.keys()) if closed_listeners_available else None,
             "changed_controls": len(changed_controls),
-            "new_findings": len(new_ids),
-            "resolved_findings": len(resolved_ids),
+            "new_findings": len(new_ids) if new_findings_available else None,
+            "resolved_findings": len(resolved_ids) if missing_findings_available else None,
         },
         "highlights": sorted(
             highlights,
@@ -1234,14 +1317,19 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
         f"<small>{escape(str(item.get('not_proof', 'This result requires validation.')))}</small></article>"
         for item in priorities
     ) or "<p>No immediate review item was identified in this scan.</p>"
+    change_limits = changes.get("comparison_context", {}).get("limitations", [])
+    empty_changes = (
+        "Some changes could not be assessed. Review the comparison limits and collect complete, unfiltered evidence before interpreting missing records."
+        if change_limits else
+        "No highlighted application, startup, listener, or security-control change was identified in the compared evidence. This is not proof that the Mac is safe or that an earlier concern was resolved."
+    )
     change_rows = "".join(
         f"<article><span>{escape(str(item.get('label', 'Change')))}</span><h3>{escape(str(item.get('title', 'Change')))}</h3>"
         f"<p>{escape(str(item.get('detail', '')))}</p>"
         f"<small>Next: {escape(str(item.get('next_action', 'Review the change against the expected state.')))}</small></article>"
         for item in changes.get("highlights", [])[:20]
     ) or (
-        "<p>No highlighted application, startup, listener, or security-control change was identified in the compared evidence. "
-        "This is not proof that the Mac is safe or that an earlier concern was resolved.</p>"
+        f"<p>{escape(empty_changes)}</p>"
         if changes.get("available") else f"<p>{escape(str(changes.get('message', 'No comparison is available.')))}</p>"
     )
     comparison_message = str(changes.get("comparison_context", {}).get("message") or "")
@@ -1254,6 +1342,10 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
             f"<p>{escape(str(changes.get('evidence_note') or 'Absence from a later snapshot does not confirm remediation.'))}</p>"
             + comparison_html
         )
+        if change_limits:
+            comparison_html += "<p><strong>Some changes are not comparable.</strong> Missing records were not classified as additions or disappearances where collection evidence is insufficient.</p><ul>"
+            comparison_html += "".join(f"<li>{escape(str(note))}</li>" for note in change_limits)
+            comparison_html += "</ul>"
     story_rows = "".join(
         f"<article><span>{escape(str(item.get('confidence', 'medium')).title())} confidence correlation</span><h3>{escape(str(item.get('title', 'Investigation story')))}</h3><p>{escape(str(item.get('narrative', '')))}</p></article>"
         for item in stories
@@ -1302,7 +1394,8 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
         f"<p>Scan started: {escape(str(metadata.get('started_at') or 'Not recorded'))}<br>"
         f"Scan completed: {escape(str(metadata.get('completed_at') or 'Not recorded'))}<br>"
         f"Recorded sections: {escape(section_names or 'Not recorded')}<br>"
-        f"Tool version: {escape(str(metadata.get('tool_version') or 'Not recorded'))}</p>"
+        f"Tool version: {escape(str(metadata.get('tool_version') or 'Not recorded'))}<br>"
+        f"Recorded minimum severity: {escape(str(metadata.get('minimum_severity') or 'Not recorded'))}</p>"
         "<p>This summary describes the recorded scan. Recheck after software, settings, or behavior changes.</p>"
     )
     application_section = f"<section><h2>Application review queue</h2><p>{escape(str(application_review.get('conclusion', 'Trust observations require context.')))}</p>{application_rows}</section>" if application_review.get("available") else ""

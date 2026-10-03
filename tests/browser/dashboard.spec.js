@@ -83,6 +83,39 @@ test('comparison distinguishes missing baseline and zero highlights without clai
   await expect(page.getByRole('button', {name: 'View earlier scan', exact: true})).toBeEnabled();
 });
 
+test('incomplete comparison shows unavailable counts instead of zero or resolution', async ({ page }) => {
+  await page.evaluate(() => {
+    renderDecisionSupport({changes: {
+      available: true, baseline_scan_id: 'older', baseline_completed_at: '2026-01-01T00:00:00Z',
+      counts: {removed_applications: null, new_applications: null, closed_network_listeners: null, resolved_findings: null, changed_applications: 1, new_startup_items: '0'},
+      comparison_context: {limited: true, limitations: ['Later scan: Application Trust collection is incomplete.', '<script>window.limitInjected=true</script>']},
+      highlights: [{kind: 'changed-application', label: 'Signing identity changed', title: 'Example', detail: 'Recorded publishers differ.', finding_id: 'APP-TRUST-EXAMPLE', priority: 'high'}],
+    }});
+    state.currentReportMetadata = {scan_id: 'current', collectors: ['application-trust'], minimum_severity: 'High'};
+    renderReportContext();
+  });
+  const panel = page.locator('#decision-support');
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText('Some changes are not comparable');
+  await expect(panel).toContainText('Signing identity changed');
+  await expect(page.locator('#report-context')).toContainText('High and above');
+  await panel.getByText('All comparison counts', {exact: true}).click();
+  const missingApps = panel.locator('.change-metrics span').filter({hasText: 'Apps no longer present'});
+  await expect(missingApps).toContainText('Not comparable');
+  await expect(missingApps).not.toContainText('0');
+  await panel.getByText('Why these counts are unavailable', {exact: true}).click();
+  for (const width of [320, 375, 768, 1280]) {
+    await page.setViewportSize({width, height: 850});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  }
+  expect(await page.evaluate(() => window.limitInjected)).toBeUndefined();
+  await page.setViewportSize({width: 320, height: 850});
+  await panel.screenshot({path: 'test-results/comparison-limited-320.png'});
+  await page.evaluate(() => renderDecisionSupport({changes: {available: true, counts: {}, comparison_context: {limitations: ['Earlier scan incomplete.']}, highlights: []}}));
+  await expect(panel).toContainText('Some changes could not be assessed');
+  await expect(panel).not.toContainText('No highlighted application');
+});
+
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/health', async (route) => {
     await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Test server is read-only"}' });

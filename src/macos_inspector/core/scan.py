@@ -80,6 +80,7 @@ def run_scan(
         collectors=tuple(collector_ids), collection_errors=tuple(errors),
         case_reference=case_reference.strip(), analyst=analyst.strip(),
         target_application=str(target_application) if target_application is not None else "",
+        minimum_severity=minimum.label(),
     )
     return ScanResult(
         metadata, tuple(visible_findings), overall, category_scores, category_coverage,

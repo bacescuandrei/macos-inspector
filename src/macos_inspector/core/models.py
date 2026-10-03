@@ -72,6 +72,7 @@ class ScanMetadata:
     case_reference: str = ""
     analyst: str = ""
     target_application: str = ""
+    minimum_severity: str = "Informational"
 
 
 @dataclass(frozen=True)
