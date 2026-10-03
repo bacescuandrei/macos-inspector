@@ -1042,6 +1042,11 @@ class CoreTests(unittest.TestCase):
                 self.assertEqual(status, 201)
                 exported = json.loads(body)
                 self.assertTrue((state.output / exported["filename"]).is_file())
+                content = (state.output / exported["filename"]).read_text(encoding="utf-8")
+                self.assertIn("Scan completed: 2026-01-02T00:00:00+00:00", content)
+                self.assertIn("Recorded sections: security", content)
+                self.assertIn("Assessment from this scan", content)
+                self.assertNotIn("Current assessment", content)
             finally:
                 server.shutdown()
                 server.server_close()
@@ -2261,6 +2266,7 @@ enabled active teamID bundleID (version) name [state]
         with tempfile.TemporaryDirectory() as directory:
             summary_path = write_investigation_summary(legacy, build_decision_support(legacy), Path(directory))
             self.assertIn("<strong>N/A</strong>collection completion: Coverage unavailable", summary_path.read_text(encoding="utf-8"))
+            self.assertIn("Scan completed: Not recorded", summary_path.read_text(encoding="utf-8"))
 
     def test_dashboard_application_inventory_rejects_arbitrary_targets(self):
         with tempfile.TemporaryDirectory() as directory:

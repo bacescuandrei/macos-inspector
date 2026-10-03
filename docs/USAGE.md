@@ -6,14 +6,19 @@ This guide explains the dashboard workflows, representative results, and the nex
 
 Select **Check this Mac** on the start guide for the recommended offline Quick triage profile. After the scan, the dashboard groups results into items that need attention, checks that could not be completed, and findings that look normal or were already resolved.
 
-The dashboard starts in **Simple** view. It shows the recommended workflows, focused application check, current assessment, the three highest-priority next steps, application review, report links, and scan history. Choose **Analyst** when you need individual collectors, custom formats, readiness details, raw findings, commands, timelines, cases, rules, or evidence controls. Opening a technical result switches to Analyst view automatically.
+The dashboard starts in **Simple** view. It shows the recommended workflows, focused application check, scan context and assessment, the three highest-priority next steps, application review, report links, and scan history. Choose **Analyst** when you need individual collectors, custom formats, readiness details, raw findings, commands, timelines, cases, rules, or evidence controls. Opening a technical result switches to Analyst view automatically.
 
-The current assessment has four possible states:
+**Assessment from this scan** has five possible states:
 
-- `No immediate warning identified`: the selected checks produced no result that currently needs attention.
+- `No immediate warning identified`: the selected checks identified no immediate review item in the recorded scan.
 - `Needs review`: one or more observations need owner or analyst context.
 - `Action recommended`: at least one high-priority rule outcome needs prompt validation.
 - `Scan incomplete`: no immediate warning was identified, but important evidence could not be collected.
+- `Limited scan scope`: one or more selected checks finished without an applicable target or enabled rules.
+
+**About this scan** records when collection started and completed, how old the report is, which sections ran, the exact application target when present, and the tool version. Dashboard times use the browser's local timezone; the original timestamp is available when you hover over the time. A report remains a snapshot even when its checks passed. Software updates, configuration changes, and activity after collection are not reflected in that assessment. Missing, invalid, or future completion times receive an explicit note.
+
+Use **Run these checks again** to collect the same sections and application target. It uses the current report formats, minimum-severity selection, rule and provider settings, and case fields. It does not restore old configuration from the report. Online sections ask for confirmation before a request is made. If a recorded section is unavailable or the report has no complete section list, select a supported profile. The server still validates focused application targets against its current inventory. Repeating is disabled while another scan is running.
 
 The assessment shows review priority, collection completion, and evidence confidence separately. Completion includes every selected section, even when a section fails or returns no findings. It measures recorded statuses, not the number of targets assessed. Incomplete evidence lowers the confidence label and provides a step to check readiness and rerun the same scan. A check marked `Not Applicable` may have finished without assessing files or activity; the dashboard calls this `Not assessed` and explains how to enable or scope the check when needed. The retained rule outcome index is a compatibility and comparison value, not a probability that the Mac is safe or compromised.
 
@@ -57,7 +62,7 @@ VirusTotal, MalwareBazaar, and ThreatFox are disabled by default. Configure only
 
 ## Investigation summary
 
-Select **Export investigation summary** to create a standalone HTML overview with current priorities, high-signal changes, correlated stories, and investigation-state counts. The summary links conclusions back to observations while leaving the original report unchanged.
+Select **Export investigation summary** to create a standalone HTML overview with priorities from the recorded scan, its start and completion times, recorded sections and tool version, high-signal changes, correlated stories, and investigation-state counts. The summary links conclusions back to observations while leaving the original report unchanged.
 
 ## Start with readiness
 
@@ -265,6 +270,8 @@ An isolated low-priority signal in the process tree, such as a hidden user-profi
 Next step: identify the process owner and parent, validate the executable and launch mechanism, inspect the listening address, compare with approved services, and acquire volatile evidence before containment.
 
 For a process listed in the finding's **Process response** section, use **Terminate** to request a normal `SIGTERM`. The Live Triage snapshot must be less than 15 minutes old. The server acts only if the PID still has the recorded owner, parent, executable, and process start. Older reports and reports without a process start identity cannot be used for response; run Live Triage again. Run it again afterward to confirm the current state.
+
+Use **Refresh Live Triage** in the same section to collect a new process and network snapshot. This action runs the read-only collector with the current scan settings and does not send a termination signal. Open the new report when collection completes before considering a response.
 
 Use **Force kill** only when a validated process did not respond to normal termination and immediate containment is operationally justified. It sends `SIGKILL`, prevents application cleanup, and can lose unsaved data. Both actions require confirmation and are recorded in the private local response log. A zombie is already dead and cannot receive either signal; review its parent process and the reason it has not reaped the child.
 

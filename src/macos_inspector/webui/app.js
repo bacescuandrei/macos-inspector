@@ -1,4 +1,4 @@
-const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map(), viewMode: 'simple' };
+const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', currentReportMetadata: null, guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map(), viewMode: 'simple' };
 const PROCESS_RESPONSE_MAX_AGE_MS = 15 * 60 * 1000;
 
 const COPY = {
@@ -42,7 +42,7 @@ const api = async (url, options = {}) => {
     response = await fetch(url, options);
   } catch (error) {
     setConnection('offline');
-    throw new Error('Dashboard server unavailable. Start it with: python3 -m macos_inspector --web');
+    throw new Error('Dashboard server unavailable. Open macOS Inspector.command and keep its launcher window open.');
   }
   let payload;
   try {
@@ -55,9 +55,10 @@ const api = async (url, options = {}) => {
 };
 
 function setMessage(message, error = false) {
-  const element = $('#action-message');
-  element.textContent = message || '';
-  element.classList.toggle('error', error);
+  document.querySelectorAll('#action-message, [data-scan-message]').forEach((element) => {
+    element.textContent = message || '';
+    element.classList.toggle('error', error);
+  });
 }
 
 function updateRunAvailability() {
@@ -72,6 +73,9 @@ function updateRunAvailability() {
   const activityButton = $('#inspect-application-activity');
   if (activityButton) activityButton.disabled = disabled || !$('#target-application')?.value;
   document.querySelectorAll('[data-recheck-app]').forEach((button) => { button.disabled = disabled; });
+  const rerunButton = $('#rerun-report');
+  if (rerunButton) rerunButton.disabled = disabled || Boolean(reportScope().error);
+  document.querySelectorAll('[data-refresh-live-triage]').forEach((button) => { button.disabled = disabled || !(state.config?.collectors || []).some((collector) => collector.id === 'live-triage'); });
   const cancelButton = $('#cancel-scan');
   if (cancelButton && !cancelButton.classList.contains('hidden')) cancelButton.disabled = !state.online;
 }
@@ -247,6 +251,8 @@ function selectedValues(attribute) {
 }
 
 async function startScan(collectorOverride = null, targetApplication = '') {
+  if (!state.config || !state.online) return setMessage('Wait for the dashboard to connect before starting a scan.', true);
+  if (state.starting || state.activeJob) return setMessage('A scan is already running. Wait for it to finish or cancel it first.', true);
   const collectors = collectorOverride || selectedCollectors();
   const formats = selectedValues('format');
   if (!collectors.length) return setMessage('Select at least one audit section.', true);
@@ -380,6 +386,8 @@ async function loadReport(job) {
   try {
     const payload = await api(job.reports.json);
     state.currentScanId = payload.metadata?.scan_id || '';
+    state.currentReportMetadata = payload.metadata || {};
+    renderReportContext();
     try {
       state.decisionSupport = state.currentScanId ? await api(`/api/decision-support/${encodeURIComponent(state.currentScanId)}`) : null;
       state.guidance = state.decisionSupport?.guidance || null;
@@ -542,6 +550,76 @@ function renderCaseMetadata(metadata) {
   banner.classList.toggle('hidden', !values.length);
 }
 
+function recordedTime(value) {
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if (!match) return null;
+  const timestamp = Date.parse(value);
+  const calendar = Date.parse(`${match[1]}T00:00:00Z`);
+  return Number.isFinite(timestamp) && Number.isFinite(calendar) && new Date(calendar).toISOString().slice(0, 10) === match[1] ? timestamp : null;
+}
+
+function reportScope() {
+  const metadata = state.currentReportMetadata || {};
+  const recorded = metadata.collectors;
+  if (!Array.isArray(recorded) || !recorded.length || recorded.some((id) => typeof id !== 'string' || !id)) return {error: 'This report has no complete section list. Choose a scan profile to collect new evidence.'};
+  if (!state.config) return {error: 'The dashboard configuration is still loading.'};
+  const collectors = [...new Set(recorded)];
+  const available = new Set((state.config.collectors || []).map((collector) => collector.id));
+  const missing = collectors.filter((id) => !available.has(id));
+  if (missing.length) return {error: `These recorded sections are unavailable: ${missing.join(', ')}. Choose a supported scan profile.`};
+  const target = metadata.target_application ?? '';
+  if (typeof target !== 'string' || (target && !collectors.includes('application-trust'))) return {error: 'This report has an unsupported application target. Choose an application or scan profile.'};
+  return {collectors, target, error: ''};
+}
+
+function updateReportAge() {
+  const ageLabel = $('#report-age');
+  const note = $('#report-time-note');
+  if (!ageLabel || !note) return;
+  const timestamp = recordedTime(state.currentReportMetadata?.completed_at);
+  if (timestamp === null) {
+    ageLabel.textContent = 'Unavailable';
+    note.textContent = 'The report has no usable completion time. Run the checks again to record a new snapshot.';
+    return;
+  }
+  const elapsed = Date.now() - timestamp;
+  if (elapsed < -30000) {
+    ageLabel.textContent = 'Recorded time is in the future';
+    note.textContent = 'The completion time is ahead of the browser clock. Check the clock before interpreting the age of this report.';
+    return;
+  }
+  const minutes = Math.max(0, Math.floor(elapsed / 60000));
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  ageLabel.textContent = days ? `${days} day${days === 1 ? '' : 's'} ago` : hours ? `${hours} hour${hours === 1 ? '' : 's'} ago` : minutes ? `${minutes} minute${minutes === 1 ? '' : 's'} ago` : 'Less than a minute ago';
+  note.textContent = 'This report describes evidence collected during the recorded scan. Recheck after software, settings, or behavior changes.';
+}
+
+function renderReportContext() {
+  const panel = $('#report-context');
+  const metadata = state.currentReportMetadata;
+  if (!metadata) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+  const formatTime = (value) => {
+    const timestamp = recordedTime(value);
+    return timestamp === null ? 'Not recorded with a usable timezone' : `<time datetime="${escapeHtml(value)}" title="${escapeHtml(value)}">${escapeHtml(new Date(timestamp).toLocaleString('en-GB'))}</time>`;
+  };
+  const titles = new Map((state.config?.collectors || []).map((collector) => [collector.id, collector.title]));
+  const sections = Array.isArray(metadata.collectors) ? metadata.collectors.filter((id) => typeof id === 'string').map((id) => titles.get(id) || id).join(', ') : '';
+  const scope = reportScope();
+  panel.innerHTML = `<div class="report-context-heading"><div><p class="eyebrow">RECORDED SNAPSHOT</p><h3 id="report-context-title">About this scan</h3></div><button id="rerun-report" type="button" class="secondary-button">Run these checks again</button></div><dl><div><dt>Started</dt><dd>${formatTime(metadata.started_at)}</dd></div><div><dt>Completed</dt><dd>${formatTime(metadata.completed_at)}</dd></div><div><dt>Report age</dt><dd id="report-age"></dd></div><div><dt>Tool version</dt><dd>${escapeHtml(metadata.tool_version || 'Not recorded')}</dd></div><div class="report-scope"><dt>Checks in this report</dt><dd>${escapeHtml(sections || 'Section list not recorded')}</dd></div><div class="report-scope"><dt>Application target</dt><dd>${escapeHtml(metadata.target_application || 'No focused application')}</dd></div></dl><p id="report-time-note"></p><small>Times use the browser's local timezone. Repeating uses your current scan settings and case fields. Online checks ask for confirmation.</small>${scope.error ? `<p class="report-rerun-note">${escapeHtml(scope.error)}</p>` : ''}<p class="report-action-message" data-scan-message></p>`;
+  panel.classList.remove('hidden');
+  $('#rerun-report').addEventListener('click', rerunReportScope);
+  updateReportAge();
+  updateRunAvailability();
+}
+
+async function rerunReportScope() {
+  const scope = reportScope();
+  if (scope.error) return setMessage(scope.error, true);
+  await startScan(scope.collectors, scope.target);
+}
+
 function renderExperience(experience) {
   const panel = $('#experience-summary');
   if (!experience?.assessment) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
@@ -549,7 +627,7 @@ function renderExperience(experience) {
   const actions = (experience.next_actions || []).map((item, index) => `<article class="experience-action"><div><span>${index + 1}</span><strong>${escapeHtml(item.title)}</strong><em class="verdict verdict-${escapeHtml(item.verdict || 'information')}">${escapeHtml(item.label || 'Review')}</em></div><p>${escapeHtml(item.observed)}</p><details><summary>Why this matters and how to verify it</summary><dl><div><dt>Why it matters</dt><dd>${escapeHtml(item.why_it_matters)}</dd></div><div><dt>What this does not prove</dt><dd>${escapeHtml(item.not_proof)}</dd></div><div><dt>Next safe step</dt><dd>${escapeHtml(item.verify)}</dd></div><div><dt>Action risk</dt><dd>${escapeHtml(item.action_risk)}</dd></div></dl></details>${item.finding_id ? `<button type="button" class="text-button" data-review-finding="${escapeHtml(item.finding_id)}">Open technical result</button>` : '<button type="button" class="text-button" data-switch-analyst>Open collection details</button>'}</article>`).join('');
   const empty = '<p class="experience-clear">Keep this report as a baseline. Run the same scope again if the Mac changes or unfamiliar behavior appears.</p>';
   panel.className = `experience-summary experience-${assessment.id || 'needs-review'}`;
-  panel.innerHTML = `<div class="experience-heading"><div><p class="eyebrow">CURRENT ASSESSMENT</p><span class="experience-state">${escapeHtml(assessment.label)}</span><h3 id="experience-summary-title">${escapeHtml(assessment.headline)}</h3><p>${escapeHtml(assessment.explanation)}</p></div><button type="button" class="secondary-button" data-switch-analyst>Show analyst view</button></div><div class="experience-actions"><h4>What to do next</h4>${actions || empty}</div>`;
+  panel.innerHTML = `<div class="experience-heading"><div><p class="eyebrow">ASSESSMENT FROM THIS SCAN</p><span class="experience-state">${escapeHtml(assessment.label)}</span><h3 id="experience-summary-title">${escapeHtml(assessment.headline)}</h3><p>${escapeHtml(assessment.explanation)}</p></div><button type="button" class="secondary-button" data-switch-analyst>Show analyst view</button></div><div class="experience-actions"><h4>What to do next</h4>${actions || empty}</div>`;
   panel.classList.remove('hidden');
   panel.querySelectorAll('[data-review-finding]').forEach((button) => button.addEventListener('click', () => focusFinding(button.dataset.reviewFinding)));
   panel.querySelectorAll('[data-switch-analyst]').forEach((button) => button.addEventListener('click', () => setViewMode('analyst')));
@@ -655,11 +733,13 @@ function renderFindingPage() {
   }
   document.querySelectorAll('.finding-toggle').forEach((button) => button.addEventListener('click', () => button.closest('.finding').classList.toggle('open')));
   document.querySelectorAll('[data-process-action]').forEach((button) => button.addEventListener('click', () => respondToProcess(button)));
+  document.querySelectorAll('[data-refresh-live-triage]').forEach((button) => button.addEventListener('click', () => startScan(['live-triage'])));
   document.querySelectorAll('[data-save-investigation]').forEach((button) => button.addEventListener('click', () => saveInvestigation(button)));
   document.querySelectorAll('[data-hash-reputation]').forEach((button) => button.addEventListener('click', () => lookupHashReputation(button)));
   $('#finding-range').textContent = total ? `${start + 1}-${Math.min(start + state.findingPageSize, total)} of ${total}` : '0 findings';
   $('#findings-prev').disabled = state.findingPage <= 1;
   $('#findings-next').disabled = start + state.findingPageSize >= total;
+  updateRunAvailability();
 }
 
 function renderInvestigationContext(context) {
@@ -773,7 +853,7 @@ function renderProcessResponseControls(finding) {
       : `<div class="process-buttons"><button type="button" data-process-key="${escapeHtml(key)}" data-process-action="terminate">Terminate</button><button type="button" class="force" data-process-key="${escapeHtml(key)}" data-process-action="kill">Force kill</button></div>`;
     return `<div class="process-action-row"><div><strong>PID ${escapeHtml(candidate.pid)} | ${escapeHtml(candidate.user || `UID ${candidate.uid}`)}</strong><code>${escapeHtml(candidate.executable || 'unknown')}</code><small>${escapeHtml(reasons || 'Live Triage review candidate')}</small></div>${actions}<span class="process-action-result" aria-live="polite"></span></div>`;
   }).join('');
-  return `<section class="process-response"><div class="process-response-heading"><strong>Process response</strong><span>Evidence is a review signal, not a malware verdict. Preserve what you need before containment.</span></div>${rows}</section>`;
+  return `<section class="process-response"><div class="process-response-heading"><strong>Process response</strong><span>Evidence is a review signal, not a malware verdict. Preserve what you need before containment.</span></div>${rows}<div class="process-refresh"><button type="button" class="secondary-button" data-refresh-live-triage>Refresh Live Triage</button><small>Collect a new process and network snapshot before acting, or to check the result of an earlier action.</small></div></section>`;
 }
 
 async function respondToProcess(button) {
@@ -1035,6 +1115,7 @@ async function loadDashboardData() {
     await loadOperationsData();
     await loadReadiness();
     await loadHistory();
+    if (state.currentReportMetadata) renderReportContext();
   } catch (error) {
     setMessage(error.message, true);
   } finally {
@@ -1043,6 +1124,7 @@ async function loadDashboardData() {
 }
 
 async function checkHealth() {
+  updateReportAge();
   const wasOffline = !state.online;
   try {
     const health = await api('/api/health');

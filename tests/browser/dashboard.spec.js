@@ -45,6 +45,8 @@ test('incomplete scans stay visible in simple and analyst views', async ({ page 
   await page.evaluate(() => loadReport({ reports: { json: '/reports/incomplete.json' } }));
 
   await expect(page.locator('#experience-summary')).toContainText('Scan incomplete');
+  await expect(page.locator('#report-context')).toBeVisible();
+  await expect(page.locator('#report-context')).toContainText('no complete section list');
   await expect(page.locator('#experience-summary')).toContainText('Application Trust');
   await expect(page.locator('#summary')).toContainText('50% | Partial for selected scope');
   await page.getByRole('button', { name: 'Show analyst view' }).click();
@@ -158,6 +160,138 @@ test('process response requires a recent snapshot with process start identity', 
   expect(controls.legacy).toContain('record this process start identity');
   expect(controls.stale).not.toContain('>Terminate</button>');
   expect(controls.stale).toContain('older than 15 minutes');
+});
+
+test('report time and exact scope remain visible at narrow widths', async ({ page }) => {
+  const metadata = {
+    scan_id: 'historical-snapshot', tool_version: '1.4.2',
+    started_at: new Date(Date.now() - 3 * 86400000 - 60000).toISOString(),
+    completed_at: new Date(Date.now() - 3 * 86400000).toISOString(),
+    collectors: ['application-trust', 'persistence'],
+    target_application: `/Applications/${'LongApplicationName'.repeat(15)}<img src=x>.app`,
+  };
+  await page.evaluate((record) => {
+    state.config = { collectors: [{ id: 'application-trust', title: 'Application Trust' }, { id: 'persistence', title: 'Persistence' }] };
+    state.online = true;
+    state.currentReportMetadata = record;
+    renderReportContext();
+    renderExperience({ assessment: { id: 'no-immediate-warning', label: 'No immediate warning identified', headline: 'No immediate review item was identified in this scan.' } });
+  }, metadata);
+  await expect(page.locator('#report-age')).toHaveText('3 days ago');
+  await expect(page.locator('#report-context')).toContainText('Application Trust, Persistence');
+  await expect(page.locator('#report-context')).toContainText(metadata.target_application);
+  await expect(page.locator('#report-context img')).toHaveCount(0);
+  await expect(page.locator('#experience-summary')).toContainText('ASSESSMENT FROM THIS SCAN');
+  await expect(page.locator('#rerun-report')).toBeEnabled();
+  for (const width of [320, 375, 768, 1280]) {
+    await page.setViewportSize({ width, height: 850 });
+    await expect(page.locator('#report-context')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    if (width === 320 || width === 1280) await page.locator('#report-context').screenshot({ path: test.info().outputPath(`report-context-${width}.png`) });
+  }
+  await page.locator('#view-analyst').click();
+  await expect(page.locator('#report-context')).toBeVisible();
+  expect(await page.evaluate(() => state.currentReportMetadata)).toEqual(metadata);
+});
+
+test('repeating a report sends its sections and target with current settings', async ({ page }) => {
+  const requests = [];
+  await page.route('**/api/scans', async (route) => {
+    requests.push(route.request().postDataJSON());
+    await route.fulfill({ status: 400, json: { error: 'Collection prevented by test fixture' } });
+  });
+  await page.evaluate(() => {
+    state.config = { collectors: [{ id: 'application-trust', title: 'Application Trust' }, { id: 'persistence', title: 'Persistence' }, { id: 'live-triage', title: 'Live Triage' }] };
+    state.online = true;
+    state.currentReportMetadata = { collectors: ['application-trust', 'persistence'], target_application: '/Applications/Example.app' };
+    document.querySelector('#collectors').innerHTML = '<input type="checkbox" data-collector="live-triage" checked>';
+    document.querySelector('#formats').innerHTML = '<input type="checkbox" data-format="json" checked>';
+    document.querySelector('#minimum').value = 'high';
+    document.querySelector('#case-reference').value = 'CURRENT-CASE';
+    renderReportContext();
+  });
+  await page.locator('#rerun-report').click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toMatchObject({ collectors: ['application-trust', 'persistence'], target_application: '/Applications/Example.app', formats: ['json'], minimum: 'high', case_reference: 'CURRENT-CASE' });
+  await expect(page.locator('#action-message')).toContainText('Collection prevented');
+  await expect(page.locator('#report-context [data-scan-message]')).toContainText('Collection prevented');
+  await page.evaluate(() => { state.activeJob = 'already-running'; updateRunAvailability(); });
+  await expect(page.locator('#rerun-report')).toBeDisabled();
+  await page.evaluate(() => rerunReportScope());
+  expect(requests).toHaveLength(1);
+  await expect(page.locator('#action-message')).toContainText('A scan is already running');
+});
+
+test('repeating an online scope still requires confirmation', async ({ page }) => {
+  const requests = [];
+  await page.route('**/api/scans', async (route) => {
+    requests.push(route.request().postDataJSON());
+    await route.fulfill({ status: 400, json: { error: 'Collection prevented by test fixture' } });
+  });
+  await page.evaluate(() => {
+    state.config = { collectors: [{ id: 'vulnerability-exposure', title: 'Vulnerability Intelligence', external_network: true }] };
+    state.online = true;
+    state.currentReportMetadata = { collectors: ['vulnerability-exposure'] };
+    document.querySelector('#formats').innerHTML = '<input type="checkbox" data-format="json" checked>';
+    renderReportContext();
+  });
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.locator('#rerun-report').click();
+  expect(requests).toHaveLength(0);
+  await expect(page.locator('#rerun-report')).toBeEnabled();
+  page.once('dialog', (dialog) => {
+    expect(dialog.message()).toContain('Vulnerability Intelligence');
+    dialog.accept();
+  });
+  await page.locator('#rerun-report').click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].collectors).toEqual(['vulnerability-exposure']);
+});
+
+test('unavailable sections and invalid timestamps do not imply a current scan', async ({ page }) => {
+  await page.evaluate(() => {
+    state.online = true;
+    state.config = { collectors: [{ id: 'security', title: 'Security controls' }] };
+    state.currentReportMetadata = { collectors: ['security', 'removed-section'], completed_at: '2026-02-31T12:00:00Z' };
+    renderReportContext();
+  });
+  await expect(page.locator('#rerun-report')).toBeDisabled();
+  await expect(page.locator('#report-context')).toContainText('recorded sections are unavailable: removed-section');
+  await expect(page.locator('#report-age')).toHaveText('Unavailable');
+  await page.evaluate(() => { state.currentReportMetadata = { collectors: ['security'], completed_at: '2026-10-01T12:00:00' }; renderReportContext(); });
+  await expect(page.locator('#report-age')).toHaveText('Unavailable');
+  await page.evaluate(() => { state.currentReportMetadata = { collectors: ['security'], completed_at: new Date(Date.now() + 3600000).toISOString() }; renderReportContext(); });
+  await expect(page.locator('#report-age')).toHaveText('Recorded time is in the future');
+  await expect(page.locator('#report-time-note')).toContainText('Check the clock');
+  await page.evaluate(() => { state.currentReportMetadata = {}; renderReportContext(); });
+  await expect(page.locator('#rerun-report')).toBeDisabled();
+  await expect(page.locator('#report-context')).toContainText('no complete section list');
+});
+
+test('a stale process report can collect fresh live evidence without signaling a process', async ({ page }) => {
+  const scans = [];
+  let signals = 0;
+  await page.route('**/api/scans', async (route) => {
+    scans.push(route.request().postDataJSON());
+    await route.fulfill({ status: 400, json: { error: 'Collection prevented by test fixture' } });
+  });
+  await page.route('**/api/processes/terminate', async (route) => { signals += 1; await route.fulfill({ status: 400, json: { error: 'No process action authorized' } }); });
+  await page.evaluate(() => {
+    state.online = true;
+    state.config = { collectors: [{ id: 'live-triage', title: 'Live Triage' }] };
+    document.querySelector('#formats').innerHTML = '<input type="checkbox" data-format="json" checked>';
+    renderFindings([{
+      finding_id: 'LIVE-PROCESS-TREE', category: 'Live Triage', title: 'Process snapshot', severity: 'Medium', status: 'Review',
+      evidence: [{ collected_at: new Date(Date.now() - 16 * 60000).toISOString(), value: { review_candidates: [{ pid: 4242, uid: 501, ppid: 12, user: 'alice', stat: 'S', executable: '/private/tmp/agent', process_start: 'Fri Oct 2 12:00:00 2026' }] } }],
+    }]);
+    setViewMode('analyst');
+  });
+  await page.getByRole('button', { name: 'Details', exact: true }).click();
+  await expect(page.locator('.process-response')).toContainText('older than 15 minutes');
+  await page.getByRole('button', { name: 'Refresh Live Triage', exact: true }).click();
+  await expect.poll(() => scans.length).toBe(1);
+  expect(scans[0]).toMatchObject({ collectors: ['live-triage'], target_application: '' });
+  expect(signals).toBe(0);
 });
 
 test('process response rechecks snapshot age when the button is pressed', async ({ page }) => {

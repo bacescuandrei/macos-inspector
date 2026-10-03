@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Show the collection window, report age, selected sections, application target, and tool version in an "About this scan" panel visible in both dashboard views.
+- Label the assessment as belonging to the recorded scan and include collection times and scope in standalone investigation summaries.
+- Add a one-click repeat action that preserves the report's section list and application target, uses current scan settings, and retains confirmation for online checks.
+- Block repeating when the recorded section list is incomplete or unsupported, and prevent duplicate scan requests while a collection is active.
+- Add "Refresh Live Triage" beside process-response controls to collect a new snapshot before or after an explicit process action.
+- Show scan-start errors beside the loaded report and refer connection failures to the double-click launcher.
+
 ## 1.4.2 - 2026-10-02
 
 - Keep Application Trust verdicts consistent with verification-completion evidence when macOS trust services return internal errors.

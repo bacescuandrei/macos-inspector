@@ -86,7 +86,7 @@ See [Installation](docs/INSTALLATION.md) for source installation, permission beh
 
 1. Open the dashboard with the launcher.
 2. Select **Check this Mac** in the start guide. This runs the recommended offline Quick triage profile.
-3. Start in **Simple** view and read the current assessment, collection completion, evidence confidence, and the three highest-priority next steps.
+3. Start in **Simple** view and read **About this scan**, **Assessment from this scan**, collection completion, evidence confidence, and the three highest-priority next steps.
 4. Switch to **Analyst** view when you need individual collectors, raw findings, commands, timelines, comparison details, cases, or evidence controls.
 5. Open an item listed under **Needs review**, **Action recommended**, or **Scan incomplete**.
 6. Follow the recommended next steps and expand **Details** when technical evidence is needed.
@@ -96,6 +96,8 @@ See [Installation](docs/INSTALLATION.md) for source installation, permission beh
 After a report loads, **Changes since last comparable scan** selects the newest earlier report with the same collection scope. For a focused application check, that includes the exact target application. Application changes are separated into additions, removals, possible application updates, possible macOS update changes, changed executable contents, weakened file permissions, bundle path changes, changed signing identities, or regressed trust checks. High-priority regressions are shown before routine update context, even in a large inventory. An update label never overrides a current failed, review, or unknown trust result. If the reports were created by different macOS Inspector versions, the dashboard warns that collector coverage and detection rules may differ. Evidence added by newer collectors is counted separately when no compared identity or trust field changed. Each explanation identifies the fields that changed and recommends the next validation step without treating the change as proof of tampering. Evidence confidence explains how complete the supporting data is without changing the severity. Correlated investigation stories appear only when an application path connects trust, process, network, or persistence evidence. Use **Export investigation summary** for a compact standalone HTML handoff; the original scan evidence remains unchanged.
 
 Routine use does not require terminal commands. The CLI remains available for automation and reproducible collections.
+
+**About this scan** shows its start and completion times, age, recorded sections, application target, and tool version. The assessment describes that recorded evidence. Use **Run these checks again** to repeat the sections and exact application target with your current scan settings and case fields. Online sections still ask for confirmation. If the recorded scope is missing or a section is unavailable, choose a supported profile instead. In process-response details, **Refresh Live Triage** collects a new process and network snapshot before a response or after an earlier action.
 
 The dashboard does not present the numeric rule outcome index as a safety score. Review priority, collection completion, and evidence confidence are shown separately because they answer different questions. Completion means a check returned a status, not that a target was assessed. A scan can finish every selected check and still contain an urgent finding or an out-of-scope section.
 
