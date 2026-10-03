@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Show comparable-scan changes in both dashboard views, including the earlier report's completion time and ID, a read-only action to open it, and expandable counts and highlights.
+- Select automatic baselines by timezone-aware completion time rather than timestamp text, and require matching recorded hosts, valid section lists, and consistent report file identities.
+- Describe missing findings and listeners as no longer recorded, not automatically resolved, and include baseline identity and interpretation limits in investigation summaries.
 - Show the collection window, report age, selected sections, application target, and tool version in an "About this scan" panel visible in both dashboard views.
 - Label the assessment as belonging to the recorded scan and include collection times and scope in standalone investigation summaries.
 - Add a one-click repeat action that preserves the report's section list and application target, uses current scan settings, and retains confirmation for online checks.

@@ -724,7 +724,7 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
         return {
             "available": False,
             "baseline_scan_id": None,
-            "message": "No earlier scan with the same scope is available yet. This scan can become the baseline.",
+            "message": "No usable earlier scan with matching sections, application target, and recorded host is available. Check the recorded scope and times before using this report as a baseline.",
             "counts": {}, "highlights": [], "application_changes": [], "comparison_context": {},
         }
     baseline_findings, current_findings = _findings(baseline), _findings(current)
@@ -815,7 +815,12 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
         "available": True,
         "baseline_scan_id": baseline.get("metadata", {}).get("scan_id"),
         "baseline_completed_at": baseline.get("metadata", {}).get("completed_at"),
-        "message": "Compared with the most recent earlier scan that used the same collection scope.",
+        "message": "Compared with the most recent earlier scan with matching sections, application target, and recorded host.",
+        "evidence_note": (
+            "These are differences between recorded snapshots, not confirmed security incidents or fixes. "
+            "Missing findings can reflect collection gaps, filters, or changed rules. "
+            "A process or listener absent from the later snapshot may have stopped normally."
+        ),
         "counts": {
             "new_applications": len(after_apps.keys() - before_apps.keys()),
             "changed_applications": len(changed_apps),
@@ -1234,9 +1239,21 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
         f"<p>{escape(str(item.get('detail', '')))}</p>"
         f"<small>Next: {escape(str(item.get('next_action', 'Review the change against the expected state.')))}</small></article>"
         for item in changes.get("highlights", [])[:20]
-    ) or f"<p>{escape(str(changes.get('message', 'No high-signal change was identified.')))}</p>"
+    ) or (
+        "<p>No highlighted application, startup, listener, or security-control change was identified in the compared evidence. "
+        "This is not proof that the Mac is safe or that an earlier concern was resolved.</p>"
+        if changes.get("available") else f"<p>{escape(str(changes.get('message', 'No comparison is available.')))}</p>"
+    )
     comparison_message = str(changes.get("comparison_context", {}).get("message") or "")
     comparison_html = f"<p><strong>Comparison note:</strong> {escape(comparison_message)}</p>" if comparison_message else ""
+    if changes.get("available"):
+        comparison_html = (
+            f"<p>Earlier scan: {escape(str(changes.get('baseline_scan_id') or 'Not recorded'))}</p>"
+            f"<p>Earlier scan completed: {escape(str(changes.get('baseline_completed_at') or 'Not recorded'))}</p>"
+            f"<p>{escape(str(changes.get('message') or ''))}</p>"
+            f"<p>{escape(str(changes.get('evidence_note') or 'Absence from a later snapshot does not confirm remediation.'))}</p>"
+            + comparison_html
+        )
     story_rows = "".join(
         f"<article><span>{escape(str(item.get('confidence', 'medium')).title())} confidence correlation</span><h3>{escape(str(item.get('title', 'Investigation story')))}</h3><p>{escape(str(item.get('narrative', '')))}</p></article>"
         for item in stories

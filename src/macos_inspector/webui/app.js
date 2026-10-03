@@ -511,19 +511,44 @@ function renderDecisionSupport(decision) {
     ['Apps no longer present', counts.removed_applications || 0],
     ['Coverage updates', counts.application_coverage_changes || 0],
     ['New startup items', counts.new_startup_items || 0], ['Changed startup items', counts.changed_startup_items || 0],
-    ['New listeners', counts.new_network_listeners || 0], ['Resolved findings', counts.resolved_findings || 0],
+    ['New listeners', counts.new_network_listeners || 0], ['Listeners no longer recorded', counts.closed_network_listeners || 0],
+    ['Changed security controls', counts.changed_controls || 0], ['New finding records', counts.new_findings || 0],
+    ['Findings no longer recorded', counts.resolved_findings || 0],
   ] : [];
-  const highlights = (changes.highlights || []).slice(0, 8).map((item) => {
+  const highlightRows = (changes.highlights || []).map((item) => {
     const content = `<span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small>${item.next_action ? `<small class="change-action">Next: ${escapeHtml(item.next_action)}</small>` : ''}`;
     return item.finding_id
       ? `<button type="button" class="decision-row change-${escapeHtml(item.priority || 'context')}" data-review-finding="${escapeHtml(item.finding_id)}">${content}</button>`
       : `<article class="decision-row change-${escapeHtml(item.priority || 'context')}">${content}</article>`;
-  }).join('');
+  });
+  const highlights = highlightRows.slice(0, 3).join('') + (highlightRows.length > 3 ? `<details class="more-changes"><summary>More recorded changes (${highlightRows.length - 3})</summary>${highlightRows.slice(3).join('')}</details>` : '');
+  const baseline = changes.available ? `<div class="comparison-baseline"><dl><div><dt>Earlier scan completed</dt><dd>${formatRecordedTime(changes.baseline_completed_at)}</dd></div><div><dt>Earlier scan ID</dt><dd>${escapeHtml(changes.baseline_scan_id || 'Not recorded')}</dd></div></dl>${changes.baseline_scan_id ? '<button type="button" class="secondary-button" id="open-comparison-baseline">View earlier scan</button>' : ''}</div>` : '';
+  const absenceNote = changes.available ? `<p class="comparison-caveat"><strong>What a difference means</strong>${escapeHtml(changes.evidence_note || 'These are differences between recorded snapshots, not confirmed security incidents or fixes. Missing findings can reflect collection gaps, filters, or changed rules. A process or listener absent from the later snapshot may have stopped normally.')}</p>` : '';
+  const empty = changes.available ? 'No highlighted application, startup, listener, or security-control change was identified in the compared evidence. This is not proof that the Mac is safe or that an earlier concern was resolved.' : (changes.message || 'No comparison is available.');
+  const visibleMetrics = changeMetrics.filter(([, value]) => value > 0).slice(0, 4);
+  const metricsHtml = (metrics) => metrics.map(([label, value]) => `<span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>`).join('');
   const stories = (decision.stories || []).map((story) => `<article class="story-card"><span>${escapeHtml(story.confidence)} confidence correlation</span><h4>${escapeHtml(story.title)}</h4><p>${escapeHtml(story.narrative)}</p><details><summary>Signals and next steps</summary><ul>${(story.signals || []).map((signal) => `<li>${escapeHtml(signal.type)} | ${escapeHtml(signal.detail)}</li>`).join('')}</ul><ol>${(story.next_actions || []).map((action) => `<li>${escapeHtml(action)}</li>`).join('')}</ol></details></article>`).join('');
-  panel.innerHTML = `<div class="decision-heading"><div><p class="eyebrow">DECISION SUPPORT</p><h3 id="decision-support-title">What changed and how the evidence connects</h3><p>${escapeHtml(changes.message || '')}</p></div><button type="button" class="secondary-button" id="export-investigation-summary">Export investigation summary</button></div>${comparisonMessage ? `<p class="comparison-caveat"><strong>Comparison note</strong>${escapeHtml(comparisonMessage)}</p>` : ''}${changeMetrics.length ? `<div class="change-metrics">${changeMetrics.map(([label,value]) => `<span><strong>${escapeHtml(value)}</strong>${escapeHtml(label)}</span>`).join('')}</div>` : ''}<div class="decision-columns"><section><h4>Changes since last comparable scan</h4>${highlights || `<p class="muted">${escapeHtml(changes.message || 'No high-signal changes were identified.')}</p>`}</section><section><h4>Correlated investigation stories</h4>${stories || '<p class="muted">No finding is currently connected across multiple evidence types.</p>'}</section></div>`;
+  panel.innerHTML = `<div class="decision-heading"><div><p class="eyebrow">COMPARE RECORDED SNAPSHOTS</p><h3 id="decision-support-title">Changes since last comparable scan</h3><p>${escapeHtml(changes.message || '')}</p></div><button type="button" class="secondary-button" id="export-investigation-summary">Export investigation summary</button></div>${baseline}${comparisonMessage ? `<p class="comparison-caveat"><strong>Comparison note</strong>${escapeHtml(comparisonMessage)}</p>` : ''}${visibleMetrics.length ? `<div class="change-metrics">${metricsHtml(visibleMetrics)}</div>` : ''}${changeMetrics.length ? `<details class="more-changes"><summary>All comparison counts</summary><div class="change-metrics">${metricsHtml(changeMetrics)}</div></details>` : ''}<div class="decision-columns"><section><h4>Changes to review</h4>${highlights || `<p class="muted">${escapeHtml(empty)}</p>`}</section><section class="analyst-only"><h4>Correlated investigation stories</h4>${stories || '<p class="muted">No finding is currently connected across multiple evidence types.</p>'}</section></div>${absenceNote}<p class="report-action-message" data-scan-message></p>`;
   panel.classList.remove('hidden');
   panel.querySelectorAll('[data-review-finding]').forEach((button) => button.addEventListener('click', () => focusFinding(button.dataset.reviewFinding)));
   $('#export-investigation-summary').addEventListener('click', exportInvestigationSummary);
+  const baselineButton = $('#open-comparison-baseline');
+  if (baselineButton) baselineButton.addEventListener('click', () => openComparisonBaseline(baselineButton, changes.baseline_scan_id));
+}
+
+async function openComparisonBaseline(button, scanId) {
+  const sourceScanId = state.currentScanId;
+  button.disabled = true;
+  try {
+    const payload = await api('/api/scans');
+    if (state.currentScanId !== sourceScanId) return;
+    const job = payload.scans.find((item) => item.scan_id === scanId && item.state === 'completed' && item.reports?.json);
+    if (!job) throw new Error('The earlier scan is not available in dashboard history. Its ID remains recorded in the comparison.');
+    renderReports(job);
+    await loadReport(job);
+    $('#report-context').scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (error) { setMessage(error.message, true); }
+  finally { button.disabled = false; }
 }
 
 async function exportInvestigationSummary() {
@@ -557,6 +582,11 @@ function recordedTime(value) {
   const timestamp = Date.parse(value);
   const calendar = Date.parse(`${match[1]}T00:00:00Z`);
   return Number.isFinite(timestamp) && Number.isFinite(calendar) && new Date(calendar).toISOString().slice(0, 10) === match[1] ? timestamp : null;
+}
+
+function formatRecordedTime(value) {
+  const timestamp = recordedTime(value);
+  return timestamp === null ? 'Not recorded with a usable timezone' : `<time datetime="${escapeHtml(value)}" title="${escapeHtml(value)}">${escapeHtml(new Date(timestamp).toLocaleString('en-GB'))}</time>`;
 }
 
 function reportScope() {
@@ -600,14 +630,10 @@ function renderReportContext() {
   const panel = $('#report-context');
   const metadata = state.currentReportMetadata;
   if (!metadata) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
-  const formatTime = (value) => {
-    const timestamp = recordedTime(value);
-    return timestamp === null ? 'Not recorded with a usable timezone' : `<time datetime="${escapeHtml(value)}" title="${escapeHtml(value)}">${escapeHtml(new Date(timestamp).toLocaleString('en-GB'))}</time>`;
-  };
   const titles = new Map((state.config?.collectors || []).map((collector) => [collector.id, collector.title]));
   const sections = Array.isArray(metadata.collectors) ? metadata.collectors.filter((id) => typeof id === 'string').map((id) => titles.get(id) || id).join(', ') : '';
   const scope = reportScope();
-  panel.innerHTML = `<div class="report-context-heading"><div><p class="eyebrow">RECORDED SNAPSHOT</p><h3 id="report-context-title">About this scan</h3></div><button id="rerun-report" type="button" class="secondary-button">Run these checks again</button></div><dl><div><dt>Started</dt><dd>${formatTime(metadata.started_at)}</dd></div><div><dt>Completed</dt><dd>${formatTime(metadata.completed_at)}</dd></div><div><dt>Report age</dt><dd id="report-age"></dd></div><div><dt>Tool version</dt><dd>${escapeHtml(metadata.tool_version || 'Not recorded')}</dd></div><div class="report-scope"><dt>Checks in this report</dt><dd>${escapeHtml(sections || 'Section list not recorded')}</dd></div><div class="report-scope"><dt>Application target</dt><dd>${escapeHtml(metadata.target_application || 'No focused application')}</dd></div></dl><p id="report-time-note"></p><small>Times use the browser's local timezone. Repeating uses your current scan settings and case fields. Online checks ask for confirmation.</small>${scope.error ? `<p class="report-rerun-note">${escapeHtml(scope.error)}</p>` : ''}<p class="report-action-message" data-scan-message></p>`;
+  panel.innerHTML = `<div class="report-context-heading"><div><p class="eyebrow">RECORDED SNAPSHOT</p><h3 id="report-context-title">About this scan</h3></div><button id="rerun-report" type="button" class="secondary-button">Run these checks again</button></div><dl><div><dt>Started</dt><dd>${formatRecordedTime(metadata.started_at)}</dd></div><div><dt>Completed</dt><dd>${formatRecordedTime(metadata.completed_at)}</dd></div><div><dt>Report age</dt><dd id="report-age"></dd></div><div><dt>Tool version</dt><dd>${escapeHtml(metadata.tool_version || 'Not recorded')}</dd></div><div class="report-scope"><dt>Checks in this report</dt><dd>${escapeHtml(sections || 'Section list not recorded')}</dd></div><div class="report-scope"><dt>Application target</dt><dd>${escapeHtml(metadata.target_application || 'No focused application')}</dd></div></dl><p id="report-time-note"></p><small>Times use the browser's local timezone. Repeating uses your current scan settings and case fields. Online checks ask for confirmation. Automatic comparison uses the latest earlier scan with matching sections, application target, and recorded host, not necessarily the report you repeated.</small>${scope.error ? `<p class="report-rerun-note">${escapeHtml(scope.error)}</p>` : ''}<p class="report-action-message" data-scan-message></p>`;
   panel.classList.remove('hidden');
   $('#rerun-report').addEventListener('click', rerunReportScope);
   updateReportAge();

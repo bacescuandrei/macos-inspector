@@ -1,5 +1,88 @@
 const { test, expect } = require('@playwright/test');
 
+test('snapshot comparison is visible in both views and wraps recorded values', async ({ page }) => {
+  await page.evaluate(() => renderDecisionSupport({
+    changes: {
+      available: true, baseline_scan_id: '<img src=x onerror=window.comparisonInjected=true>' + 'a'.repeat(100),
+      baseline_completed_at: '2026-01-04T13:59:00+02:00',
+      message: 'Compared with the most recent earlier scan with matching scope and host.',
+      counts: { new_applications: 1, resolved_findings: 2 },
+      comparison_context: { message: 'Collector coverage can differ between tool versions.' },
+      highlights: Array.from({length: 5}, (_, index) => ({
+        label: 'Signing identity changed', title: 'Example.app' + 'b'.repeat(90),
+        detail: '<script>window.comparisonInjected=true</script>',
+        next_action: 'Confirm the publisher before making changes.', priority: index === 0 ? 'high' : 'review',
+      })),
+    },
+    stories: [{title: 'Related evidence', narrative: 'Activity is not proof of malware.', confidence: 'medium'}],
+  }));
+  const panel = page.locator('#decision-support');
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText('Earlier scan completed');
+  await expect(panel.locator('time')).toHaveAttribute('datetime', '2026-01-04T13:59:00+02:00');
+  await expect(panel).toContainText('not confirmed security incidents or fixes');
+  await expect(panel).not.toContainText('Resolved findings');
+  await expect(panel.getByText('Related evidence', {exact: true})).toBeHidden();
+  await panel.getByText('All comparison counts', {exact: true}).click();
+  await expect(panel).toContainText('Findings no longer recorded');
+  await panel.getByText('More recorded changes (2)', {exact: true}).click();
+  for (const mode of ['simple', 'analyst']) {
+    await page.evaluate((mode) => setViewMode(mode), mode);
+    await expect(panel).toBeVisible();
+    for (const width of [320, 375, 768, 1280]) {
+      await page.setViewportSize({width, height: 850});
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    }
+  }
+  await expect(panel.getByText('Related evidence', {exact: true})).toBeVisible();
+  expect(await page.evaluate(() => window.comparisonInjected)).toBeUndefined();
+  await page.evaluate(() => setViewMode('simple'));
+  await page.setViewportSize({width: 320, height: 850});
+  await panel.screenshot({path: 'test-results/comparison-simple-320.png'});
+});
+
+test('view earlier scan opens the actual automatic baseline without starting a scan', async ({ page }) => {
+  const writes = [];
+  page.on('request', (request) => { if (request.method() === 'POST') writes.push(request.url()); });
+  await page.route('**/api/scans', (route) => route.fulfill({json: {scans: [
+    {scan_id: 'unrelated', state: 'completed', reports: {json: '/reports/unrelated.json'}},
+    {scan_id: 'automatic-baseline', state: 'completed', reports: {json: '/reports/automatic-baseline.json'}},
+  ]}}));
+  await page.route('**/reports/automatic-baseline.json', (route) => route.fulfill({json: {
+    metadata: {scan_id: 'automatic-baseline', collectors: ['security'], completed_at: '2026-01-01T00:00:00Z'},
+    summary: {finding_count: 0, total_finding_count: 0}, findings: [], timeline: [],
+  }}));
+  await page.route('**/api/decision-support/automatic-baseline', (route) => route.fulfill({json: {
+    changes: {available: false, message: 'No usable earlier scan is available.'},
+  }}));
+  await page.evaluate(() => {
+    state.currentScanId = 'newer';
+    state.baselineJob = {scan_id: 'unrelated'};
+    renderDecisionSupport({changes: {available: true, baseline_scan_id: 'automatic-baseline', counts: {}, highlights: []}});
+  });
+  await page.getByRole('button', {name: 'View earlier scan', exact: true}).click();
+  await expect(page.locator('#case-banner')).toContainText('automatic-baseline');
+  await expect(page.locator('#decision-support')).toContainText('No usable earlier scan is available.');
+  expect(writes).toEqual([]);
+  expect(await page.evaluate(() => state.baselineJob.scan_id)).toBe('unrelated');
+});
+
+test('comparison distinguishes missing baseline and zero highlights without claiming resolution', async ({ page }) => {
+  await page.evaluate(() => renderDecisionSupport({changes: {available: false, message: 'No usable earlier scan is available.'}}));
+  await expect(page.locator('#decision-support')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'View earlier scan', exact: true})).toHaveCount(0);
+  await page.route('**/api/scans', (route) => route.fulfill({json: {scans: []}}));
+  await page.evaluate(() => renderDecisionSupport({changes: {
+    available: true, baseline_scan_id: 'missing', baseline_completed_at: '2026-02-31T00:00:00Z',
+    counts: {}, highlights: [],
+  }}));
+  await expect(page.locator('#decision-support')).toContainText('Not recorded with a usable timezone');
+  await expect(page.locator('#decision-support')).toContainText('not proof that the Mac is safe');
+  await page.getByRole('button', {name: 'View earlier scan', exact: true}).click();
+  await expect(page.locator('#decision-support [data-scan-message]')).toContainText('not available in dashboard history');
+  await expect(page.getByRole('button', {name: 'View earlier scan', exact: true})).toBeEnabled();
+});
+
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/health', async (route) => {
     await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Test server is read-only"}' });

@@ -1013,7 +1013,7 @@ class CoreTests(unittest.TestCase):
 
     def test_decision_support_and_summary_export_use_comparable_baseline(self):
         baseline = {
-            "metadata": {"scan_id": "decision-old", "collectors": ["security"], "completed_at": "2026-01-01T00:00:00+00:00"},
+            "metadata": {"scan_id": "decision-old", "hostname": "fixture", "collectors": ["security"], "completed_at": "2026-01-01T00:00:00+00:00"},
             "summary": {"overall_score": 100}, "findings": [],
         }
         current = {
@@ -1047,6 +1047,9 @@ class CoreTests(unittest.TestCase):
                 self.assertIn("Recorded sections: security", content)
                 self.assertIn("Assessment from this scan", content)
                 self.assertNotIn("Current assessment", content)
+                self.assertIn("Earlier scan: decision-old", content)
+                self.assertIn("Earlier scan completed: 2026-01-01T00:00:00+00:00", content)
+                self.assertIn("not confirmed security incidents or fixes", content)
             finally:
                 server.shutdown()
                 server.server_close()
@@ -2323,14 +2326,47 @@ enabled active teamID bundleID (version) name [state]
                 {"metadata": {"scan_id": "same", "collectors": ["application-trust"], "target_application": "/Applications/Example.app", "completed_at": "2026-01-03T00:00:00+00:00"}},
             )
             for report in reports:
+                report["metadata"]["hostname"] = "fixture"
                 scan_id = report["metadata"]["scan_id"]
                 (state.output / f"macos-inspector-{scan_id}.json").write_text(json.dumps(report))
             current = {"metadata": {
                 "scan_id": "current", "collectors": ["application-trust"],
+                "hostname": "fixture",
                 "target_application": "/Applications/Example.app",
                 "completed_at": "2026-01-04T00:00:00+00:00",
             }}
             self.assertEqual(state._previous_comparable_report(current)["metadata"]["scan_id"], "same")
+
+    def test_comparable_baseline_uses_actual_time_and_valid_report_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = DashboardState(Path(directory))
+            current = {"metadata": {
+                "scan_id": "current", "hostname": "fixture", "collectors": ["security", "network"],
+                "completed_at": "2026-01-04T12:00:00Z",
+            }}
+            candidates = [
+                ("latest", {"completed_at": "2026-01-04T13:59:00+02:00"}),
+                ("older", {"completed_at": "2026-01-04T11:58:00Z", "collectors": ["network", "security"]}),
+                ("future", {"completed_at": "2026-01-04T07:30:00-05:00"}),
+                ("same-time", {"completed_at": "2026-01-04T14:00:00+02:00"}),
+                ("no-zone", {"completed_at": "2026-01-04T11:59:59"}),
+                ("invalid-time", {"completed_at": "2026-02-31T11:59:59Z"}),
+                ("invalid-offset", {"completed_at": "2026-01-04T11:59:59+00:99"}),
+                ("other-host", {"hostname": "other", "completed_at": "2026-01-04T11:59:59Z"}),
+                ("missing-host", {"hostname": None, "completed_at": "2026-01-04T11:59:59Z"}),
+                ("false-identity", {"scan_id": "wrong", "completed_at": "2026-01-04T11:59:59Z"}),
+                ("bad-scope", {"collectors": "security", "completed_at": "2026-01-04T11:59:59Z"}),
+                ("bad-scope-entry", {"collectors": ["security", {}], "completed_at": "2026-01-04T11:59:59Z"}),
+            ]
+            for filename_id, overrides in candidates:
+                metadata = {**current["metadata"], "scan_id": filename_id, **overrides}
+                (state.output / f"macos-inspector-{filename_id}.json").write_text(json.dumps({"metadata": metadata}))
+            (state.output / "macos-inspector-malformed.json").write_text('{"metadata": []}')
+            self.assertEqual(state._previous_comparable_report(current)["metadata"]["scan_id"], "latest")
+            for overrides in ({"completed_at": ""}, {"completed_at": "2026-01-04T12:00:00"}, {"completed_at": "2026-01-04 12:00:00+00:00"}, {"collectors": []}, {"collectors": "security"}, {"hostname": ""}):
+                with self.subTest(overrides=overrides):
+                    self.assertIsNone(state._previous_comparable_report({"metadata": {**current["metadata"], **overrides}}))
+            self.assertIsNone(state._previous_comparable_report({"metadata": []}))
 
     def test_application_trust_records_stable_executable_hash(self):
         class FakeRunner:

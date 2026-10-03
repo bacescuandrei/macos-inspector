@@ -531,29 +531,56 @@ class DashboardState:
         return build_guidance(report, self.investigations.for_report(report))
 
     def _previous_comparable_report(self, current: dict[str, Any]) -> dict[str, Any] | None:
-        metadata = current.get("metadata", {})
+        def completed_time(metadata: dict[str, Any]) -> datetime | None:
+            value = metadata.get("completed_at")
+            if not isinstance(value, str) or not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)", value,
+            ):
+                return None
+            try:
+                parsed = datetime.fromisoformat(value.removesuffix("Z") + ("+00:00" if value.endswith("Z") else ""))
+                return parsed.astimezone(timezone.utc) if parsed.tzinfo is not None else None
+            except (ValueError, OverflowError):
+                return None
+
+        def collection_scope(metadata: dict[str, Any]) -> set[str] | None:
+            collectors = metadata.get("collectors")
+            if not isinstance(collectors, list) or not collectors or any(not isinstance(item, str) or not item for item in collectors):
+                return None
+            return set(collectors)
+
+        metadata = current.get("metadata")
+        if not isinstance(metadata, dict):
+            return None
         current_id = metadata.get("scan_id")
-        current_scope = set(metadata.get("collectors", []))
+        current_scope = collection_scope(metadata)
         current_target = str(metadata.get("target_application", ""))
-        current_completed = str(metadata.get("completed_at", ""))
-        candidates: list[tuple[str, dict[str, Any]]] = []
+        current_host = metadata.get("hostname")
+        current_completed = completed_time(metadata)
+        if current_scope is None or current_completed is None or not isinstance(current_host, str) or not current_host.strip():
+            return None
+        candidates: list[tuple[datetime, str, dict[str, Any]]] = []
         for path in self.output.glob("macos-inspector-*.json"):
             try:
                 report = read_json_limited(path, MAX_REPORT_JSON_BYTES)
                 previous = report.get("metadata", {}) if isinstance(report, dict) else {}
                 if (
-                    previous.get("scan_id") == current_id
-                    or set(previous.get("collectors", [])) != current_scope
+                    not isinstance(previous, dict)
+                    or not isinstance(previous.get("scan_id"), str)
+                    or path.name != f"macos-inspector-{previous.get('scan_id')}.json"
+                    or previous.get("hostname") != current_host
+                    or collection_scope(previous) != current_scope
+                    or previous.get("scan_id") == current_id
                     or str(previous.get("target_application", "")) != current_target
                 ):
                     continue
-                completed = str(previous.get("completed_at", ""))
-                if not completed or (current_completed and completed >= current_completed):
+                completed = completed_time(previous)
+                if completed is None or completed >= current_completed:
                     continue
-                candidates.append((completed, report))
+                candidates.append((completed, path.name, report))
             except (OSError, TypeError, ValueError, json.JSONDecodeError):
                 continue
-        return max(candidates, key=lambda item: item[0])[1] if candidates else None
+        return max(candidates, key=lambda item: (item[0], item[1]))[2] if candidates else None
 
     def decision_support(self, scan_id: str) -> dict:
         report = self._load_scan_report(scan_id)
