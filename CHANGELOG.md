@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Show local IOC/YARA rule context in both dashboard views, the standalone HTML report, and the investigation summary. Separate stable fingerprints from actual result availability, omitted checks, matches, and incomplete collection.
+- Show bounded IOC pack provenance with declared version, update label, and source hostname. Do not copy URL credentials, query strings, fragments, or full source paths into the derived summary, and do not contact a source when opening it.
+- Keep unsupported or missing historical rule context explicit, and prevent a loaded report from displaying another scan's rule summary. Preserve original evidence and comparison decisions.
 - Distinguish an absent original PID from the same executable path and owner observed under another PID after a process action. Show the observed PIDs without claiming a restart, identical file contents, malware, or successful remediation.
 - Require matching recorded host context and timezone-aware action, scan, and evidence times before interpreting a linked process follow-up. Prior, overlapping, malformed, and ambiguous snapshots remain unverifiable.
 - Record the local hostname with new process actions. Older action logs remain visible; missing host or identity evidence prevents a verified follow-up outcome.

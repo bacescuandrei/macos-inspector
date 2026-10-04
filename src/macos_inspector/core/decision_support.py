@@ -8,7 +8,9 @@ from urllib.parse import urlsplit
 
 from macos_inspector.core.guidance import _legacy_app_trust_result, build_guidance, finding_fingerprint
 from macos_inspector.core.report_context import presence_comparison_limit
+from macos_inspector.core.rule_context import build_rule_context_summary
 from macos_inspector.reporters.common import secure_write_text
+from macos_inspector.reporters.rule_context_reporter import render_rule_context, RULE_CONTEXT_CSS
 
 
 ATTENTION_VERDICTS = {"needs-review", "high-priority", "indicator-match"}
@@ -1261,6 +1263,7 @@ def build_decision_support(
         "application_review": application_review,
         "experience": experience,
         "final_summary": final_summary,
+        "rule_context": build_rule_context_summary(current),
     }
 
 
@@ -1363,6 +1366,7 @@ def write_investigation_summary(report: dict[str, Any], decision: dict[str, Any]
         f"Recorded minimum severity: {escape(str(metadata.get('minimum_severity') or 'Not recorded'))}</p>"
         "<p>This summary describes the recorded scan. Recheck after software, settings, or behavior changes.</p>"
     )
+    snapshot_html += f"<style>{RULE_CONTEXT_CSS}</style>" + render_rule_context(build_rule_context_summary(report))
     application_section = f"<section><h2>Application review queue</h2><p>{escape(str(application_review.get('conclusion', 'Trust observations require context.')))}</p>{application_rows}</section>" if application_review.get("available") else ""
     assessment = experience.get("assessment", {})
     axes = experience.get("axes", {})

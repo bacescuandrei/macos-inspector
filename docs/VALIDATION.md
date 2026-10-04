@@ -43,6 +43,8 @@ npm run test:browser
 
 The same dashboard tests run in Chromium and Playwright WebKit. They cover both views, narrow layouts, long evidence values, HTML escaping, snapshot freshness, scope-preserving rechecks, response follow-up, and validation downloads. Targeted axe-core checks exercise WCAG A/AA rules and keyboard focus in synthetic dashboard states.
 
+Development checks also exercise rule-context disclosure in both views and the standalone investigation summary, including narrow layouts, escaped pack names, keyboard-accessible details, skipped YARA results, missing context, and isolation between report identities. Unit tests check typed fingerprint states, bounded provenance, removal of source URL credentials from the derived summary, and preservation of original evidence.
+
 Playwright WebKit is not branded Safari. This coverage does not claim every shipping Safari version, VoiceOver interaction, operating-system integration, or accessibility requirement was manually tested. Changes affecting those workflows still need dedicated testing on representative Macs. See [Playwright browser documentation](https://playwright.dev/docs/browsers#webkit) for its browser boundary.
 
 ## Release checks

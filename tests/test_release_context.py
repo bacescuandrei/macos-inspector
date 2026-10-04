@@ -14,7 +14,7 @@ from macos_inspector.collectors.yara_rules import YARARulesCollector
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.decision_support import analyze_changes
 from macos_inspector.core.models import Finding, Severity
-from macos_inspector.core.rule_context import capture_rule_context, detection_context_limits
+from macos_inspector.core.rule_context import capture_rule_context, detection_context_limits, build_rule_context_summary
 from macos_inspector.core.response_history import append_response_event, read_response_history, evaluate_response_recheck
 from macos_inspector.core.scan import run_scan
 from macos_inspector.web import DashboardState, ScanJob
@@ -32,6 +32,74 @@ def response_fixture():
 
 
 class ReleaseContextTests(unittest.TestCase):
+    def test_rule_context_distinguishes_fingerprints_from_results_and_skipped_checks(self):
+        context = {"schema_version": 1, "fingerprint": "a" * 64, "file_count": 2, "complete": True, "stable": True}
+        report = {"metadata": {"collectors": ["ioc", "yara-rules"], "detection_context": {"ioc": dict(context), "yara-rules": dict(context)}},
+                  "findings": [{"finding_id": "YARA-MANAGED-SCAN", "status": "Not Applicable"}]}
+        summary = build_rule_context_summary(report)
+        self.assertEqual(summary["rows"][0]["status"], "stable")
+        self.assertIn("Result records unavailable", summary["rows"][0]["result_note"])
+        self.assertIn("Not run", summary["rows"][1]["result_note"])
+        self.assertIn("do not validate rule quality", summary["note"])
+        for field, value, expected in (("stable", False, "changed"), ("complete", False, "incomplete"),
+                                       ("schema_version", True, "unavailable"), ("schema_version", 2, "unavailable"),
+                                       ("fingerprint", "<script>invalid</script>", "unavailable"),
+                                       ("file_count", True, "unavailable"), ("file_count", -1, "unavailable")):
+            report["metadata"]["detection_context"]["ioc"] = {**context, field: value}
+            self.assertEqual(build_rule_context_summary(report)["rows"][0]["status"], expected)
+        report["metadata"]["detection_context"]["ioc"] = {**context, "file_count": 0}
+        self.assertEqual(build_rule_context_summary(report)["rows"][0]["label"], "No rule files recorded")
+        report["metadata"]["collectors"] = ["security"]
+        self.assertFalse(build_rule_context_summary(report)["available"])
+
+    def test_rule_provenance_is_bounded_and_does_not_copy_source_credentials_or_paths(self):
+        finding = {"finding_id": "IOC-fixture", "status": "Match", "evidence": [{"kind": "ioc_pack_metadata", "value": {
+            "name": "<img src=x>" + "a" * 600, "version": "fixture", "updated_at": "2026-01-01",
+            "source": "https://account:private-password@example.invalid/download?token=private-token#secret",
+        }}]}
+        report = {"metadata": {"collectors": ["ioc"], "detection_context": {}}, "findings": [finding] * 25}
+        summary = build_rule_context_summary(report)
+        row = summary["rows"][0]
+        self.assertEqual(len(row["sources"]), 20)
+        self.assertEqual(row["source_count"], 25)
+        self.assertEqual(len(row["sources"][0]["name"]), 256)
+        self.assertEqual(row["sources"][0]["source_host"], "example.invalid")
+        self.assertIn("Matches recorded", row["result_note"])
+        self.assertNotIn("private-password", json.dumps(summary))
+        self.assertNotIn("private-token", json.dumps(summary))
+        from macos_inspector.reporters.rule_context_reporter import render_rule_context
+        html = render_rule_context(summary)
+        self.assertNotIn("<img", html)
+        self.assertNotIn("href=", html)
+        self.assertIn("5 additional provenance records", html)
+        for value in (None, "file:///private/synthetic/rules", "https://[invalid", "plain description"):
+            finding["evidence"][0]["value"]["source"] = value
+            self.assertIsNone(build_rule_context_summary(report)["rows"][0]["sources"][0]["source_host"])
+
+    def test_rule_context_survives_summary_and_html_report_export(self):
+        from macos_inspector.core.models import ScanMetadata, ScanResult
+        from macos_inspector.core.decision_support import build_decision_support, write_investigation_summary
+        from macos_inspector.reporters.html_reporter import write_html
+        context = {"schema_version": 1, "fingerprint": "b" * 64, "file_count": 1, "complete": True, "stable": False}
+        metadata = ScanMetadata("fixture", "rules-fixture", "2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z",
+                                "fixture", "fixture", "fixture", ("ioc",), detection_context={"ioc": context})
+        result = ScanResult(metadata, (), 100, {})
+        payload = result.to_dict()
+        decision = build_decision_support(payload)
+        self.assertEqual(decision["rule_context"]["rows"][0]["status"], "changed")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = json.dumps(payload)
+            write_html(result, root / "report.html")
+            summary = write_investigation_summary(payload, decision, root)
+            for path in (root / "report.html", summary):
+                html = path.read_text()
+                self.assertIn("Local rules and provenance", html)
+                self.assertIn("Rules changed during collection", html)
+                self.assertIn("b" * 64, html)
+                self.assertIn("do not validate rule quality", html)
+            self.assertEqual(json.dumps(payload), original)
+
     def test_declared_detection_validation_scenarios_are_reproducible(self):
         from scripts.validate_detections import validate_detections
         result = validate_detections()

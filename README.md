@@ -174,6 +174,12 @@ In the development checkout, **Process action history** also distinguishes the s
 
 A follow-up requires matching recorded hostnames and valid action, scan, and process-evidence timestamps. A scan that began before the signal is not a later observation. Older logs without host context remain visible but unverifiable. Hostnames and owner-controlled logs are not authenticated evidence; an absent PID never closes the investigation automatically.
 
+### Understand the local rules behind a result
+
+In the development checkout, review **Local rules and provenance** inside **About this scan** when IOC or YARA was selected. The same context is included in the HTML report and investigation summary. **Rule snapshot stable** means the bounded rule fingerprint did not change during collection, not that its indicators are accurate or that every check ran. A disabled YARA section can have a stable fingerprint and still say **Not run**.
+
+Expand **Recorded rule details and provenance** to inspect the context SHA-256, fingerprinted file count, and declared IOC pack version, update label, and source hostname. Source credentials, query strings, fragments, and full source paths are not copied into this summary. The panel does not contact the source or authenticate its claims. Filtering can omit pack metadata and result records; absent context is shown as unavailable, never as a clean bill of health.
+
 ### Review macOS vulnerability exposure
 
 Goal: prioritize operating-system updates using public vulnerability information.

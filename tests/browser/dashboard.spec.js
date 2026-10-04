@@ -488,6 +488,71 @@ test('report time and exact scope remain visible at narrow widths', async ({ pag
   expect(await page.evaluate(() => state.currentReportMetadata)).toEqual(metadata);
 });
 
+test('rule provenance separates stable fingerprints from skipped checks in both views', async ({ page }) => {
+  await page.evaluate(() => {
+    state.currentReportMetadata = {scan_id: 'rules-fixture', collectors: ['ioc', 'yara-rules']};
+    state.decisionSupport = {scan_id: 'rules-fixture', rule_context: {
+      available: true, note: 'Fingerprints do not validate rule quality. No source is contacted.', source_note: 'Pack provenance is declared, not independently verified.',
+      rows: [{collector: 'ioc', title: 'Local IOC packs', label: 'Rule snapshot stable', file_count: 1,
+        fingerprint: 'a'.repeat(64), result_note: 'Matches recorded; some checks could not complete.', limitations: ['<img src=x onerror=window.ruleInjected=true>'],
+        source_count: 1, sources: [{name: '<img src=x>' + 'x'.repeat(200), version: 'fixture', updated_at: '2026-01-01', source_host: 'example.invalid'}]},
+        {collector: 'yara-rules', title: 'Managed YARA rules', label: 'Rule snapshot stable', file_count: 1,
+          fingerprint: 'b'.repeat(64), result_note: 'Not run. YARA scanning is disabled.', limitations: [], sources: [], source_count: 0}],
+    }};
+    renderReportContext();
+  });
+  const panel = page.locator('#report-context .rule-context');
+  await expect(panel).toContainText('Not run. YARA scanning is disabled.');
+  await panel.locator('summary').first().click();
+  await expect(panel).toContainText('example.invalid');
+  await expect(panel.locator('img')).toHaveCount(0);
+  await expect(panel.locator('a')).toHaveCount(0);
+  for (const mode of ['simple', 'analyst']) {
+    await page.evaluate(view => setViewMode(view), mode);
+    for (const width of [320, 375, 768, 1280]) {
+      await page.setViewportSize({width, height: 850});
+      expect(await panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    }
+    const result = await new AxeBuilder({page}).include('#report-context').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    expect(result.violations.map(row => row.id)).toEqual([]);
+  }
+  expect(await page.evaluate(() => window.ruleInjected)).toBeUndefined();
+});
+
+test('rule context from another scan is never reused and missing context is explicit', async ({ page }) => {
+  await page.evaluate(() => {
+    state.currentReportMetadata = {scan_id: 'other-report', collectors: ['ioc']};
+    state.decisionSupport = {scan_id: 'prior-report', rule_context: {available: true, rows: [{label: 'Stale rule label'}]}};
+    renderReportContext();
+  });
+  await expect(page.locator('#report-context')).toContainText('Rule context is unavailable');
+  await expect(page.locator('#report-context')).not.toContainText('Stale rule label');
+  await page.evaluate(() => { state.currentReportMetadata.collectors = ['security']; renderReportContext(); });
+  await expect(page.locator('#report-context .rule-context')).toHaveCount(0);
+});
+
+test('standalone investigation summary preserves responsive rule provenance without external links', async ({ page }) => {
+  const body = execFileSync('python3', ['-c', `
+import tempfile
+from pathlib import Path
+from macos_inspector.core.decision_support import build_decision_support, write_investigation_summary
+report = {'metadata': {'scan_id': 'synthetic', 'collectors': ['ioc'], 'detection_context': {'ioc': {'schema_version': 1, 'fingerprint': 'a' * 64, 'file_count': 1, 'stable': False, 'complete': True}}}, 'findings': [], 'summary': {}}
+with tempfile.TemporaryDirectory() as directory:
+    path = write_investigation_summary(report, build_decision_support(report), Path(directory))
+    print(path.read_text())
+`], {encoding: 'utf8', env: {...process.env, PYTHONPATH: 'src'}});
+  await page.route('**/rule-summary.html', route => route.fulfill({contentType: 'text/html', body}));
+  await page.goto('/rule-summary.html');
+  await expect(page.locator('.rule-context')).toContainText('Rules changed during collection');
+  await page.getByText('Recorded rule details and provenance', {exact: true}).click();
+  await expect(page.locator('.rule-context code')).toHaveText('a'.repeat(64));
+  for (const width of [320, 375, 768, 1280]) {
+    await page.setViewportSize({width, height: 850});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  }
+  await expect(page.locator('.rule-context a')).toHaveCount(0);
+});
+
 test('repeating a report sends its sections and target with current settings', async ({ page }) => {
   const requests = [];
   await page.route('**/api/scans', async (route) => {

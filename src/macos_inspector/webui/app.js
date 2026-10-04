@@ -389,6 +389,7 @@ async function loadReport(job) {
     const payload = await api(job.reports.json);
     state.currentScanId = payload.metadata?.scan_id || '';
     state.currentReportMetadata = payload.metadata || {};
+    state.decisionSupport = null;
     renderReportContext();
     try {
       state.decisionSupport = state.currentScanId ? await api(`/api/decision-support/${encodeURIComponent(state.currentScanId)}`) : null;
@@ -398,6 +399,7 @@ async function loadReport(job) {
       state.guidance = null;
       setMessage(`The report loaded, but decision support is unavailable: ${error.message}`, true);
     }
+    renderReportContext();
     renderCaseMetadata(payload.metadata || {});
     renderExperience(state.decisionSupport?.experience);
     renderSummary(payload.summary, state.decisionSupport?.experience);
@@ -649,8 +651,27 @@ function renderReportContext() {
   filterValue.textContent = severity === 'Informational' ? 'All findings' : ['Low', 'Medium', 'High', 'Critical'].includes(severity) ? `${severity} and above` : severity == null ? 'Not recorded' : 'Unsupported recorded filter';
   filter.append(filterTitle, filterValue);
   panel.querySelector('dl').append(filter);
+  const rulePanel = document.createElement('section');
+  rulePanel.className = 'rule-context';
+  const recordedRules = Array.isArray(metadata.collectors) && metadata.collectors.some(id => ['ioc', 'yara-rules'].includes(id));
+  const ruleContext = state.decisionSupport?.scan_id === metadata.scan_id ? state.decisionSupport?.rule_context : null;
+  if (recordedRules) {
+    rulePanel.innerHTML = ruleContext?.available ? renderRuleContext(ruleContext) : '<h4>Local rules and provenance</h4><p>Rule context is unavailable in decision support. Open the original report for recorded evidence; a missing summary does not mean that no rules were used.</p>';
+    panel.append(rulePanel);
+  }
   updateReportAge();
   updateRunAvailability();
+}
+
+function renderRuleContext(context) {
+  const rows = (context.rows || []).map(row => {
+    const sources = (row.sources || []).map(item => `<li>${escapeHtml(item.name)} | version ${escapeHtml(item.version)} | updated ${escapeHtml(item.updated_at)} | declared source host: ${escapeHtml(item.source_host || 'Not recorded as a web source')}</li>`).join('');
+    const provenance = row.collector === 'ioc' ? sources ? `<ul>${sources}</ul>` : '<p>Pack provenance metadata is unavailable in the visible findings.</p>' : '';
+    const omitted = row.source_count > (row.sources || []).length ? `<p>${escapeHtml(row.source_count - row.sources.length)} additional provenance records are retained in the original report.</p>` : '';
+    const limitations = (row.limitations || []).map(note => `<li>${escapeHtml(note)}</li>`).join('');
+    return `<article><h5>${escapeHtml(row.title)}</h5><strong>${escapeHtml(row.label)}</strong><p>${escapeHtml(row.result_note)}</p><details><summary>Recorded rule details and provenance</summary><p>Fingerprinted files: ${escapeHtml(row.file_count ?? 'Not recorded')}</p><p>SHA-256 context fingerprint: <code>${escapeHtml(row.fingerprint || 'Not recorded with a supported schema')}</code></p>${provenance}${omitted}${limitations ? `<ul>${limitations}</ul>` : ''}</details></article>`;
+  }).join('');
+  return `<h4>Local rules and provenance</h4><p>${escapeHtml(context.note)}</p>${rows}<small>${escapeHtml(context.source_note)}</small>`;
 }
 
 async function rerunReportScope() {
