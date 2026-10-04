@@ -23,7 +23,7 @@ The optional output is written with owner-only permissions. The report includes 
 
 ## Bundled scenarios
 
-The development set has 26 scenarios (the published 1.4.3 set has 18):
+The 1.4.4 set has 26 scenarios (1.4.3 has 18):
 
 - Accepted Developer ID and Mac App Store trust results, and an Apple component that Gatekeeper cannot assess as a standalone app.
 - Signature timeout, unavailable Gatekeeper, and internal trust-service error, which must remain unknown.
@@ -43,7 +43,7 @@ npm run test:browser
 
 The same dashboard tests run in Chromium and Playwright WebKit. They cover both views, narrow layouts, long evidence values, HTML escaping, snapshot freshness, scope-preserving rechecks, response follow-up, and validation downloads. Targeted axe-core checks exercise WCAG A/AA rules and keyboard focus in synthetic dashboard states.
 
-Development checks also exercise rule-context disclosure in both views and the standalone investigation summary, including narrow layouts, escaped pack names, keyboard-accessible details, skipped YARA results, missing context, and isolation between report identities. Unit tests check typed fingerprint states, bounded provenance, removal of source URL credentials from the derived summary, and preservation of original evidence.
+Checks also exercise rule-context disclosure in both views and the standalone investigation summary, including narrow layouts, escaped pack names, keyboard-accessible details, skipped YARA results, missing context, and isolation between report identities. Delayed-response tests cover report selection, mismatched decision support, blocked process response during loading, and investigation saves tied to the original report. Unit tests check typed fingerprint states, bounded provenance, removal of source URL credentials from the derived summary, and preservation of original evidence.
 
 Playwright WebKit is not branded Safari. This coverage does not claim every shipping Safari version, VoiceOver interaction, operating-system integration, or accessibility requirement was manually tested. Changes affecting those workflows still need dedicated testing on representative Macs. See [Playwright browser documentation](https://playwright.dev/docs/browsers#webkit) for its browser boundary.
 

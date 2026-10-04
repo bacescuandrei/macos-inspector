@@ -10,17 +10,17 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current release: `v1.4.3`
+Current release: `v1.4.4`
 
-## New in 1.4.3
+## New in 1.4.4
 
-Scan timing, scope, filters, and comparison limits are now visible in both dashboard views. You can repeat the recorded checks or open the actual earlier snapshot used for comparison. Unreadable application directories remain visible as discovery gaps, and incomplete or filtered inventories do not imply that software was added or removed.
+Process follow-up now checks recorded host context and action, scan, and evidence timing before describing an outcome. It distinguishes an absent original PID from the same executable path and owner under another PID, without assuming a restart, malware, or successful remediation. Incomplete process inventories cannot establish absence. Normal `Observed` snapshots are handled correctly.
 
-Local IOC/YARA content and relevant configuration are fingerprinted before and after collection. A rule change makes finding-presence and index comparisons unavailable rather than suggesting the Mac changed. Shared observations remain available for review.
+**Local rules and provenance** shows recorded IOC/YARA fingerprints, file counts, visible result availability, and bounded IOC pack provenance in both views and HTML exports. A stable rule snapshot does not mean the checks ran or the rules are reliable. Disabled checks, unavailable results, and changed rule context remain explicit. Opening the panel does not contact a source.
 
-**Process action history** keeps the source report and links a new read-only follow-up to each recorded signal. It distinguishes the same process still observed, a reused PID, a zombie, a PID no longer observed, and insufficient evidence. It never marks a finding resolved automatically.
+Report selection keeps evidence, decision support, and export links together. Delayed responses from an earlier selection cannot replace the chosen scan. Process response is blocked during report loading, and investigation saves remain tied to their original report.
 
-The launcher tries compatible Python installations and opens local setup help when none is available. **Detection regression validation** runs bundled synthetic scenarios from the HTML dashboard and downloads their results. Browser checks now cover Chromium and WebKit, with automated accessibility checks in both views. See the [changelog](CHANGELOG.md) and [validation guide](docs/VALIDATION.md) for details and limits.
+**Detection regression validation** now contains 26 synthetic trust and response scenarios. Browser checks cover Chromium, WebKit, narrow layouts, targeted accessibility, and delayed-response handling. These are regression checks, not a real-world detection benchmark. See the [changelog](CHANGELOG.md) and [validation guide](docs/VALIDATION.md).
 
 ## What it can help answer
 
@@ -73,11 +73,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.4.3-macos.zip` and `SHA256SUMS` from the latest GitHub release.
+1. Download `macos-inspector-1.4.4-macos.zip` and `SHA256SUMS` from the latest GitHub release.
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.4.3-macos.zip
+   shasum -a 256 macos-inspector-1.4.4-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
@@ -170,13 +170,13 @@ An isolated low-priority process signal, such as execution from a hidden user di
 
 If containment is required, expand the finding and use **Terminate** first. This sends `SIGTERM` only from a Live Triage snapshot less than 15 minutes old, after the dashboard confirms the PID still has the same owner, parent, executable, and process start as the scan. Older reports require a fresh Live Triage scan before process response. **Force kill** sends `SIGKILL`, is separately confirmed, and can cause data loss. Preserve volatile evidence before either action and rerun Live Triage afterward. A zombie has already exited and cannot be killed; its parent must reap it.
 
-In the development checkout, **Process action history** also distinguishes the same executable observed under another PID. Use **Recheck process outcome**, then **View later snapshot** to inspect the new evidence. For example, an action on PID 4242 followed by the same executable path and owner under PID 5000 does not establish that the original process restarted: PID 5000 may have been an existing instance, and the file at that path may have changed. No further signal is sent automatically.
+**Process action history** also distinguishes the same executable observed under another PID. Use **Recheck process outcome**, then **View later snapshot** to inspect the new evidence. For example, an action on PID 4242 followed by the same executable path and owner under PID 5000 does not establish that the original process restarted: PID 5000 may have been an existing instance, and the file at that path may have changed. No further signal is sent automatically.
 
 A follow-up requires matching recorded hostnames and valid action, scan, and process-evidence timestamps. A scan that began before the signal is not a later observation. Older logs without host context remain visible but unverifiable. Hostnames and owner-controlled logs are not authenticated evidence; an absent PID never closes the investigation automatically.
 
 ### Understand the local rules behind a result
 
-In the development checkout, review **Local rules and provenance** inside **About this scan** when IOC or YARA was selected. The same context is included in the HTML report and investigation summary. **Rule snapshot stable** means the bounded rule fingerprint did not change during collection, not that its indicators are accurate or that every check ran. A disabled YARA section can have a stable fingerprint and still say **Not run**.
+Review **Local rules and provenance** inside **About this scan** when IOC or YARA was selected. The same context is included in the HTML report and investigation summary. **Rule snapshot stable** means the bounded rule fingerprint did not change during collection, not that its indicators are accurate or that every check ran. A disabled YARA section can have a stable fingerprint and still say **Not run**.
 
 Expand **Recorded rule details and provenance** to inspect the context SHA-256, fingerprinted file count, and declared IOC pack version, update label, and source hostname. Source credentials, query strings, fragments, and full source paths are not copied into this summary. The panel does not contact the source or authenticate its claims. Filtering can omit pack metadata and result records; absent context is shown as unavailable, never as a clean bill of health.
 

@@ -227,6 +227,7 @@ test('view earlier scan opens the actual automatic baseline without starting a s
     summary: {finding_count: 0, total_finding_count: 0}, findings: [], timeline: [],
   }}));
   await page.route('**/api/decision-support/automatic-baseline', (route) => route.fulfill({json: {
+    scan_id: 'automatic-baseline',
     changes: {available: false, message: 'No usable earlier scan is available.'},
   }}));
   await page.evaluate(() => {
@@ -334,7 +335,7 @@ test('incomplete scans stay visible in simple and analyst views', async ({ page 
     } });
   });
   await page.route('**/api/decision-support/test-incomplete', async (route) => {
-    await route.fulfill({ json: { experience, changes: { message: 'No comparison is available.' } } });
+    await route.fulfill({ json: { scan_id: 'test-incomplete', experience, changes: { message: 'No comparison is available.' } } });
   });
   await page.evaluate(() => loadReport({ reports: { json: '/reports/incomplete.json' } }));
 
@@ -529,6 +530,103 @@ test('rule context from another scan is never reused and missing context is expl
   await expect(page.locator('#report-context')).not.toContainText('Stale rule label');
   await page.evaluate(() => { state.currentReportMetadata.collectors = ['security']; renderReportContext(); });
   await expect(page.locator('#report-context .rule-context')).toHaveCount(0);
+});
+
+test('latest report selection wins when JSON responses arrive out of order', async ({ page }) => {
+  let earlier;
+  const report = id => ({metadata: {scan_id: id, collectors: ['security']}, summary: {finding_count: 0}, findings: [], timeline: []});
+  await page.route('**/reports/earlier.json', route => { earlier = route; });
+  await page.route('**/reports/recent.json', route => route.fulfill({json: report('recent')}));
+  await page.route('**/api/decision-support/recent', route => route.fulfill({json: {scan_id: 'recent', changes: {message: 'Recent scan context'}}}));
+  await page.evaluate(() => { window.earlierLoad = loadReport({reports: {json: '/reports/earlier.json'}}); });
+  await expect.poll(() => Boolean(earlier)).toBe(true);
+  await page.evaluate(() => loadReport({reports: {json: '/reports/recent.json'}}));
+  await earlier.fulfill({json: report('earlier')});
+  await page.evaluate(() => window.earlierLoad);
+  expect(await page.evaluate(() => state.currentScanId)).toBe('recent');
+  await expect(page.locator('#decision-support')).toContainText('Recent scan context');
+  await expect(page.locator('#report-links a')).toHaveAttribute('href', '/reports/recent.json');
+  expect(await page.evaluate(() => state.loadingReport)).toBe(false);
+});
+
+test('late decision support cannot replace a newer scan or unlock its pending load', async ({ page }) => {
+  let oldDecision;
+  let newReport;
+  const report = id => ({metadata: {scan_id: id, collectors: ['security']}, summary: {finding_count: 0}, findings: [], timeline: []});
+  await page.route('**/reports/old.json', route => route.fulfill({json: report('old')}));
+  await page.route('**/reports/new.json', route => { newReport = route; });
+  await page.route('**/api/decision-support/old', route => { oldDecision = route; });
+  await page.route('**/api/decision-support/new', route => route.fulfill({json: {scan_id: 'new', changes: {message: 'New context'}}}));
+  await page.evaluate(() => { window.oldLoad = loadReport({reports: {json: '/reports/old.json'}}); });
+  await expect.poll(() => Boolean(oldDecision)).toBe(true);
+  await page.evaluate(() => { window.newLoad = loadReport({reports: {json: '/reports/new.json'}}); });
+  await expect.poll(() => Boolean(newReport)).toBe(true);
+  await oldDecision.fulfill({json: {scan_id: 'old', changes: {message: 'Old context'}}});
+  await page.evaluate(() => window.oldLoad);
+  expect(await page.evaluate(() => state.loadingReport)).toBe(true);
+  await newReport.fulfill({json: report('new')});
+  await page.evaluate(() => window.newLoad);
+  await expect(page.locator('#decision-support')).toContainText('New context');
+  await expect(page.locator('#decision-support')).not.toContainText('Old context');
+  expect(await page.evaluate(() => state.currentScanId)).toBe('new');
+});
+
+test('process response is blocked while another report loads and old candidates are discarded', async ({ page }) => {
+  let pending;
+  let signals = 0;
+  await page.route('**/reports/pending.json', route => { pending = route; });
+  await page.route('**/api/decision-support/pending', route => route.fulfill({json: {scan_id: 'pending'}}));
+  await page.route('**/api/processes/terminate', route => { signals += 1; return route.fulfill({json: {}}); });
+  await page.evaluate(() => {
+    state.online = true;
+    state.currentScanId = 'source';
+    setViewMode('analyst');
+    renderFindings([{finding_id: 'LIVE-PROCESS-TREE', category: 'Live Triage', severity: 'Medium', status: 'Review', title: 'Synthetic process',
+      evidence: [{kind: 'process_snapshot', collected_at: new Date().toISOString(), value: {review_candidates: [{pid: 4242, uid: 501, process_start: 'fixture', executable: '/synthetic/tool'}]}}]}]);
+    window.pendingLoad = loadReport({reports: {json: '/reports/pending.json'}});
+  });
+  await expect.poll(() => Boolean(pending)).toBe(true);
+  await page.locator('.finding-toggle').click();
+  await expect(page.getByRole('button', {name: 'Terminate', exact: true})).toBeDisabled();
+  await page.evaluate(() => respondToProcess(document.querySelector('[data-process-action]')));
+  expect(signals).toBe(0);
+  await pending.fulfill({json: {metadata: {scan_id: 'pending', collectors: ['security']}, summary: {finding_count: 0}, findings: []}});
+  await page.evaluate(() => window.pendingLoad);
+  expect(await page.evaluate(() => state.processCandidates.size)).toBe(0);
+});
+
+test('mismatched decision support is rejected without losing the original report', async ({ page }) => {
+  await page.route('**/reports/original.json', route => route.fulfill({json: {metadata: {scan_id: 'original', collectors: ['security']}, summary: {finding_count: 0}, findings: []}}));
+  await page.route('**/api/decision-support/original', route => route.fulfill({json: {scan_id: 'other', changes: {message: 'Wrong report data'}}}));
+  await page.evaluate(() => loadReport({reports: {json: '/reports/original.json'}}));
+  expect(await page.evaluate(() => state.currentScanId)).toBe('original');
+  await expect(page.locator('#action-message')).toContainText('different scan');
+  await expect(page.locator('#decision-support')).toBeHidden();
+  await expect(page.locator('#report-links a')).toHaveAttribute('href', '/reports/original.json');
+});
+
+test('an investigation save remains tied to its source after switching reports', async ({ page }) => {
+  let saving;
+  let body;
+  let followups = 0;
+  await page.route('**/api/investigations', route => { saving = route; body = route.request().postDataJSON(); });
+  await page.route('**/api/decision-support/**', route => { followups += 1; return route.fulfill({json: {scan_id: 'source'}}); });
+  await page.evaluate(() => {
+    state.currentScanId = 'source';
+    document.querySelector('#findings').innerHTML = '<div class="investigation-box"><select data-investigation-status><option>Investigating</option></select><textarea data-investigation-note>Fixture note</textarea><span class="investigation-message"></span><button data-save-investigation="fixture">Save</button></div>';
+    window.savePending = saveInvestigation(document.querySelector('[data-save-investigation]'));
+  });
+  await expect.poll(() => Boolean(saving)).toBe(true);
+  await page.evaluate(() => {
+    state.reportLoadId += 1;
+    state.currentScanId = 'new-selection';
+    state.decisionSupport = {scan_id: 'new-selection'};
+  });
+  await saving.fulfill({json: {guidance: {headline: 'Old source guidance'}}});
+  await page.evaluate(() => window.savePending);
+  expect(body.scan_id).toBe('source');
+  expect(followups).toBe(0);
+  expect(await page.evaluate(() => state.decisionSupport.scan_id)).toBe('new-selection');
 });
 
 test('standalone investigation summary preserves responsive rule provenance without external links', async ({ page }) => {

@@ -1,4 +1,4 @@
-const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', currentReportMetadata: null, guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map(), viewMode: 'simple' };
+const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, loadingReport: false, reportLoadId: 0, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', currentReportMetadata: null, guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map(), viewMode: 'simple' };
 const PROCESS_RESPONSE_MAX_AGE_MS = 15 * 60 * 1000;
 
 const COPY = {
@@ -62,7 +62,7 @@ function setMessage(message, error = false) {
 }
 
 function updateRunAvailability() {
-  const disabled = !state.online || state.starting || Boolean(state.activeJob);
+  const disabled = !state.online || state.starting || state.loadingReport || Boolean(state.activeJob);
   const runButton = $('#run-selected');
   if (runButton) runButton.disabled = disabled;
   const guidedButton = $('#check-this-mac');
@@ -77,6 +77,10 @@ function updateRunAvailability() {
   if (rerunButton) rerunButton.disabled = disabled || Boolean(reportScope().error);
   document.querySelectorAll('[data-refresh-live-triage]').forEach((button) => { button.disabled = disabled || !(state.config?.collectors || []).some((collector) => collector.id === 'live-triage'); });
   document.querySelectorAll('[data-response-recheck]').forEach((button) => { button.disabled = disabled || !(state.config?.collectors || []).some((collector) => collector.id === 'live-triage'); });
+  document.querySelectorAll('[data-process-action]').forEach((button) => {
+    const row = button.closest('.process-action-row');
+    button.disabled = disabled || row?.classList.contains('process-action-busy') || row?.classList.contains('process-action-complete') || !processSnapshotFresh(state.processCandidates.get(button.dataset.processKey));
+  });
   const cancelButton = $('#cancel-scan');
   if (cancelButton && !cancelButton.classList.contains('hidden')) cancelButton.disabled = !state.online;
 }
@@ -289,7 +293,6 @@ async function pollJob(jobId) {
     if (job.state === 'completed') {
       finishActiveJob(jobId);
       setMessage(job.error || 'Scan complete. Findings and reports are ready.', Boolean(job.error));
-      renderReports(job);
       await loadReport(job);
       loadHistory();
       loadResponseHistory();
@@ -385,20 +388,28 @@ async function verifyEvidence(button) {
 
 async function loadReport(job) {
   if (!job.reports || !job.reports.json) return;
+  const loadId = ++state.reportLoadId;
+  state.loadingReport = true;
+  updateRunAvailability();
   try {
     const payload = await api(job.reports.json);
-    state.currentScanId = payload.metadata?.scan_id || '';
-    state.currentReportMetadata = payload.metadata || {};
-    state.decisionSupport = null;
-    renderReportContext();
+    if (loadId !== state.reportLoadId) return;
+    const scanId = payload.metadata?.scan_id || '';
+    let decision = null;
+    let decisionError = '';
     try {
-      state.decisionSupport = state.currentScanId ? await api(`/api/decision-support/${encodeURIComponent(state.currentScanId)}`) : null;
-      state.guidance = state.decisionSupport?.guidance || null;
+      decision = scanId ? await api(`/api/decision-support/${encodeURIComponent(scanId)}`) : null;
+      if (decision && decision.scan_id !== scanId) throw new Error('Decision support refers to a different scan. Open the recorded findings and retry.');
     } catch (error) {
-      state.decisionSupport = null;
-      state.guidance = null;
-      setMessage(`The report loaded, but decision support is unavailable: ${error.message}`, true);
+      decision = null;
+      decisionError = `The report loaded, but decision support is unavailable: ${error.message}`;
     }
+    if (loadId !== state.reportLoadId) return;
+    state.currentScanId = scanId;
+    state.currentReportMetadata = payload.metadata || {};
+    state.decisionSupport = decision;
+    state.guidance = decision?.guidance || null;
+    renderReports(job);
     renderReportContext();
     renderCaseMetadata(payload.metadata || {});
     renderExperience(state.decisionSupport?.experience);
@@ -408,7 +419,15 @@ async function loadReport(job) {
     renderDecisionSupport(state.decisionSupport);
     renderTimeline(payload.timeline || []);
     renderFindings(payload.findings || []);
-  } catch (error) { setMessage(`Could not load report data: ${error.message}`, true); }
+    if (decisionError) setMessage(decisionError, true);
+  } catch (error) {
+    if (loadId === state.reportLoadId) setMessage(`Could not load report data: ${error.message}`, true);
+  } finally {
+    if (loadId === state.reportLoadId) {
+      state.loadingReport = false;
+      updateRunAvailability();
+    }
+  }
 }
 
 function renderApplicationReview(review) {
@@ -551,7 +570,6 @@ async function openComparisonBaseline(button, scanId) {
     if (state.currentScanId !== sourceScanId) return;
     const job = payload.scans.find((item) => item.scan_id === scanId && item.state === 'completed' && item.reports?.json);
     if (!job) throw new Error('The earlier scan is not available in dashboard history. Its ID remains recorded in the comparison.');
-    renderReports(job);
     await loadReport(job);
     $('#report-context').scrollIntoView({behavior: 'smooth', block: 'start'});
   } catch (error) { setMessage(error.message, true); }
@@ -765,6 +783,7 @@ function applyFindingFilters(resetPage = false) {
 }
 
 function renderFindingPage() {
+  state.processCandidates.clear();
   const total = state.filteredFindings.length;
   const start = (state.findingPage - 1) * state.findingPageSize;
   const visible = state.filteredFindings.slice(start, start + state.findingPageSize);
@@ -830,19 +849,26 @@ function renderInvestigationControls(finding, investigation = {}) {
 }
 
 async function saveInvestigation(button) {
+  if (state.loadingReport) return setMessage('Wait for the selected report to finish loading before saving a decision.', true);
   const box = button.closest('.investigation-box');
   if (!box || !state.currentScanId) return;
+  const scanId = state.currentScanId;
+  const loadId = state.reportLoadId;
   button.disabled = true;
   const message = box.querySelector('.investigation-message');
   message.textContent = 'Saving locally...';
   try {
     const result = await api('/api/investigations', writeOptions('POST', {
-      scan_id: state.currentScanId,
+      scan_id: scanId,
       finding_id: button.dataset.saveInvestigation,
       status: box.querySelector('[data-investigation-status]').value,
       note: box.querySelector('[data-investigation-note]').value,
     }));
-    state.decisionSupport = await api(`/api/decision-support/${encodeURIComponent(state.currentScanId)}`);
+    if (loadId !== state.reportLoadId || scanId !== state.currentScanId) return;
+    const decision = await api(`/api/decision-support/${encodeURIComponent(scanId)}`);
+    if (loadId !== state.reportLoadId || scanId !== state.currentScanId) return;
+    if (decision.scan_id !== scanId) throw new Error('Saved decision support refers to another report. Reload this scan.');
+    state.decisionSupport = decision;
     state.guidance = state.decisionSupport.guidance || result.guidance;
     renderGuidance(state.guidance);
     renderApplicationReview(state.decisionSupport.application_review);
@@ -890,7 +916,7 @@ function processCandidates(finding) {
 }
 
 function processSnapshotFresh(candidate) {
-  const snapshotTime = Date.parse(candidate.snapshot_at || '');
+  const snapshotTime = Date.parse(candidate?.snapshot_at || '');
   const age = Date.now() - snapshotTime;
   return Number.isFinite(snapshotTime) && age >= -30000 && age <= PROCESS_RESPONSE_MAX_AGE_MS;
 }
@@ -917,8 +943,10 @@ function renderProcessResponseControls(finding) {
 }
 
 async function respondToProcess(button) {
+  if (state.loadingReport) return setMessage('Wait for the selected report to finish loading before process response.', true);
   const candidate = state.processCandidates.get(button.dataset.processKey);
   if (!candidate || !state.currentScanId) return setMessage('The process action is not tied to a loaded scan. Reload the report.', true);
+  const scanId = state.currentScanId;
   if (!processSnapshotFresh(candidate)) {
     const message = 'This process snapshot has expired. Run Live Triage again before acting.';
     button.closest('.process-action-row').querySelector('.process-action-result').textContent = message;
@@ -932,12 +960,13 @@ async function respondToProcess(button) {
     : `Terminate PID ${candidate.pid} with SIGTERM?\n\n${candidate.executable}\n\nPreserve volatile evidence first. This finding is not proof of malware.`;
   if (!window.confirm(prompt)) return;
   const row = button.closest('.process-action-row');
+  row.classList.add('process-action-busy');
   const result = row.querySelector('.process-action-result');
   row.querySelectorAll('button').forEach((item) => { item.disabled = true; });
   result.textContent = force ? 'Sending SIGKILL...' : 'Sending SIGTERM...';
   try {
     const response = await api('/api/processes/terminate', writeOptions('POST', {
-      scan_id: state.currentScanId, pid: Number(candidate.pid), mode,
+      scan_id: scanId, pid: Number(candidate.pid), mode,
     }));
     const auditNote = response.audit_logged === false ? ` ${response.audit_error}` : ' The action was recorded in the local response log.';
     result.textContent = `${response.signal} sent at ${response.timestamp}.${auditNote} Run Live Triage again to confirm current state.`;
@@ -949,6 +978,9 @@ async function respondToProcess(button) {
     result.classList.add('error');
     row.querySelectorAll('button').forEach((item) => { item.disabled = false; });
     setMessage(error.message, true);
+  } finally {
+    row.classList.remove('process-action-busy');
+    updateRunAvailability();
   }
 }
 
@@ -1313,7 +1345,7 @@ function renderComparison(comparison) {
 
 async function loadHistoryJob(job) {
   if (!job) return;
-  renderProgress(job); renderReports(job); await loadReport(job);
+  renderProgress(job); await loadReport(job);
   document.querySelector('.results-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 

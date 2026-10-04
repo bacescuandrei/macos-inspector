@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.4.4 - 2026-10-04
+
+- Load report evidence, decision support, and export links as one selected snapshot. Ignore late responses from older selections and block process response while a report is loading.
+- Keep investigation saves tied to the originating report when the user switches scans, and discard process candidates no longer displayed. Reject decision support with a mismatched scan identity while preserving access to the recorded report.
 - Show local IOC/YARA rule context in both dashboard views, the standalone HTML report, and the investigation summary. Separate stable fingerprints from actual result availability, omitted checks, matches, and incomplete collection.
 - Show bounded IOC pack provenance with declared version, update label, and source hostname. Do not copy URL credentials, query strings, fragments, or full source paths into the derived summary, and do not contact a source when opening it.
 - Keep unsupported or missing historical rule context explicit, and prevent a loaded report from displaying another scan's rule summary. Preserve original evidence and comparison decisions.
