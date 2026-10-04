@@ -1,4 +1,68 @@
 const { test, expect } = require('@playwright/test');
+const { execFileSync } = require('node:child_process');
+
+test('manual comparison shows report-only records without implying resolution', async ({ page }) => {
+  await page.evaluate(() => {
+    setViewMode('analyst');
+    renderComparison({
+      score_delta: null, counts: {new: 1, resolved: 1, changed: 1},
+      scope: {changed: false},
+      comparison_context: {
+        baseline_completed_at: '2026-01-01T00:00:00Z', current_completed_at: '2026-01-02T00:00:00Z',
+        limitations: ['Comparison report uses a severity filter.', '<img src=x onerror=window.manualInjected=true>'],
+        index_note: 'N/A: selected reports have incomplete comparison context.',
+      },
+      new: [{finding_id: 'NEW', title: 'Example' + 'a'.repeat(160), severity: 'High', status: 'Review'}],
+      resolved: [{finding_id: 'OLDER', title: 'Earlier observation', severity: 'High', status: 'Fail'}],
+      changed: [{finding_id: 'CONTROL-SIP', title: 'System Integrity Protection', changes: {status: {before: 'Pass', after: 'Unknown'}}}],
+    });
+  });
+  const panel = page.locator('#comparison-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText('Only in baseline');
+  await expect(panel).toContainText('Baseline only');
+  await expect(panel).toContainText('Comparison only');
+  await expect(panel).toContainText('not confirmed additions, removals, or resolved incidents');
+  await expect(page.locator('#comparison-summary')).not.toContainText('Resolved');
+  await panel.getByText('Why the index comparison is unavailable', {exact: true}).click();
+  for (const width of [320, 375, 768, 1280]) {
+    await page.setViewportSize({width, height: 850});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    expect(await panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  }
+  expect(await page.evaluate(() => window.manualInjected)).toBeUndefined();
+});
+
+test('exported manual comparison is responsive and retains context without scripts', async ({ page }) => {
+  const comparison = {
+    baseline_scan_id: 'base', current_scan_id: 'current', baseline_score: 80, current_score: 100, score_delta: null,
+    counts: {new: 1, resolved: 1, changed: 0}, scope: {changed: false}, category_deltas: {['Security' + 'a'.repeat(120)]: null},
+    comparison_context: {limitations: ['Filtered report: ' + 'b'.repeat(200), '<script>window.exportInjected=true</script>'], baseline_completed_at: '2026-01-01T00:00:00Z'},
+    new: [{finding_id: 'CURRENT-ONLY', title: 'Application' + 'c'.repeat(180), severity: 'High', status: 'Review'}],
+    resolved: [{finding_id: 'BASELINE-ONLY', title: 'Earlier observation', severity: 'High', status: 'Fail'}], changed: [],
+  };
+  const body = execFileSync('python3', ['-c', `
+import json, sys, tempfile
+from pathlib import Path
+from macos_inspector.reporters.comparison_reporter import write_comparison_reports
+with tempfile.TemporaryDirectory() as directory:
+    report = write_comparison_reports(json.load(sys.stdin), Path(directory))['comparison_html']
+    print(report.read_text(encoding='utf-8'))
+`], {input: JSON.stringify(comparison), encoding: 'utf8', env: {...process.env, PYTHONPATH: 'src'}});
+  await page.route('**/exported-comparison.html', (route) => route.fulfill({contentType: 'text/html', body}));
+  await page.goto('/exported-comparison.html');
+  await expect(page.locator('body')).toContainText('Baseline only');
+  await expect(page.locator('body')).toContainText('Index comparison unavailable');
+  await expect(page.locator('body')).toContainText('not confirmed additions, removals, or resolved incidents');
+  await expect(page.locator('script')).toHaveCount(0);
+  for (const width of [320, 375, 768, 1280]) {
+    await page.setViewportSize({width, height: 850});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  }
+  expect(await page.evaluate(() => window.exportInjected)).toBeUndefined();
+  await page.setViewportSize({width: 375, height: 850});
+  await page.screenshot({path: 'test-results/manual-comparison-export-375.png', fullPage: true});
+});
 
 test('snapshot comparison is visible in both views and wraps recorded values', async ({ page }) => {
   await page.evaluate(() => renderDecisionSupport({

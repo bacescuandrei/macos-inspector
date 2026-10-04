@@ -350,7 +350,9 @@ The workflow can take longer and still reflects live, permission-bounded evidenc
 
 ## Compare scans
 
-Use scan history to select two completed scans with compatible result data. The comparison identifies added, removed, and changed findings using stable finding IDs.
+In Analyst view, choose **Baseline** on one completed scan in history, then **Compare** on another. Manual comparison uses stable finding IDs to show **Baseline only**, **Comparison only**, and **Changed record** differences. These labels describe the selected reports, not confirmed installations, removals, or remediation. The original finding records remain available even if collection was incomplete or the scopes differ. For JSON compatibility, `new`, `resolved`, and their count fields retain their earlier names; `resolved` means a record present only in the baseline, not a confirmed resolved incident.
+
+The dashboard and exported comparison HTML show the recorded completion times and interpretation limits. A numeric overall or category index delta needs matching selected sections, application targets, recorded hostnames, and tool versions, with complete unfiltered collection and assessed findings. Otherwise the delta is **N/A**, with the relevant reasons. Records present in both scans can still be compared. Matching metadata is a comparison boundary, not device authentication or proof that every local rule stayed unchanged. The index remains a documented-rule summary, not a security verdict.
 
 A changed finding can reflect a real host change, a permission difference, an operating-system update, a rule change, or different collector scope. Confirm collection metadata before attributing the difference to attacker activity.
 

@@ -12,6 +12,13 @@ CSS = """
 @media(prefers-color-scheme:dark){:root{--bg:#0d1117;--panel:#161b22;--text:#e6edf3;--muted:#8b949e;--line:#30363d;--accent:#58a6ff;--good:#50d2a0;--warn:#f3bd64}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,sans-serif}main{max-width:1050px;margin:auto;padding:32px 20px}h1{margin-bottom:4px}.meta{color:var(--muted)}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:22px 0}.summary div,.change,.scope,.categories{padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}.summary span,.change small,.change code{display:block;color:var(--muted);font-size:11px}.summary strong{font-size:24px}.scope{border-color:var(--warn);color:var(--warn)}.categories table{width:100%;border-collapse:collapse}.categories td,.categories th{padding:7px;text-align:left;border-bottom:1px solid var(--line)}.change{display:grid;grid-template-columns:85px 1fr;gap:10px;margin:8px 0}.kind{align-self:start;padding:3px 7px;border-radius:999px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase}.new{color:var(--warn)}.resolved{color:var(--good)}.changed{color:var(--accent)}@media(max-width:650px){.summary{grid-template-columns:repeat(2,1fr)}.change{grid-template-columns:1fr}}
 """
+CSS += """
+h1,h2,p,li,dt,dd,.summary div,.change div,.kind,td,th{min-width:0;overflow-wrap:anywhere}
+.summary{grid-template-columns:repeat(4,minmax(0,1fr))}.change{grid-template-columns:110px minmax(0,1fr)}.resolved{color:var(--muted)}
+.snapshot-times{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.snapshot-times dt{font-size:11px;color:var(--muted)}.snapshot-times dd{margin:3px 0 0}
+.context{margin:16px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}.context ul{padding-left:20px}.categories table{table-layout:fixed}
+@media(max-width:650px){.summary{grid-template-columns:repeat(2,minmax(0,1fr))}.change,.snapshot-times{grid-template-columns:minmax(0,1fr)}}
+"""
 
 
 def write_comparison_reports(comparison: dict, output: Path) -> dict[str, Path]:
@@ -25,6 +32,14 @@ def write_comparison_reports(comparison: dict, output: Path) -> dict[str, Path]:
     delta = comparison["score_delta"]
     delta_label = "N/A" if delta is None else f"+{delta}" if delta > 0 else str(delta)
     scope = comparison.get("scope", {})
+    context = comparison.get("comparison_context", {})
+    evidence_note = str(context.get("evidence_note") or "Records present in only one report are not confirmed additions, removals, or resolved incidents. Missing records do not confirm remediation.")
+    context_html = f'<section class="context"><p>{html.escape(evidence_note)}</p><dl class="snapshot-times"><div><dt>Baseline completed</dt><dd>{html.escape(str(context.get("baseline_completed_at") or "Not recorded"))}</dd></div><div><dt>Comparison report completed</dt><dd>{html.escape(str(context.get("current_completed_at") or "Not recorded"))}</dd></div></dl>'
+    if context.get("limitations"):
+        context_html += '<p><strong>Index comparison unavailable.</strong> Review these limits before interpreting the recorded differences.</p><ul>'
+        context_html += "".join(f"<li>{html.escape(str(note))}</li>" for note in context["limitations"])
+        context_html += '</ul>'
+    context_html += '</section>'
     scope_html = ""
     if scope.get("changed"):
         added = ", ".join(scope.get("added_collectors", [])) or "none"
@@ -46,11 +61,12 @@ def write_comparison_reports(comparison: dict, output: Path) -> dict[str, Path]:
     for finding in comparison.get("changed", []):
         detail = " | ".join(f"{field}: {values.get('before')} -> {values.get('after')}" for field, values in finding.get("changes", {}).items())
         rows.append(("changed", finding.get("finding_id"), finding.get("title"), detail))
+    labels = {"new": "Comparison only", "resolved": "Baseline only", "changed": "Changed record"}
     changes_html = "".join(
-        f'<article class="change"><span class="kind {kind}">{kind}</span><div><strong>{html.escape(str(title or ""))}</strong><code>{html.escape(str(finding_id or ""))}</code><small>{html.escape(detail)}</small></div></article>'
+        f'<article class="change"><span class="kind {kind}">{labels[kind]}</span><div><strong>{html.escape(str(title or ""))}</strong><code>{html.escape(str(finding_id or ""))}</code><small>{html.escape(detail)}</small></div></article>'
         for kind, finding_id, title, detail in rows
     ) or '<p class="meta">No finding-level changes were detected.</p>'
-    unavailable_note = '<p class="meta">N/A means at least one scan had no assessed findings for that index. Finding-level changes remain available.</p>' if delta is None or any(value is None for value in comparison.get("category_deltas", {}).values()) else ""
-    document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector comparison</title><style>{CSS}</style></head><body><main><h1>Scan comparison</h1><p class="meta">Baseline {html.escape(baseline)} -> current {html.escape(current)}</p><p class="meta">The rule outcome index summarizes documented rule results. It is not a probability of safety or compromise.</p><section class="summary"><div><span>Rule outcome index change</span><strong>{delta_label}</strong></div><div><span>New</span><strong>{counts['new']}</strong></div><div><span>Resolved</span><strong>{counts['resolved']}</strong></div><div><span>Changed</span><strong>{counts['changed']}</strong></div></section>{unavailable_note}{scope_html}<section class="categories"><h2>Category rule outcome index changes</h2><table><thead><tr><th>Category</th><th>Delta</th></tr></thead><tbody>{category_rows}</tbody></table></section><h2>Finding changes</h2>{changes_html}</main></body></html>'''
+    unavailable_note = f'<p class="meta">{html.escape(str(context.get("index_note") or "N/A means no assessed findings or insufficient matching collection context. Raw finding-record differences remain available."))}</p>' if delta is None or any(value is None for value in comparison.get("category_deltas", {}).values()) else ""
+    document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector comparison</title><style>{CSS}</style></head><body><main><h1>Recorded report comparison</h1><p class="meta">Baseline {html.escape(baseline)} -> comparison report {html.escape(current)}</p><p class="meta">The rule outcome index summarizes documented rule results. It is not a probability of safety or compromise.</p><section class="summary"><div><span>Rule outcome index change</span><strong>{delta_label}</strong></div><div><span>Only in comparison</span><strong>{counts['new']}</strong></div><div><span>Only in baseline</span><strong>{counts['resolved']}</strong></div><div><span>Changed records</span><strong>{counts['changed']}</strong></div></section>{unavailable_note}{context_html}{scope_html}<section class="categories"><h2>Category rule outcome index changes</h2><table><thead><tr><th>Category</th><th>Delta</th></tr></thead><tbody>{category_rows}</tbody></table></section><h2>Finding-record differences</h2>{changes_html}</main></body></html>'''
     secure_write_text(html_path, document)
     return {"comparison_json": json_path, "comparison_html": html_path}

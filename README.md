@@ -97,6 +97,8 @@ After a report loads, **Changes since last comparable scan** selects the newest 
 
 Routine use does not require terminal commands. The CLI remains available for automation and reproducible collections.
 
+Manual comparison in Analyst view labels one-report-only records as **Baseline only** and **Comparison only**, not resolved incidents. It retains those raw differences when evidence is incomplete, but withholds index deltas without sufficient matching collection context. The same limits and snapshot times appear in the exported comparison HTML.
+
 Automatic comparisons do not treat collection gaps or filtered-out results as new or removed software. Inventory counts that cannot be supported are shown as **Not comparable**, with an explanation. Differences between records present in both reports remain available. The recorded finding filter is shown in **About this scan**; use all findings when checking whether an earlier item is still present.
 
 The automatic comparison is visible in both views and identifies the earlier report by completion time and scan ID. **View earlier scan** opens that snapshot without running checks. Automatic baselines require matching sections, application targets, and recorded hostnames, plus valid timezone-aware completion times. Repeating an older report does not force it to become the baseline; use manual comparison in Analyst view for a specific pair. Expand the counts and additional highlights when needed. A finding no longer recorded is not automatically resolved, and zero differences are not proof that the Mac is safe.

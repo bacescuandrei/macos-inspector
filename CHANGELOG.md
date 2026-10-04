@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Replace manual comparison's "Resolved" and "New" presentation with baseline-only and comparison-only record labels, while preserving the legacy JSON field names for compatibility.
+- Withhold manual overall and category index deltas when collection scope, recorded host, tool version, filtering, completion, or assessment context is insufficient; retain raw finding-record differences.
+- Include selected snapshot times, comparison limits, and non-remediation wording in the dashboard and standalone comparison HTML, with responsive layouts for long evidence values.
 - Record the scan's minimum severity in report metadata and show its finding filter in the dashboard and investigation summary.
 - Withhold automatic inventory additions or disappearances when the relevant snapshot is filtered, incomplete, or missing collection-completion evidence. Preserve changes between records observed in both scans.
 - Display unavailable comparison counts as "Not comparable", with explicit reasons, instead of silently substituting zero. Keep complete sections comparable when a different section fails.

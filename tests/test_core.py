@@ -214,14 +214,15 @@ class CoreTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 200)
                 comparison = json.loads(body)
-                self.assertEqual(comparison["score_delta"], 10)
+                self.assertIsNone(comparison["score_delta"])
+                self.assertTrue(comparison["comparison_context"]["limitations"])
                 self.assertEqual(len(list(state.output.glob("macos-inspector-comparison-*"))), 2)
 
                 status, _, body = dashboard_request(
                     server, "GET", comparison["reports"]["comparison_json"], f"127.0.0.1:{port}",
                 )
                 self.assertEqual(status, 200)
-                self.assertEqual(json.loads(body)["score_delta"], 10)
+                self.assertIsNone(json.loads(body)["score_delta"])
             finally:
                 server.shutdown()
                 server.server_close()
@@ -2107,7 +2108,9 @@ class CoreTests(unittest.TestCase):
             "findings": [item("UNCHANGED"), item("CHANGED", "Fail"), item("NEW", "Fail")],
         }
         comparison = compare_scan_payloads(baseline, current)
-        self.assertEqual(comparison["score_delta"], 10)
+        self.assertIsNone(comparison["score_delta"])
+        self.assertFalse(comparison["comparison_context"]["score_comparable"])
+        self.assertIn("The selected sections or application targets differ.", comparison["comparison_context"]["limitations"])
         self.assertEqual(comparison["scope"], {"changed": True, "added_collectors": ["persistence"], "removed_collectors": []})
         self.assertEqual(comparison["counts"], {"new": 1, "resolved": 1, "changed": 1, "unchanged": 1})
         self.assertEqual(comparison["new"][0]["finding_id"], "NEW")
@@ -2118,11 +2121,12 @@ class CoreTests(unittest.TestCase):
         comparison = {
             "baseline_scan_id": "base", "current_scan_id": "current", "baseline_score": 80,
             "current_score": 70, "score_delta": -10,
-            "counts": {"new": 1, "resolved": 0, "changed": 0, "unchanged": 0},
+            "counts": {"new": 1, "resolved": 1, "changed": 0, "unchanged": 0},
             "scope": {"changed": False, "added_collectors": [], "removed_collectors": []},
             "category_deltas": {"Security": -10},
             "new": [{"finding_id": "NEW-1", "title": "<script>alert(1)</script>", "severity": "High", "status": "Fail"}],
-            "resolved": [], "changed": [],
+            "resolved": [{"finding_id": "MISSING", "title": "Earlier observation", "severity": "High", "status": "Fail"}], "changed": [],
+            "comparison_context": {"limitations": ["<script>alert(2)</script>"], "baseline_completed_at": "2026-01-01T00:00:00Z"},
         }
         with tempfile.TemporaryDirectory() as directory:
             reports = write_comparison_reports(comparison, Path(directory))
@@ -2132,6 +2136,54 @@ class CoreTests(unittest.TestCase):
             self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", html_report)
             self.assertEqual(json_report["score_delta"], -10)
             self.assertEqual(reports["comparison_html"].stat().st_mode & 0o777, 0o600)
+            self.assertIn("Baseline only", html_report)
+            self.assertIn("Comparison only", html_report)
+            self.assertNotIn("<span>Resolved</span>", html_report)
+            self.assertIn("not confirmed additions, removals, or resolved incidents", html_report)
+            self.assertIn("2026-01-01T00:00:00Z", html_report)
+            self.assertIn("&lt;script&gt;alert(2)&lt;/script&gt;", html_report)
+            self.assertNotIn("<script>alert(2)</script>", html_report)
+
+    def test_manual_comparison_preserves_records_when_index_context_is_incomplete(self):
+        baseline = {
+            "metadata": {"scan_id": "base", "hostname": "fixture", "tool_version": "1.4.3", "collectors": ["security"], "minimum_severity": "Informational"},
+            "summary": {"overall_score": 70, "total_finding_count": 1, "collector_coverage": {"security": 100}, "category_scores": {"Security": 70}},
+            "findings": [{"finding_id": "CONTROL-SIP", "category": "Security", "status": "Fail", "severity": "High"}],
+        }
+        current = {
+            "metadata": {**baseline["metadata"], "scan_id": "current"},
+            "summary": {**baseline["summary"], "overall_score": 100, "category_scores": {"Security": 100}},
+            "findings": [{"finding_id": "CONTROL-SIP", "category": "Security", "status": "Pass", "severity": "Informational"}],
+        }
+        original = json.dumps([baseline, current], sort_keys=True)
+        comparable = compare_scan_payloads(baseline, current)
+        self.assertEqual(comparable["score_delta"], 30)
+        self.assertEqual(comparable["category_deltas"]["Security"], 30)
+        self.assertTrue(comparable["comparison_context"]["score_comparable"])
+        self.assertEqual(json.dumps([baseline, current], sort_keys=True), original)
+        variants = [
+            {**current, "metadata": {**current["metadata"], "minimum_severity": "High"}},
+            {**current, "metadata": {**current["metadata"], "hostname": "different-host"}},
+            {**current, "metadata": {**current["metadata"], "tool_version": "1.4.4"}},
+            {**current, "metadata": {**current["metadata"], "target_application": "/Applications/Example.app"}},
+            {**current, "summary": {**current["summary"], "collector_coverage": {"security": 50}}},
+            {**current, "summary": {**current["summary"], "total_finding_count": 2}},
+            {**current, "metadata": {**current["metadata"], "collection_errors": ["security: failed"]}},
+            {**current, "metadata": {**current["metadata"], "tool_version": ""}},
+        ]
+        for report in variants:
+            with self.subTest(report=report):
+                result = compare_scan_payloads(baseline, report)
+                self.assertIsNone(result["score_delta"])
+                self.assertIsNone(result["category_deltas"]["Security"])
+                self.assertEqual(result["counts"]["changed"], 1)
+                self.assertTrue(result["comparison_context"]["limitations"])
+        filtered = {**current, "metadata": {**current["metadata"], "minimum_severity": "High"}, "findings": []}
+        result = compare_scan_payloads(baseline, filtered)
+        self.assertEqual(result["counts"]["resolved"], 1)
+        self.assertEqual(result["resolved"][0]["finding_id"], "CONTROL-SIP")
+        self.assertIsNone(result["score_delta"])
+        self.assertIn("not confirmed additions, removals, or resolved incidents", result["comparison_context"]["evidence_note"])
 
     def test_codesign_details_parser(self):
         details = parse_codesign_details("""Identifier=com.example.App
