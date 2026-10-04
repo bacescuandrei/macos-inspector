@@ -4,6 +4,7 @@
 
 ## 1.4.4 - 2026-10-04
 
+- Document the trusted-local-session requirement and distinguish browser-origin protections from API client authentication. The local API is not intended as a shared service on a host with untrusted local accounts.
 - Load report evidence, decision support, and export links as one selected snapshot. Ignore late responses from older selections and block process response while a report is loading.
 - Keep investigation saves tied to the originating report when the user switches scans, and discard process candidates no longer displayed. Reject decision support with a mismatched scan identity while preserving access to the recorded report.
 - Show local IOC/YARA rule context in both dashboard views, the standalone HTML report, and the investigation summary. Separate stable fingerprints from actual result availability, omitted checks, matches, and incomplete collection.

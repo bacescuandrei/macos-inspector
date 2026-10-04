@@ -203,6 +203,7 @@ More workflows, including privacy grants, persistence, IOC/YARA matches, scan co
 ## Data, privacy, and system behavior
 
 - The dashboard binds to loopback only. Non-local bind addresses, non-loopback `Host` authorities, and non-local browser origins are rejected.
+- The local API has no login or per-client authentication. Its browser-origin checks do not identify other local programs or accounts. Use a trusted local session, close the dashboard when finished, and do not run it as a shared service on a host with untrusted local users. See the [threat model](docs/THREAT_MODEL.md).
 - Collectors use an allowlist of read-only commands without a shell. The tool does not execute browser-supplied commands.
 - Collection remains read-only. The only host-changing response action is an explicit, confirmed signal to a current-user process already listed as a Live Triage review candidate.
 - Process response is disabled when the dashboard runs as root, rejects arbitrary PIDs and stale snapshots or process identities, protects the dashboard and its parent, and records successful actions in a private local log. Revalidation reduces but cannot eliminate the narrow race between the final identity check and signal delivery.
