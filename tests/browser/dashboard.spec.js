@@ -276,6 +276,10 @@ test.beforeEach(async ({ page }) => {
     await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Test server is read-only"}' });
   });
   await page.goto('/');
+  // Finish the real initialization before tests replace connection state with synthetic fixtures.
+  await page.waitForFunction(() => state.healthPoll !== null);
+  await expect(page.locator('#connection')).toHaveText('Offline | retrying');
+  await page.evaluate(() => clearInterval(state.healthPoll));
 });
 
 test('incomplete scans stay visible in simple and analyst views', async ({ page }) => {
