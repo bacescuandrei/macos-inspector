@@ -26,6 +26,8 @@ def release_files() -> list[Path]:
         ROOT / "SUPPORT.md",
         ROOT / "pyproject.toml",
         ROOT / LAUNCHER,
+        ROOT / "scripts" / "__init__.py",
+        ROOT / "scripts" / "validate_detections.py",
     ]
     files.extend(path for path in (ROOT / "docs").rglob("*") if path.is_file())
     files.extend(path for path in (ROOT / "src").rglob("*") if path.is_file())

@@ -771,6 +771,11 @@ def analyze_changes(baseline: dict[str, Any] | None, current: dict[str, Any]) ->
     closed_listeners_available = presence_available(current, "Later", "network listeners", ("live-triage",))
     new_findings_available = presence_available(baseline, "Earlier", "finding inventory")
     missing_findings_available = presence_available(current, "Later", "finding inventory")
+    from .rule_context import detection_context_limits
+    rule_limits = detection_context_limits(baseline, current)
+    if rule_limits:
+        limits.extend(rule_limits)
+        new_findings_available = missing_findings_available = False
     comparison_context["limitations"] = limits
     comparison_context["limited"] = bool(limits)
     application_changes: list[dict[str, Any]] = []

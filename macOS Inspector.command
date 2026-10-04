@@ -11,6 +11,7 @@ STATE_DIR="${MACOS_INSPECTOR_STATE_DIR:-${ROOT}/tmp}"
 LOG_FILE="${STATE_DIR}/dashboard-${PORT}.log"
 PID_FILE="${STATE_DIR}/dashboard-${PORT}.pid"
 SERVER_PID=""
+PID_FILE_CREATED=0
 
 alert_error() {
   print -u2 -- "$1"
@@ -31,6 +32,12 @@ open_dashboard() {
   fi
 }
 
+open_setup_help() {
+  if [ "${MACOS_INSPECTOR_NO_OPEN:-0}" != "1" ]; then
+    /usr/bin/open "${ROOT}/docs/START_HERE.html" >/dev/null 2>&1 || true
+  fi
+}
+
 dashboard_ready() {
   /usr/bin/curl --silent --fail --max-time 1 "${URL}api/health" 2>/dev/null | /usr/bin/grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"'
 }
@@ -42,7 +49,10 @@ cleanup() {
     /bin/kill "$pid" >/dev/null 2>&1 || true
     wait "$pid" >/dev/null 2>&1 || true
   fi
-  /bin/rm -f "$PID_FILE"
+  if [ "$PID_FILE_CREATED" = "1" ]; then
+    /bin/rm -f "$PID_FILE"
+    PID_FILE_CREATED=0
+  fi
 }
 
 handle_signal() {
@@ -66,21 +76,21 @@ if dashboard_ready; then
   exit 0
 fi
 
-if [ -n "${MACOS_INSPECTOR_PYTHON:-}" ] && [ -x "$MACOS_INSPECTOR_PYTHON" ]; then
-  PYTHON="$MACOS_INSPECTOR_PYTHON"
-elif [ -x "${ROOT}/.venv/bin/python3" ]; then
-  PYTHON="${ROOT}/.venv/bin/python3"
-elif [ -x "${ROOT}/venv/bin/python3" ]; then
-  PYTHON="${ROOT}/venv/bin/python3"
-elif command -v python3 >/dev/null 2>&1; then
-  PYTHON="$(command -v python3)"
+PYTHON=""
+if [ -n "${MACOS_INSPECTOR_PYTHON:-}" ]; then
+  candidates=("$MACOS_INSPECTOR_PYTHON")
 else
-  alert_error "Python 3.10 or newer was not found. Install Python 3, then open macOS Inspector.command again."
-  exit 1
+  candidates=("${ROOT}/.venv/bin/python3" "${ROOT}/venv/bin/python3" "$(command -v python3 2>/dev/null || true)" /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3)
 fi
-
-if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-  alert_error "macOS Inspector requires Python 3.10 or newer."
+for candidate in "${candidates[@]}"; do
+  if [ -x "$candidate" ] && "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+    PYTHON="$candidate"
+    break
+  fi
+done
+if [ -z "$PYTHON" ]; then
+  open_setup_help
+  alert_error "A compatible Python 3.10 or newer was not found. Open docs/START_HERE.html for setup instructions. If MACOS_INSPECTOR_PYTHON is set, it must point to a compatible executable. No software was installed or downloaded."
   exit 1
 fi
 
@@ -98,6 +108,7 @@ fi
   >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 print -- "$SERVER_PID" >"$PID_FILE"
+PID_FILE_CREATED=1
 /bin/chmod 600 "$PID_FILE"
 
 attempt=0
@@ -113,6 +124,7 @@ while [ "$attempt" -lt 80 ]; do
     fi
     SERVER_PID=""
     /bin/rm -f "$PID_FILE"
+    PID_FILE_CREATED=0
     if [ "$server_status" -ne 0 ]; then
       alert_error "The dashboard stopped unexpectedly. Details: ${LOG_FILE}"
     fi

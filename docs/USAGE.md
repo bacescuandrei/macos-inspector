@@ -285,7 +285,19 @@ Use **Force kill** only when a validated process did not respond to normal termi
 
 Limitations: this is a point-in-time snapshot. Short-lived processes and connections can disappear during collection. A review candidate is not proof of malware. The identity check reduces PID-reuse risk but cannot eliminate the narrow race between final revalidation and signal delivery; it does not replace analyst validation. Command arguments are bounded and common secret forms are redacted, but complete secret detection is not guaranteed.
 
+### Process action history and follow-up
+
+**Process action history**, visible in both views, shows recent successfully sent signals from the private local response log. **View preserved source** opens the report used to authorize that action. **Recheck process outcome** collects an unfiltered, read-only Live Triage snapshot and links its observation to the action. It sends no signal and does not mark an investigation contained or resolved.
+
+The outcome can be **Same process still observed**, **PID has a different identity**, **Zombie observed**, **Original PID not observed**, or **Unable to verify**. Identity comparison uses the recorded owner, executable, and start time. Absence needs an untruncated later process inventory; older logs without identity metadata and incomplete snapshots cannot establish an outcome. A missing PID does not prove that related activity stopped, that the signal caused its exit, or that a security issue was fixed.
+
+The log retains one previous file and displays at most 50 recent actions. It is owner-only but not tamper-proof. A missing source report cannot be reconstructed from this log. If an audit write fails after a signal, the dashboard warns that the action was sent but could not be recorded. Keep required evidence separately before containment.
+
 ### IOC and YARA rules
+
+New scans record SHA-256 context fingerprints for local IOC and YARA rule files and the configuration used by those collectors. The fingerprint includes local file identity, bytes, YARA enablement, and selected target configuration; it does not record provider credentials or expose target paths in the fingerprint metadata. Capture runs before and after collection. Incomplete or changed context is recorded as a collection limitation.
+
+When comparing reports, changed, missing, incomplete, or unstable rule fingerprints block overall finding-presence inference and numeric index deltas. Matching fingerprints do not authenticate rules or establish their quality. Application or listener inventories can still be compared independently when their own collection evidence is complete. Raw record differences remain available. Old reports are not modified to add fingerprints.
 
 Goal: compare explicit local targets with analyst-supplied indicators or YARA rules.
 

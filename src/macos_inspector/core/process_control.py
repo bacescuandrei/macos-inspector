@@ -127,5 +127,7 @@ def terminate_reported_process(
         "mode": mode,
         "signal": signal.Signals(selected_signal).name,
         "executable": str(candidate["executable"]),
+        "uid": candidate_uid,
+        "process_start": process_start,
         "status": "signal_sent",
     }

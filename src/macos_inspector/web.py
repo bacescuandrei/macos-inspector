@@ -28,6 +28,8 @@ from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.decision_support import build_decision_support, write_investigation_summary
 from macos_inspector.core.guidance import build_guidance
 from macos_inspector.core.process_control import terminate_reported_process
+from macos_inspector.core.response_history import append_response_event, read_response_history, evaluate_response_recheck
+from macos_inspector.core.detection_validation import validate_detections
 from macos_inspector.core.readiness import collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.runner import CommandRunner, ScanCancelled
@@ -46,7 +48,6 @@ MAX_REPORT_JSON_BYTES = 64 * 1024 * 1024
 MAX_CACHE_RECORD_BYTES = 32 * 1024 * 1024
 MAX_HISTORY_SCANS = 500
 REPORT_STREAM_CHUNK_BYTES = 64 * 1024
-MAX_RESPONSE_LOG_BYTES = 4 * 1024 * 1024
 
 
 SCAN_PROFILES = (
@@ -208,6 +209,7 @@ class ScanJob:
     reports: dict[str, str] = field(default_factory=dict)
     cancel_requested: bool = False
     _bundle_password: str = field(default="", repr=False)
+    response_action_id: str = ""
 
     def to_dict(self) -> dict:
         payload = dict(self.__dict__)
@@ -290,12 +292,19 @@ class DashboardState:
         analyst: str = "",
         bundle_password: str = "",
         target_application: str = "",
+        response_action_id: str = "",
     ) -> ScanJob:
         requested_formats = list(dict.fromkeys(["html", "json", *formats]))
         require_report_formats(requested_formats)
         if target_application and "application-trust" not in collectors:
             raise ValueError("A targeted application scan requires the Application Trust section.")
         target_application = self.validate_target_application(target_application)
+        if response_action_id:
+            if collectors != ["live-triage"] or target_application:
+                raise ValueError("A response recheck requires only Live Triage without an application target.")
+            if not any(row["action_id"] == response_action_id for row in self.response_history()["actions"]):
+                raise ValueError("The local response action is unavailable.")
+            minimum = "Informational"
         with self.lock:
             if any(job.state in {"queued", "running"} for job in self.jobs.values()):
                 raise RuntimeError("A scan is already running.")
@@ -303,6 +312,7 @@ class DashboardState:
                 str(uuid.uuid4()), collectors, requested_formats, minimum,
                 case_reference, analyst, target_application,
                 total_collectors=len(collectors), _bundle_password=bundle_password,
+                response_action_id=response_action_id,
             )
             self.jobs[job.job_id] = job
             self.cancel_events[job.job_id] = threading.Event()
@@ -383,6 +393,20 @@ class DashboardState:
                 else:
                     os.environ["MACOS_INSPECTOR_MANIFEST_KEY"] = previous_hmac_key
             job._bundle_password = ""
+            if job.response_action_id:
+                action = next((row for row in self.response_history()["actions"] if row["action_id"] == job.response_action_id), None)
+                if action:
+                    outcome, explanation = evaluate_response_recheck(action, result.to_dict())
+                    try:
+                        with self.lock:
+                            append_response_event(self.data_root, {"event": "recheck", "action_id": job.response_action_id,
+                                "scan_id": result.metadata.scan_id, "timestamp": result.metadata.completed_at,
+                                "outcome": outcome, "explanation": explanation})
+                    except OSError:
+                        # Completed evidence remains available even if the local audit write fails.
+                        job.error = "The scan completed, but its response-history link could not be written."
+                else:
+                    job.error = "The scan completed, but the source response action is no longer retained in the local log."
             with self.lock:
                 job.state = "completed"
                 job.scan_id = result.metadata.scan_id
@@ -609,29 +633,20 @@ class DashboardState:
             "scan_id": scan_id,
             **result,
         }
-        log_path = self.data_root / "response-actions.jsonl"
+        record["action_id"] = str(uuid.uuid4())
         try:
             with self.lock:
-                if log_path.is_file() and log_path.stat().st_size >= MAX_RESPONSE_LOG_BYTES:
-                    rotated = self.data_root / "response-actions.previous.jsonl"
-                    rotated.unlink(missing_ok=True)
-                    os.replace(log_path, rotated)
-                descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-                try:
-                    os.fchmod(descriptor, 0o600)
-                    payload = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
-                    written = 0
-                    while written < len(payload):
-                        written += os.write(descriptor, payload[written:])
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
+                append_response_event(self.data_root, record)
         except OSError as exc:
             record["audit_logged"] = False
             record["audit_error"] = f"The signal was sent, but the local audit record could not be written: {exc}"
         else:
             record["audit_logged"] = True
         return record
+
+    def response_history(self) -> dict:
+        with self.lock:
+            return read_response_history(self.data_root)
 
     def list_ioc_packs(self) -> list[dict]:
         directory = self.data_root / "ioc-packs"
@@ -854,6 +869,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json({"entries": self.state.cache_status()})
         elif path == "/api/scans":
             self._send_json({"scans": self.state.list_jobs()})
+        elif path == "/api/response-actions":
+            self._send_json(self.state.response_history())
+        elif path == "/api/detection-validation":
+            self._send_json(validate_detections())
         elif path.startswith("/api/guidance/"):
             scan_id = unquote(path.removeprefix("/api/guidance/")).strip("/")
             try:
@@ -1041,6 +1060,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             job = self.state.create_job(
                 collectors, formats, minimum, case_reference, analyst,
                 bundle_password, target_application,
+                response_action_id=str(payload.get("response_action_id", "")),
             )
             self._send_json(job.to_dict(), HTTPStatus.ACCEPTED)
         except RuntimeError as exc:

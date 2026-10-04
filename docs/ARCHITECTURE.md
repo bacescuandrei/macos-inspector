@@ -40,6 +40,16 @@ Presence inference has a separate completeness gate. New scans include an additi
 
 Manual comparison retains raw finding-ID differences regardless of completeness. Its legacy `resolved` field is a baseline-only record set; user-facing labels do not imply remediation. Numeric index deltas additionally require matching selected sections, targets, recorded hosts and tool versions, complete unfiltered reports, and assessed findings. Insufficient context produces null deltas and explicit limitations without discarding the record differences. The shared completeness checks live in `core/report_context.py` so automatic interpretation and manual index comparison use the same evidence rules. Both comparison interfaces preserve their source reports.
 
+## Inventory, rule context, and response history
+
+Application discovery preserves directory errors in collector metadata and an unknown finding while retaining successfully discovered applications. A collector with any unknown result or attributed error cannot round up to 100% completion. Missing optional roots do not produce access errors; discovery remains bounded to roots and one grouping directory.
+
+`core.rule_context` records additive `detection_context` metadata for IOC and YARA. It hashes rule bytes and resolved file identities plus only relevant YARA settings, not provider secrets. Bounded before/after capture detects ordinary changes during collection; it is not an atomic filesystem snapshot and cannot defend against a hostile same-user race. Cross-report rule context gates finding inventory interpretation and manual index deltas; independent complete application and listener inventories remain usable.
+
+`core.response_history` maintains the existing private, rotating JSONL action log. New signals record owner and process-start identity. A job with a retained `response_action_id` must collect only Live Triage, without an application target, and uses the Informational filter. Completed rechecks append a separate observation linking the new report to the action. No source report or investigation state is modified. A recheck-log write failure does not discard completed scan evidence.
+
+`core.detection_validation` runs packaged synthetic scenarios without host commands or network requests. The dashboard exposes the same pure evaluation as the developer script, and includes fixture hashes and expected/observed outcomes in downloadable JSON. These are regression checks, not an independent threat-detection evaluation.
+
 ## Extension rules
 
 A new collector must have a stable identifier, remain read-only, remain useful without elevated privileges, report unavailable data honestly, and return normalized findings. A new dashboard action must map to a registered operation and must not accept arbitrary commands. Any new response capability requires an explicit threat-model update, narrow authorization, current-state revalidation, confirmation, audit behavior, and regression tests.

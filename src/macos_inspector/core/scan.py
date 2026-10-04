@@ -15,6 +15,7 @@ from macos_inspector.core.models import ScanMetadata, ScanResult, Severity
 from macos_inspector.core.runner import CommandRunner, ScanCancelled
 from macos_inspector.core.scoring import calculate_coverage, calculate_scores
 from macos_inspector.core.timeline import build_timeline
+from macos_inspector.core.rule_context import RULE_COLLECTORS, capture_rule_context
 from macos_inspector.reporters import REPORTERS
 
 
@@ -33,6 +34,7 @@ def run_scan(
     started = datetime.now(timezone.utc)
     all_findings, errors = [], []
     collector_coverage: dict[str, int] = {}
+    detection_context: dict = {}
     command_runner = runner or CommandRunner(cancel_event=cancel_event)
     for index, collector_id in enumerate(collector_ids, start=1):
         if cancel_event and cancel_event.is_set():
@@ -49,11 +51,20 @@ def run_scan(
                 set_progress_callback(
                     lambda item, completed, total, current=collector_id: item_progress(current, item, completed, total)
                 )
+            before = capture_rule_context(collector_id, collector) if collector_id in RULE_COLLECTORS else {}
             collected = list(collector.collect())
+            if before:
+                after = capture_rule_context(collector_id, collector)
+                detection_context[collector_id] = {**after, "stable": before == after}
+                if before != after or not after["complete"]:
+                    errors.append(f"{collector_id}: Rule context was incomplete or changed during collection.")
+            errors.extend(f"{collector_id}: {error}" for error in getattr(collector, "collection_errors", []))
             all_findings.extend(collected)
             collector_coverage[collector_id] = round(
                 100 * sum(finding.status.lower() != "unknown" for finding in collected) / len(collected)
             ) if collected else 0
+            if any(finding.status.lower() == "unknown" for finding in collected) or any(error.startswith(f"{collector_id}:") for error in errors):
+                collector_coverage[collector_id] = min(99, collector_coverage[collector_id])
         except ScanCancelled:
             raise
         except Exception as exc:
@@ -81,6 +92,7 @@ def run_scan(
         case_reference=case_reference.strip(), analyst=analyst.strip(),
         target_application=str(target_application) if target_application is not None else "",
         minimum_severity=minimum.label(),
+        detection_context=detection_context,
     )
     return ScanResult(
         metadata, tuple(visible_findings), overall, category_scores, category_coverage,

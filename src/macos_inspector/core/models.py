@@ -73,6 +73,7 @@ class ScanMetadata:
     analyst: str = ""
     target_application: str = ""
     minimum_severity: str = "Informational"
+    detection_context: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

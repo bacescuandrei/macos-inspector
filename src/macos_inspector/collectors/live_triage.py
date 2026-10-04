@@ -442,7 +442,7 @@ class LiveTriageCollector(Collector):
                 "running_processes": [
                     {
                         key: process.get(key)
-                        for key in ("pid", "ppid", "stat", "zombie", "elapsed", "elapsed_seconds", "executable")
+                        for key in ("pid", "ppid", "uid", "process_start", "stat", "zombie", "elapsed", "elapsed_seconds", "executable")
                     }
                     for process in processes[:MAX_PROCESSES]
                 ],

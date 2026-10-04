@@ -32,6 +32,10 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Compile Python sources
         run: python -m compileall -q src scripts tests
+      - name: Validate synthetic detection scenarios
+        env:
+          PYTHONPATH: src
+        run: python -m scripts.validate_detections
       - name: Check dashboard JavaScript syntax
         run: node --check src/macos_inspector/webui/app.js
 
@@ -47,9 +51,12 @@ jobs:
           cache: npm
       - name: Install browser test dependencies
         run: npm ci
-      - name: Install Chromium headless shell
-        run: npx playwright install --with-deps --only-shell chromium
-      - name: Test dashboard in Chromium
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install Chromium and WebKit
+        run: npx playwright install --with-deps chromium webkit
+      - name: Test dashboard in Chromium and WebKit
         run: npm run test:browser
 
   package:

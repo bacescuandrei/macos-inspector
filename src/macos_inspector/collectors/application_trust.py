@@ -544,25 +544,40 @@ def classify_trust(
     return Severity.INFORMATIONAL, "Pass", "The signature is valid and Gatekeeper accepted the application."
 
 
-def discover_applications(roots: tuple[Path, ...] = DEFAULT_APPLICATION_ROOTS) -> list[Path]:
+def discover_applications(roots: tuple[Path, ...] = DEFAULT_APPLICATION_ROOTS, *, errors: list[str] | None = None) -> list[Path]:
     """Return top-level apps and apps grouped one directory below a root."""
     applications: set[Path] = set()
+    def is_directory(path: Path, optional: bool = False) -> bool:
+        try:
+            return stat.S_ISDIR(path.stat().st_mode)
+        except FileNotFoundError as exc:
+            if not optional and errors is not None:
+                errors.append(f"{path}: {type(exc).__name__}")
+        except OSError as exc:
+            if errors is not None:
+                errors.append(f"{path}: {type(exc).__name__}")
+        return False
+
     for root in roots:
-        if not root.is_dir():
+        if not is_directory(root, optional=True):
             continue
         try:
             children = tuple(root.iterdir())
-        except OSError:
+        except OSError as exc:
+            if errors is not None:
+                errors.append(f"{root}: {type(exc).__name__}")
             continue
         for child in children:
-            if child.is_dir() and child.suffix.lower() == ".app":
+            if not is_directory(child):
+                continue
+            if child.suffix.lower() == ".app":
                 applications.add(child)
                 continue
-            if not child.is_dir():
-                continue
             try:
-                applications.update(item for item in child.iterdir() if item.is_dir() and item.suffix.lower() == ".app")
-            except OSError:
+                applications.update(item for item in child.iterdir() if item.suffix.lower() == ".app" and is_directory(item))
+            except OSError as exc:
+                if errors is not None:
+                    errors.append(f"{child}: {type(exc).__name__}")
                 continue
     return sorted(applications, key=lambda path: str(path).casefold())
 
@@ -630,16 +645,29 @@ class ApplicationTrustCollector(Collector):
         self.bundles = bundles
 
     def collect(self) -> list[Finding]:
+        self.collection_errors: list[str] = []
         applications = (
             sorted(set(self.bundles), key=lambda path: str(path).casefold())
             if self.bundles is not None
-            else discover_applications(self.roots)
+            else discover_applications(self.roots, errors=self.collection_errors)
         )
         findings = []
         for index, bundle in enumerate(applications, start=1):
             self.report_progress(bundle.name, index - 1, len(applications))
             findings.append(self._inspect(bundle))
         self.report_progress(None, len(applications), len(applications))
+        if self.collection_errors:
+            findings.append(Finding(
+                finding_id="APP-INVENTORY-COVERAGE", category="Application Trust", title="Application discovery gaps",
+                severity=Severity.INFORMATIONAL, status="Unknown",
+                description="Some directories in the bounded application inventory could not be inspected.",
+                why_it_matters="An unreadable directory is an evidence gap, not proof that an application was removed.",
+                what_was_checked="Top-level applications and one grouping directory below each application root.",
+                expected_result="All existing directories within the recorded discovery scope are readable.",
+                observed_result=f"{len(self.collection_errors)} discovery gap(s); {len(applications)} application(s) discovered.",
+                recommendation="Review the directory errors, correct access if appropriate, and repeat the scan before interpreting missing applications.",
+                evidence=(Evidence("application_discovery_errors", "local", self.collection_errors),),
+            ))
         return findings
 
     def _inspect(self, bundle: Path) -> Finding:

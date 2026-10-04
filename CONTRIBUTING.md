@@ -33,12 +33,15 @@ Run the unit tests, JavaScript syntax check, browser smoke tests, and package bu
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 node --check src/macos_inspector/webui/app.js
 npm ci
-npx playwright install --only-shell chromium
+npx playwright install chromium webkit
 npm run test:browser
+PYTHONPATH=src python3 -m scripts.validate_detections
 PYTHONPATH=src python3 -m scripts.build_release
 ```
 
 The dashboard is intentionally local-only and must not expose arbitrary command execution. Collection actions must call registered collectors through `core.scan.run_scan`, preserve collection errors, and keep report files owner-readable only.
+
+Browser tests exercise Chromium and Playwright WebKit, including targeted axe-core accessibility checks. WebKit coverage is not a claim that every shipping Safari version or screen reader has been tested. Add synthetic detection scenarios with declared expected outcomes when changing trust classification or response follow-up interpretation. Read the [validation guide](docs/VALIDATION.md); do not present regression-fixture counts as real-world detection accuracy.
 
 The guarded process response in `core.process_control` is the sole exception to the read-only host boundary. Changes to it must preserve report-based authorization, current-user ownership, live identity revalidation, protected PIDs, root-mode rejection, separate `SIGTERM` and `SIGKILL` confirmation, local audit behavior, and tests for stale or unauthorized targets. Any broader response feature requires a threat-model update and explicit maintainer review.
 

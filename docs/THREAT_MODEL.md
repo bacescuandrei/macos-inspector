@@ -55,6 +55,12 @@ Hash reputation providers are disabled by default. A request requires a local co
 
 Changes, confidence labels, and investigation stories are derived from completed local reports. Automatic baseline selection requires the same collector set. Correlations require an exact application-path relationship and are labeled as investigation aids rather than compromise conclusions. The derived output cannot alter the source report or its evidence manifest.
 
+### Response history and comparison context
+
+The private response log records a successfully sent signal, not a confirmed exit or incident resolution. It is bounded, rotates one previous file, and is not tamper-proof against a same-user attacker. Source evidence and investigation state remain separate. Linked follow-up accepts only a retained local action and a read-only, unfiltered Live Triage scan. Missing identity, truncated inventory, unavailable collection, and legacy logs produce an unverifiable outcome. A PID with a different start identity is not treated as the original process. No outcome authorizes another signal automatically.
+
+Rule-context fingerprints contain hashes and completion metadata, not provider secrets or rule text. They detect ordinary rule/configuration changes but do not authenticate rule provenance, establish rule quality, or provide an atomic snapshot against malicious filesystem races. Missing or changed context suppresses unsupported finding-presence and numeric-index claims while preserving raw report differences. Synthetic validation scenarios invoke pure classification only and cannot run imported commands, scan arbitrary paths through the dashboard, or send signals.
+
 ## Out of scope
 
 macOS Inspector is not an EDR, anti-malware engine, memory acquisition tool, or complete forensic imaging system. It does not continuously monitor or automatically remediate a host. It does not defend a compromised operating system from falsifying command output. It does not guarantee legal admissibility or chain of custody for every jurisdiction.

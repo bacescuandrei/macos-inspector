@@ -1,5 +1,96 @@
 const { test, expect } = require('@playwright/test');
 const { execFileSync } = require('node:child_process');
+const { default: AxeBuilder } = require('@axe-core/playwright');
+const { readFileSync } = require('node:fs');
+
+test('offline setup help is responsive and accessible without a running dashboard', async ({ page }) => {
+  const body = readFileSync('docs/START_HERE.html', 'utf8');
+  await page.route('**/setup-help.html', route => route.fulfill({contentType: 'text/html', body}));
+  await page.goto('/setup-help.html');
+  await expect(page.getByRole('heading', {name: 'Start macOS Inspector', exact: true})).toBeVisible();
+  await expect(page.locator('body')).toContainText('does not download or install anything');
+  for (const width of [320, 375, 768, 1280]) {
+    await page.setViewportSize({width, height: 850});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  }
+  const results = await new AxeBuilder({page}).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(results.violations.map(row => row.id)).toEqual([]);
+});
+
+test('synthetic validation is available from HTML with a downloadable report', async ({ page }) => {
+  let calls = 0;
+  await page.route('**/api/detection-validation', route => { calls += 1; return route.fulfill({json: {
+    tool_version: 'fixture', scenario_count: 18, passed: 18, failed: 0, false_alerts_in_expected_pass_cases: 0,
+    missed_review_in_declared_review_cases: 0, limitation: 'Synthetic fixtures only, not real-world accuracy.',
+    results: [{id: 'synthetic-signature', expected: 'Pass', observed: 'Pass', passed: true}],
+  }}); });
+  await page.getByText('Detection regression validation', {exact: true}).click();
+  await page.getByRole('button', {name: 'Run detection validation'}).click();
+  await expect(page.locator('#detection-validation-result')).toContainText('18 of 18 scenarios passed');
+  await expect(page.locator('#detection-validation-result')).toContainText('not real-world accuracy');
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', {name: 'Download validation JSON'}).click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toBe('macos-inspector-fixture-detection-validation.json');
+  expect(calls).toBe(1);
+});
+
+test('response history is escaped, responsive, and available in both views', async ({ page }) => {
+  await page.evaluate(() => renderResponseHistory({actions: [{
+    action_id: 'synthetic-action', scan_id: 'synthetic-source', pid: 4242, signal: 'SIGTERM', timestamp: '2026-01-01T00:00:00Z',
+    executable: '<img src=x onerror=window.responseInjected=true>' + 'a'.repeat(180),
+    recheck: {scan_id: 'later', timestamp: '2026-01-01T00:02:00Z', outcome: 'not_observed', explanation: 'Absence is not confirmed remediation.'},
+  }], note: 'Stored locally. Sending a signal does not confirm exit.'}));
+  const panel = page.locator('#response-history-list');
+  await expect(panel).toContainText('Original PID not observed');
+  await expect(panel.getByRole('button', {name: 'View preserved source'})).toBeVisible();
+  await expect(panel.getByRole('button', {name: 'Recheck process outcome'})).toBeDisabled();
+  for (const mode of ['simple', 'analyst']) {
+    await page.evaluate((view) => setViewMode(view), mode);
+    await expect(panel).toBeVisible();
+    for (const width of [320, 375, 768, 1280]) {
+      await page.setViewportSize({width, height: 850});
+      expect(await panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    }
+  }
+  expect(await page.evaluate(() => window.responseInjected)).toBeUndefined();
+});
+
+test('response follow-up starts a linked read-only scan without sending a signal', async ({ page }) => {
+  let request;
+  let signals = 0;
+  await page.route('**/api/scans', async (route) => {
+    request = route.request().postDataJSON();
+    await route.fulfill({status: 202, json: {job_id: 'synthetic-followup'}});
+  });
+  await page.route('**/api/scans/synthetic-followup', route => route.fulfill({json: {job_id: 'synthetic-followup', state: 'running', collectors: ['live-triage'], total_collectors: 1}}));
+  await page.route('**/api/processes/terminate', route => { signals += 1; return route.fulfill({status: 403, json: {error: 'No process action authorized'}}); });
+  await page.evaluate(() => {
+    state.online = true;
+    state.config = {collectors: [{id: 'live-triage', title: 'Live Triage', external_network: false}], formats: ['html', 'json']};
+    renderFormats();
+    $('#minimum').value = 'High';
+    renderResponseHistory({actions: [{action_id: 'synthetic-action', scan_id: 'source', pid: 4242, signal: 'SIGTERM', timestamp: '2026-01-01T00:00:00Z', executable: '/synthetic/tool'}]});
+  });
+  await page.getByRole('button', {name: 'Recheck process outcome'}).click();
+  await expect.poll(() => request?.response_action_id).toBe('synthetic-action');
+  expect(request.collectors).toEqual(['live-triage']);
+  expect(request.minimum).toBe('Informational');
+  expect(signals).toBe(0);
+});
+
+test('dashboard controls and response history pass targeted WCAG accessibility checks', async ({ page }) => {
+  await page.evaluate(() => renderResponseHistory({actions: [{action_id: 'synthetic-action', scan_id: 'source', pid: 4242, signal: 'SIGTERM', timestamp: '2026-01-01T00:00:00Z', executable: '/synthetic/tool'}]}));
+  for (const mode of ['simple', 'analyst']) {
+    await page.evaluate((view) => setViewMode(view), mode);
+    const results = await new AxeBuilder({page}).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    expect(results.violations.map(item => ({id: item.id, nodes: item.nodes.map(node => node.target)}))).toEqual([]);
+  }
+  const button = page.getByRole('button', {name: 'View preserved source'});
+  await button.focus();
+  await expect(button).toBeFocused();
+  expect(await button.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
+});
 
 test('manual comparison shows report-only records without implying resolution', async ({ page }) => {
   await page.evaluate(() => {

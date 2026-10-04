@@ -22,6 +22,11 @@ img, svg, video { max-width: 100%; }
 button, select { font: inherit; }
 button { cursor: pointer; }
 button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid rgba(105,165,255,.72); outline-offset: 3px; }
+.response-history-card { display: grid; gap: 1rem; padding: 1rem; margin-top: 1rem; border: 1px solid var(--line); border-radius: 12px; min-width: 0; overflow-wrap: anywhere; }
+.response-history-card time, .response-history-card code, .response-history-card small { display: block; margin-top: .4rem; overflow-wrap: anywhere; white-space: normal; }
+.response-history-buttons { display: flex; flex-wrap: wrap; gap: .6rem; }
+.response-history-buttons button { max-width: 100%; white-space: normal; }
+.response-outcome { border-left: 3px solid #69a5ff; padding-left: 1rem; }
 .topbar { max-width: 1440px; margin: 0 auto; padding: 24px 34px; display: flex; align-items: center; gap: 13px; border-bottom: 1px solid rgba(105,165,255,.15); }
 .brand-mark { width: 38px; height: 38px; display: grid; place-items: center; color: var(--accent); border: 1px solid var(--line); border-radius: 12px; background: var(--panel); font-size: 20px; }
 h1, h2, h3, p { margin: 0; } h1 { font-size: 20px; letter-spacing: -.02em; } h2 { font-size: 20px; letter-spacing: -.02em; } h3 { font-size: 16px; }

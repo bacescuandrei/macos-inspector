@@ -236,11 +236,18 @@
       </section>
     </section>
 
+    <section class="history-section" aria-labelledby="response-history-title">
+      <div class="section-heading"><div><p class="eyebrow">LOCAL RESPONSE</p><h2 id="response-history-title">Process action history</h2></div><button id="refresh-response-history" class="text-button" type="button">Refresh actions</button></div>
+      <p class="muted">Preserve evidence, review the process identity, confirm an action, then recheck. A follow-up observation never marks a finding resolved automatically.</p>
+      <div id="response-history-list" aria-live="polite"><p class="muted">Loading local response history...</p></div>
+    </section>
+
     <section class="history-section" aria-labelledby="history-title">
       <div class="section-heading"><div><p class="eyebrow">04 / HISTORY</p><h2 id="history-title" data-i18n="previousScans">Previous scans</h2></div><button id="refresh-history" class="text-button" type="button" data-i18n="refresh">Refresh</button></div>
       <div class="history-toolbar"><label for="history-search" data-i18n="findScan">Find a scan</label><input id="history-search" class="field" type="search" placeholder="Case, analyst, collector or scan ID" data-i18n-placeholder="findScanPlaceholder"><button id="clear-history-search" class="text-button" type="button" data-i18n="clear">Clear</button><span id="history-count"></span></div>
       <div id="history" class="history-list"><p class="muted">Loading scan history...</p></div>
     </section>
+    <details class="history-section"><summary>Detection regression validation</summary><p class="muted">Evaluate bundled synthetic scenarios without scanning your Mac, contacting providers, or sending process signals. These tests are not a malware detection benchmark.</p><button id="run-detection-validation" type="button" class="secondary-button">Run detection validation</button><div id="detection-validation-result" role="status"></div></details>
   </main>
   <script src="app.js"></script>
 </body>

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "macos-inspector"
-version = "1.4.2"
+version = "1.4.3"
 description = "macOS security auditing, DFIR triage, and guarded process response framework"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -36,6 +36,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "macos_inspector.webui" = ["*.html", "*.css", "*.js"]
+"macos_inspector.core" = ["validation-scenarios.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

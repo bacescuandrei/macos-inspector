@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 1.4.3 - 2026-10-04
+
+- Preserve application discovery errors as unknown inventory evidence instead of silently skipping unreadable directories. Keep discovered applications and block disappearance inferences from incomplete inventories.
+- Prevent an unknown result or recorded collection gap from rounding a collector's completion up to 100%.
+- Fingerprint local IOC/YARA bytes, locations, and relevant nonsecret configuration before and after collection. Withhold finding-presence and numeric index comparisons when fingerprints are missing, incomplete, unstable, or different.
+- Add local process action history in both dashboard views, with preserved source-report access and linked read-only outcome rechecks. Distinguish the original identity still observed, PID reuse, zombie state, no longer observed, and unverifiable results without automatically resolving a finding.
+- Include numeric process owner and start identity in the bounded process inventory and private action log so later snapshots can be compared safely. Older actions remain visible but cannot establish an identity-aware outcome.
+- Add 18 bundled, synthetic trust and response regression scenarios, a dashboard validation action with downloadable JSON, a reproducible developer command, and explicit limits on interpreting fixture metrics.
+- Test the dashboard in Chromium and WebKit and add targeted WCAG accessibility, keyboard-focus, responsive action-history, and validation-download checks.
+- Make the double-click launcher try compatible Python candidates and open an offline setup-help page when none is available. No software installation, privilege escalation, or new online lookup is automatic.
 - Replace manual comparison's "Resolved" and "New" presentation with baseline-only and comparison-only record labels, while preserving the legacy JSON field names for compatibility.
 - Withhold manual overall and category index deltas when collection scope, recorded host, tool version, filtering, completion, or assessment context is insufficient; retain raw finding-record differences.
 - Include selected snapshot times, comparison limits, and non-remediation wording in the dashboard and standalone comparison HTML, with responsive layouts for long evidence values.

@@ -10,7 +10,17 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current release: `v1.4.2`
+Current release: `v1.4.3`
+
+## New in 1.4.3
+
+Scan timing, scope, filters, and comparison limits are now visible in both dashboard views. You can repeat the recorded checks or open the actual earlier snapshot used for comparison. Unreadable application directories remain visible as discovery gaps, and incomplete or filtered inventories do not imply that software was added or removed.
+
+Local IOC/YARA content and relevant configuration are fingerprinted before and after collection. A rule change makes finding-presence and index comparisons unavailable rather than suggesting the Mac changed. Shared observations remain available for review.
+
+**Process action history** keeps the source report and links a new read-only follow-up to each recorded signal. It distinguishes the same process still observed, a reused PID, a zombie, a PID no longer observed, and insufficient evidence. It never marks a finding resolved automatically.
+
+The launcher tries compatible Python installations and opens local setup help when none is available. **Detection regression validation** runs bundled synthetic scenarios from the HTML dashboard and downloads their results. Browser checks now cover Chromium and WebKit, with automated accessibility checks in both views. See the [changelog](CHANGELOG.md) and [validation guide](docs/VALIDATION.md) for details and limits.
 
 ## What it can help answer
 
@@ -63,11 +73,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.4.2-macos.zip` and `SHA256SUMS` from the latest GitHub release.
+1. Download `macos-inspector-1.4.3-macos.zip` and `SHA256SUMS` from the latest GitHub release.
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.4.2-macos.zip
+   shasum -a 256 macos-inspector-1.4.3-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
@@ -77,6 +87,8 @@ Requirements:
 The release is not Apple-signed or notarized. After verifying the checksum, use Finder's Control-click, then **Open**, if macOS blocks the first launch. Do not disable Gatekeeper globally and do not remove quarantine attributes from unrelated files.
 
 The launcher starts a local service on `http://127.0.0.1:8765/` and opens the dashboard. Keep the launcher window open while using the application. Closing it stops the local service.
+
+If a compatible Python installation is missing, the launcher opens [local setup help](docs/START_HERE.html). It does not install software automatically. Core scans do not need third-party Python packages; the dashboard explains which optional features are available.
 
 Do not open `src/macos_inspector/webui/index.html` as the application. That file is only the dashboard source and cannot start the local Python service.
 
@@ -251,6 +263,7 @@ Findings do not change the process exit code. The CLI exits `0` when collection 
 - [Usage and interpretation](docs/USAGE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Threat model](docs/THREAT_MODEL.md)
+- [Detection and browser validation](docs/VALIDATION.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Support](SUPPORT.md)

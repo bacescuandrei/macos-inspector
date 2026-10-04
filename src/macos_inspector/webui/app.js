@@ -76,6 +76,7 @@ function updateRunAvailability() {
   const rerunButton = $('#rerun-report');
   if (rerunButton) rerunButton.disabled = disabled || Boolean(reportScope().error);
   document.querySelectorAll('[data-refresh-live-triage]').forEach((button) => { button.disabled = disabled || !(state.config?.collectors || []).some((collector) => collector.id === 'live-triage'); });
+  document.querySelectorAll('[data-response-recheck]').forEach((button) => { button.disabled = disabled || !(state.config?.collectors || []).some((collector) => collector.id === 'live-triage'); });
   const cancelButton = $('#cancel-scan');
   if (cancelButton && !cancelButton.classList.contains('hidden')) cancelButton.disabled = !state.online;
 }
@@ -250,7 +251,7 @@ function selectedValues(attribute) {
   return [...document.querySelectorAll(`[data-${attribute}]:checked`)].map((element) => element.dataset[attribute]);
 }
 
-async function startScan(collectorOverride = null, targetApplication = '') {
+async function startScan(collectorOverride = null, targetApplication = '', responseActionId = '') {
   if (!state.config || !state.online) return setMessage('Wait for the dashboard to connect before starting a scan.', true);
   if (state.starting || state.activeJob) return setMessage('A scan is already running. Wait for it to finish or cancel it first.', true);
   const collectors = collectorOverride || selectedCollectors();
@@ -266,7 +267,7 @@ async function startScan(collectorOverride = null, targetApplication = '') {
   $('#cancel-scan').disabled = false;
   setMessage('Starting read-only collection...');
   try {
-    const job = await api('/api/scans', writeOptions('POST', { collectors, formats, minimum: $('#minimum').value, case_reference: $('#case-reference').value, analyst: $('#analyst').value, bundle_password: $('#bundle-password').value, target_application: targetApplication }));
+    const job = await api('/api/scans', writeOptions('POST', { collectors, formats, minimum: responseActionId ? 'Informational' : $('#minimum').value, case_reference: $('#case-reference').value, analyst: $('#analyst').value, bundle_password: $('#bundle-password').value, target_application: targetApplication, response_action_id: responseActionId }));
     state.activeJob = job.job_id;
     state.starting = false;
     updateRunAvailability();
@@ -287,10 +288,11 @@ async function pollJob(jobId) {
     renderProgress(job);
     if (job.state === 'completed') {
       finishActiveJob(jobId);
-      setMessage('Scan complete. Findings and reports are ready.');
+      setMessage(job.error || 'Scan complete. Findings and reports are ready.', Boolean(job.error));
       renderReports(job);
       await loadReport(job);
       loadHistory();
+      loadResponseHistory();
       return;
     }
     if (job.state === 'failed') {
@@ -919,6 +921,7 @@ async function respondToProcess(button) {
     const auditNote = response.audit_logged === false ? ` ${response.audit_error}` : ' The action was recorded in the local response log.';
     result.textContent = `${response.signal} sent at ${response.timestamp}.${auditNote} Run Live Triage again to confirm current state.`;
     row.classList.add('process-action-complete');
+    await loadResponseHistory();
     setMessage(`${response.signal} sent to PID ${response.pid}.${response.audit_logged === false ? ' The local audit log could not be updated.' : ' The action was recorded locally.'}`, response.audit_logged === false);
   } catch (error) {
     result.textContent = error.message;
@@ -936,11 +939,53 @@ async function loadHistory() {
   } catch (error) { $('#history').innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`; }
 }
 
+async function loadResponseHistory() {
+  try { renderResponseHistory(await api('/api/response-actions')); }
+  catch (error) { $('#response-history-list').textContent = `Response history unavailable: ${error.message}`; }
+}
+
+function renderResponseHistory(payload) {
+  const panel = $('#response-history-list');
+  const labels = {not_observed: 'Original PID not observed', still_observed: 'Same process still observed', pid_reused: 'PID has a different identity', zombie_observed: 'Zombie observed', unable_to_verify: 'Unable to verify'};
+  const actions = Array.isArray(payload.actions) ? payload.actions.slice(0, 50) : [];
+  panel.innerHTML = `<p class="muted">${escapeHtml(payload.note || 'Sending a signal does not confirm exit or resolve an investigation. Records are stored locally, separately from original evidence.')}</p>${(payload.limitations || []).map((note) => `<p class="error">${escapeHtml(note)}</p>`).join('')}${actions.length ? actions.map((row) => `<article class="response-history-card"><div><strong>${escapeHtml(row.signal)} sent to PID ${escapeHtml(row.pid)}</strong><time>${formatRecordedTime(row.timestamp)}</time><code>${escapeHtml(row.executable)}</code><small>Source scan: ${escapeHtml(row.scan_id)}</small></div><div class="response-history-buttons"><button type="button" class="secondary-button" data-response-scan="${escapeHtml(row.scan_id)}">View preserved source</button><button type="button" class="secondary-button" data-response-recheck="${escapeHtml(row.action_id)}">Recheck process outcome</button></div>${row.recheck ? `<div class="response-outcome"><strong>${escapeHtml(labels[row.recheck.outcome] || 'Review later snapshot')}</strong><p>${escapeHtml(row.recheck.explanation)}</p><time>${formatRecordedTime(row.recheck.timestamp)}</time><button type="button" class="text-button" data-response-scan="${escapeHtml(row.recheck.scan_id)}">View later snapshot</button></div>` : '<p class="muted">No linked follow-up yet. Recheck collects a new read-only Live Triage snapshot; it does not send another signal.</p>'}</article>`).join('') : '<p class="muted">No recorded process actions in this output directory.</p>'}`;
+  panel.querySelectorAll('[data-response-recheck]').forEach((button) => button.addEventListener('click', () => startScan(['live-triage'], '', button.dataset.responseRecheck)));
+  panel.querySelectorAll('[data-response-scan]').forEach((button) => button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      const {scans} = await api('/api/scans');
+      const job = scans.find((item) => item.scan_id === button.dataset.responseScan && item.reports?.json);
+      if (!job) throw new Error('The preserved report is no longer available in this output directory.');
+      await loadHistoryJob(job);
+    } catch (error) { setMessage(error.message, true); }
+    finally { button.disabled = false; }
+  }));
+  updateRunAvailability();
+}
+
 function setInline(selector, message, error = false) {
   const element = $(selector);
   if (!element) return;
   element.textContent = message || '';
   element.classList.toggle('error', error);
+}
+
+async function runDetectionValidation() {
+  const button = $('#run-detection-validation');
+  const output = $('#detection-validation-result');
+  button.disabled = true;
+  output.textContent = 'Evaluating synthetic scenarios...';
+  try {
+    const result = await api('/api/detection-validation');
+    output.innerHTML = `<p>${escapeHtml(result.passed)} of ${escapeHtml(result.scenario_count)} scenarios passed; ${escapeHtml(result.failed)} failed.</p><p class="muted">${escapeHtml(result.limitation)}</p><small>Unexpected alerts in declared passing cases: ${escapeHtml(result.false_alerts_in_expected_pass_cases)}. Missed review outcomes in declared review cases: ${escapeHtml(result.missed_review_in_declared_review_cases)}.</small><details><summary>Scenario results</summary>${result.results.map((row) => `<div class="managed-row"><span><strong>${escapeHtml(row.id)}</strong><small>Expected ${escapeHtml(row.expected)} | observed ${escapeHtml(row.observed)} | ${row.passed ? 'passed' : 'FAILED'}</small></span></div>`).join('')}</details><button id="download-detection-validation" class="text-button" type="button">Download validation JSON</button>`;
+    $('#download-detection-validation').addEventListener('click', () => {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2) + '\n'], {type: 'application/json'}));
+      const link = document.createElement('a');
+      link.href = url; link.download = `macos-inspector-${result.tool_version}-detection-validation.json`; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  } catch (error) { output.textContent = error.message; }
+  finally { button.disabled = false; }
 }
 
 function formatBytes(value) {
@@ -1152,6 +1197,7 @@ async function loadDashboardData() {
     await loadOperationsData();
     await loadReadiness();
     await loadHistory();
+    await loadResponseHistory();
     if (state.currentReportMetadata) renderReportContext();
   } catch (error) {
     setMessage(error.message, true);
@@ -1290,6 +1336,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#signing-enabled').addEventListener('change', updateSigningEnabled);
   $('#cancel-scan').addEventListener('click', cancelScan);
   $('#refresh-history').addEventListener('click', loadHistory);
+  $('#refresh-response-history').addEventListener('click', loadResponseHistory);
+  $('#run-detection-validation').addEventListener('click', runDetectionValidation);
   $('#refresh-readiness').addEventListener('click', loadReadiness);
   $('#history-search').addEventListener('input', renderHistory);
   $('#clear-history-search').addEventListener('click', () => { $('#history-search').value = ''; renderHistory(); });

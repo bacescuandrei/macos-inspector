@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {"id":"developer-id-accepted","kind":"trust","expected":"Pass","signature_type":"Developer ID","authority":"Developer ID Application: Example","signature_rc":0,"gatekeeper_rc":0},
+    {"id":"mac-app-store-accepted","kind":"trust","expected":"Pass","signature_type":"Apple","authority":"Apple Mac OS Application Signing","signature_rc":0,"gatekeeper_rc":0,"gatekeeper_output":"accepted source=Mac App Store"},
+    {"id":"apple-protected-component","kind":"trust","expected":"Pass","signature_type":"Apple","identifier":"com.apple.Passwords","signature_rc":0,"gatekeeper_rc":3,"gatekeeper_output":"rejected (the code is valid but does not seem to be an app)"},
+    {"id":"signature-timeout","kind":"trust","expected":"Unknown","signature_rc":124,"signature_timed_out":true,"gatekeeper_rc":0},
+    {"id":"gatekeeper-unavailable","kind":"trust","expected":"Unknown","signature_rc":0,"gatekeeper_rc":127},
+    {"id":"gatekeeper-internal-error","kind":"trust","expected":"Unknown","signature_rc":0,"gatekeeper_rc":1,"gatekeeper_output":"internal error"},
+    {"id":"accepted-with-disallowed-metadata","kind":"trust","expected":"Review","signature_rc":1,"signature_output":"resource fork, Finder information, or similar detritus not allowed","gatekeeper_rc":0},
+    {"id":"sealed-resource-missing","kind":"trust","expected":"Fail","signature_rc":1,"signature_output":"a sealed resource is missing or invalid","gatekeeper_rc":0},
+    {"id":"unsigned-executable","kind":"trust","expected":"Fail","signature_rc":1,"signature_output":"code object is not signed at all","gatekeeper_rc":3,"gatekeeper_output":"rejected"},
+    {"id":"gatekeeper-rejected","kind":"trust","expected":"Fail","signature_rc":0,"gatekeeper_rc":3,"gatekeeper_output":"rejected"},
+    {"id":"valid-ad-hoc-identity","kind":"trust","expected":"Review","signature_type":"Ad hoc","signature_rc":0,"gatekeeper_rc":0},
+    {"id":"missing-declared-executable","kind":"trust","expected":"Fail","executable_exists":false,"signature_rc":0,"gatekeeper_rc":0},
+    {"id":"response-still-present","kind":"response","expected":"still_observed","state":"running"},
+    {"id":"response-pid-reused","kind":"response","expected":"pid_reused","state":"reused"},
+    {"id":"response-zombie","kind":"response","expected":"zombie_observed","state":"zombie"},
+    {"id":"response-not-observed","kind":"response","expected":"not_observed","state":"absent"},
+    {"id":"response-truncated","kind":"response","expected":"unable_to_verify","state":"truncated"},
+    {"id":"response-legacy-identity","kind":"response","expected":"unable_to_verify","state":"legacy"}
+  ]
+}

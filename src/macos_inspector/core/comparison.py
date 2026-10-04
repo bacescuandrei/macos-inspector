@@ -4,6 +4,7 @@ from typing import Any
 
 from .models import summary_with_assessment_counts
 from .report_context import presence_comparison_limit
+from .rule_context import detection_context_limits
 
 
 TRACKED_FIELDS = ("status", "severity", "observed_result")
@@ -38,7 +39,7 @@ def compare_scan_payloads(baseline: dict[str, Any], current: dict[str, Any]) -> 
     current_categories = current_summary.get("category_scores", {})
     categories = set(baseline_categories) | set(current_categories)
     baseline_metadata, current_metadata = baseline.get("metadata", {}), current.get("metadata", {})
-    limits = []
+    limits = detection_context_limits(baseline, current)
     if baseline_collectors != current_collectors or baseline_target != current_target:
         limits.append("The selected sections or application targets differ.")
     for field, label in (("hostname", "host"), ("tool_version", "tool version")):
