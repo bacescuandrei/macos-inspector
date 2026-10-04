@@ -31,6 +31,6 @@ The workflow uses Gitea's v4 artifact backend through the patched `christopherhx
 Official references:
 
 - [Gitea Actions quick start](https://docs.gitea.com/usage/actions/quickstart)
-- [Act Runner guide](https://docs.gitea.com/next/usage/actions/act-runner)
+- [Gitea Runner documentation](https://docs.gitea.com/runner/)
 - [Gitea Actions compatibility](https://docs.gitea.com/usage/actions/comparison)
 - [Gitea 1.22 artifact v4 announcement](https://blog.gitea.com/release-of-1.22.0/)
