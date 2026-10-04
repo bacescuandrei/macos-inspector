@@ -79,6 +79,25 @@ test('response follow-up starts a linked read-only scan without sending a signal
   expect(signals).toBe(0);
 });
 
+test('response follow-up explains another PID without claiming restart or remediation', async ({ page }) => {
+  await page.evaluate(() => renderResponseHistory({actions: [{
+    action_id: 'synthetic-action', scan_id: 'source', pid: 4242, signal: 'SIGTERM',
+    timestamp: '2026-01-01T00:00:00Z', executable: '/synthetic/tool',
+    recheck: {scan_id: 'later', timestamp: '2026-01-01T00:02:00Z', outcome: 'executable_observed',
+      explanation: 'Original PID absent; path and owner observed under PID 5000. Existing instance or restart, not confirmed remediation.'},
+  }]}));
+  const panel = page.locator('#response-history-list');
+  await expect(panel).toContainText('Same executable observed under another PID');
+  await expect(panel).toContainText('not confirmed remediation');
+  await expect(panel.getByRole('button', {name: 'View later snapshot'})).toBeVisible();
+  for (const mode of ['simple', 'analyst']) {
+    await page.evaluate(view => setViewMode(view), mode);
+    await page.setViewportSize({width: 320, height: 850});
+    await expect(panel).toBeVisible();
+    expect(await panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  }
+});
+
 test('dashboard controls and response history pass targeted WCAG accessibility checks', async ({ page }) => {
   await page.evaluate(() => renderResponseHistory({actions: [{action_id: 'synthetic-action', scan_id: 'source', pid: 4242, signal: 'SIGTERM', timestamp: '2026-01-01T00:00:00Z', executable: '/synthetic/tool'}]}));
   for (const mode of ['simple', 'analyst']) {

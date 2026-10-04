@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import re
+import socket
 import threading
 import time
 import uuid
@@ -632,6 +633,7 @@ class DashboardState:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "scan_id": scan_id,
             **result,
+            "hostname": socket.gethostname(),
         }
         record["action_id"] = str(uuid.uuid4())
         try:

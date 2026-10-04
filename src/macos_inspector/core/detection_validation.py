@@ -23,7 +23,8 @@ def evaluate_scenario(case: dict) -> str:
         return classify_trust(case.get("executable_exists", True), signature, gatekeeper, details)[1]
     if case["kind"] != "response":
         raise ValueError("Unsupported scenario kind")
-    action = {"pid": 4242, "uid": 501, "process_start": "synthetic-start", "executable": "/synthetic/tool"}
+    action = {"pid": 4242, "uid": 501, "process_start": "synthetic-start", "executable": "/synthetic/tool",
+              "hostname": "synthetic-host", "timestamp": "2026-01-01T00:00:00Z"}
     row = dict(action)
     state = case["state"]
     if state == "reused":
@@ -32,9 +33,26 @@ def evaluate_scenario(case: dict) -> str:
         row["zombie"] = True
     if state == "legacy":
         row.pop("process_start")
+    if state in {"other_pid", "other_owner"}:
+        row["pid"] = 5000
+    if state == "other_owner":
+        row["uid"] = 502
     rows = [] if state in {"absent", "truncated"} else [row]
-    report = {"metadata": {}, "findings": [{"finding_id": "LIVE-PROCESS-TREE", "status": "Pass", "evidence": [{"kind": "process_snapshot",
-        "value": {"running_processes": rows, "process_count": len(rows), "snapshot_truncated": state == "truncated"}}]}]}
+    if state == "duplicate_pid":
+        rows.append(dict(row))
+    metadata = {"hostname": "synthetic-host", "started_at": "2026-01-01T00:01:00Z",
+                "completed_at": "2026-01-01T00:02:00Z", "collection_errors": []}
+    if state == "prior_scan":
+        metadata.update(started_at="2025-12-31T23:58:00Z", completed_at="2025-12-31T23:59:00Z")
+    if state == "overlapping_scan":
+        metadata["started_at"] = "2025-12-31T23:59:00Z"
+    if state == "different_host":
+        metadata["hostname"] = "other-synthetic-host"
+    if state == "naive_time":
+        metadata["started_at"] = "2026-01-01T00:01:00"
+    report = {"metadata": metadata, "findings": [{"finding_id": "LIVE-PROCESS-TREE", "status": "Observed", "evidence": [{"kind": "process_snapshot",
+        "collected_at": None if state == "missing_snapshot_time" else "2026-01-01T00:01:30Z",
+        "value": {"running_processes": rows, "process_count": len(rows), "inventory_complete": True, "snapshot_truncated": state == "truncated"}}]}]}
     return evaluate_response_recheck(action, report)[0]
 
 

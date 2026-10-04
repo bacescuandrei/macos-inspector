@@ -379,11 +379,21 @@ class LiveTriageCollector(Collector):
     description = "Snapshots running processes, parent relationships, listeners and active network connections."
 
     def collect(self) -> list[Finding]:
+        self.collection_errors: list[str] = []
         process_result = self.runner.run(("ps", "-axo", "pid=,ppid=,uid=,user=,stat=,comm="))
         context_result = self.runner.run(("ps", "-axo", "pid=,etime=,args="))
         starts_result = self.runner.run(("ps", "-axo", "pid=,lstart="))
         network_result = self.runner.run(("lsof", "-nP", "-i", "-FpcnT"))
         processes = parse_processes(process_result.stdout) if process_result.returncode == 0 else []
+        inventory_complete = (
+            process_result.returncode == 0 and not process_result.timed_out and bool(processes)
+            and len(processes) == sum(bool(line.strip()) for line in process_result.stdout.splitlines())
+            and len(processes) < MAX_PROCESSES
+            and len({row["pid"] for row in processes}) == len(processes)
+            and all(row["pid"] > 0 and type(row.get("uid")) is int and row["uid"] >= 0 for row in processes)
+        )
+        if not inventory_complete:
+            self.collection_errors.append("Process inventory was unavailable, bounded, or contained incomplete or ambiguous rows; absence cannot be established.")
         processes = merge_process_context(
             processes,
             parse_process_context(context_result.stdout) if context_result.returncode == 0 else {},
@@ -410,11 +420,11 @@ class LiveTriageCollector(Collector):
         high, medium, local_only = network_risk_candidates(correlated, processes, suspicious, cwds)
         network_commands = (network_result.command,) + ((cwd_result.command,) if cwd_result else ())
         return [
-            self._process_finding((process_result.command, context_result.command, starts_result.command), processes, suspicious, process_result.stderr),
+            self._process_finding((process_result.command, context_result.command, starts_result.command), processes, suspicious, process_result.stderr, inventory_complete),
             self._network_finding(network_commands, correlated, high, medium, local_only, network_result.stderr),
         ]
 
-    def _process_finding(self, commands: tuple[str, ...], processes: list[dict], suspicious: list[dict], error: str) -> Finding:
+    def _process_finding(self, commands: tuple[str, ...], processes: list[dict], suspicious: list[dict], error: str, inventory_complete: bool = False) -> Finding:
         available = bool(processes)
         priority_counts = Counter(str(item.get("priority", "low")) for item in suspicious)
         severity = (
@@ -439,6 +449,7 @@ class LiveTriageCollector(Collector):
             recommendation="Validate medium- and high-priority candidates against expected software before remediation. Corroborate isolated low-priority context before escalating it.",
             evidence=(Evidence("process_snapshot", "local", {
                 "process_count": len(processes),
+                "inventory_complete": inventory_complete,
                 "running_processes": [
                     {
                         key: process.get(key)

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Distinguish an absent original PID from the same executable path and owner observed under another PID after a process action. Show the observed PIDs without claiming a restart, identical file contents, malware, or successful remediation.
+- Require matching recorded host context and timezone-aware action, scan, and evidence times before interpreting a linked process follow-up. Prior, overlapping, malformed, and ambiguous snapshots remain unverifiable.
+- Record the local hostname with new process actions. Older action logs remain visible; missing host or identity evidence prevents a verified follow-up outcome.
+- Expand bundled synthetic validation from 18 to 26 scenarios, including alternate PIDs, different owners, invalid chronology, missing timestamps, different hosts, and duplicate process records.
+- Accept Live Triage's normal `Observed` process status during follow-up, and record process-inventory completeness explicitly. Unparsed lines, duplicate PIDs, missing numeric owners, command failures, and collection bounds prevent absence inferences without discarding successfully observed processes.
+
 ## 1.4.3 - 2026-10-04
 
 - Preserve application discovery errors as unknown inventory evidence instead of silently skipping unreadable directories. Keep discovered applications and block disappearance inferences from incomplete inventories.

@@ -170,6 +170,10 @@ An isolated low-priority process signal, such as execution from a hidden user di
 
 If containment is required, expand the finding and use **Terminate** first. This sends `SIGTERM` only from a Live Triage snapshot less than 15 minutes old, after the dashboard confirms the PID still has the same owner, parent, executable, and process start as the scan. Older reports require a fresh Live Triage scan before process response. **Force kill** sends `SIGKILL`, is separately confirmed, and can cause data loss. Preserve volatile evidence before either action and rerun Live Triage afterward. A zombie has already exited and cannot be killed; its parent must reap it.
 
+In the development checkout, **Process action history** also distinguishes the same executable observed under another PID. Use **Recheck process outcome**, then **View later snapshot** to inspect the new evidence. For example, an action on PID 4242 followed by the same executable path and owner under PID 5000 does not establish that the original process restarted: PID 5000 may have been an existing instance, and the file at that path may have changed. No further signal is sent automatically.
+
+A follow-up requires matching recorded hostnames and valid action, scan, and process-evidence timestamps. A scan that began before the signal is not a later observation. Older logs without host context remain visible but unverifiable. Hostnames and owner-controlled logs are not authenticated evidence; an absent PID never closes the investigation automatically.
+
 ### Review macOS vulnerability exposure
 
 Goal: prioritize operating-system updates using public vulnerability information.

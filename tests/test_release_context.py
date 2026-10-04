@@ -1,4 +1,5 @@
 import json
+import copy
 import os
 import subprocess
 import tempfile
@@ -8,6 +9,7 @@ from unittest.mock import patch
 
 from macos_inspector.collectors.application_trust import ApplicationTrustCollector, discover_applications
 from macos_inspector.collectors.ioc import IOCCollector
+from macos_inspector.collectors.live_triage import LiveTriageCollector
 from macos_inspector.collectors.yara_rules import YARARulesCollector
 from macos_inspector.core.comparison import compare_scan_payloads
 from macos_inspector.core.decision_support import analyze_changes
@@ -18,11 +20,22 @@ from macos_inspector.core.scan import run_scan
 from macos_inspector.web import DashboardState, ScanJob
 
 
+def response_fixture():
+    action = {"pid": 4242, "uid": 501, "process_start": "fixture-start", "executable": "/synthetic/tool",
+              "hostname": "fixture", "timestamp": "2026-01-01T00:00:00Z"}
+    snapshot = {"process_count": 1, "running_processes": [dict(action)], "inventory_complete": True, "snapshot_truncated": False}
+    report = {"metadata": {"hostname": "fixture", "started_at": "2026-01-01T00:01:00Z",
+                           "completed_at": "2026-01-01T00:02:00Z", "collection_errors": []},
+              "findings": [{"finding_id": "LIVE-PROCESS-TREE", "status": "Pass", "evidence": [
+                  {"kind": "process_snapshot", "collected_at": "2026-01-01T00:01:30Z", "value": snapshot}]}]}
+    return action, report, snapshot
+
+
 class ReleaseContextTests(unittest.TestCase):
     def test_declared_detection_validation_scenarios_are_reproducible(self):
         from scripts.validate_detections import validate_detections
         result = validate_detections()
-        self.assertEqual(result["scenario_count"], 18)
+        self.assertEqual(result["scenario_count"], 26)
         self.assertEqual(result["failed"], 0)
         self.assertEqual(result["false_alerts_in_expected_pass_cases"], 0)
         self.assertEqual(result["missed_review_in_declared_review_cases"], 0)
@@ -144,9 +157,7 @@ class ReleaseContextTests(unittest.TestCase):
             self.assertEqual(history["actions"][0]["process_start"], action["process_start"])
 
     def test_response_recheck_distinguishes_identity_reuse_exit_and_incomplete_snapshots(self):
-        action = {"pid": 4242, "uid": 501, "process_start": "fixture-start", "executable": "/synthetic/tool"}
-        snapshot = {"process_count": 1, "running_processes": [dict(action)], "snapshot_truncated": False}
-        report = {"metadata": {}, "findings": [{"finding_id": "LIVE-PROCESS-TREE", "status": "Pass", "evidence": [{"kind": "process_snapshot", "value": snapshot}]}]}
+        action, report, snapshot = response_fixture()
         self.assertEqual(evaluate_response_recheck(action, report)[0], "still_observed")
         snapshot["running_processes"][0]["process_start"] = "new-start"
         self.assertEqual(evaluate_response_recheck(action, report)[0], "pid_reused")
@@ -159,6 +170,88 @@ class ReleaseContextTests(unittest.TestCase):
         snapshot["snapshot_truncated"] = True
         self.assertEqual(evaluate_response_recheck(action, report)[0], "unable_to_verify")
         self.assertEqual(evaluate_response_recheck({"pid": 4242}, report)[0], "unable_to_verify")
+
+    def test_response_recheck_accepts_collector_observed_status_and_requires_absence_completeness(self):
+        action, report, snapshot = response_fixture()
+        report["findings"][0]["status"] = "Observed"
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "still_observed")
+        snapshot.update(process_count=0, running_processes=[])
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "not_observed")
+        for value in (None, False, 1, "true"):
+            snapshot["inventory_complete"] = value
+            self.assertEqual(evaluate_response_recheck(action, report)[0], "unable_to_verify")
+
+    def test_live_process_inventory_records_parse_gaps_without_discarding_observations(self):
+        from macos_inspector.core.runner import CommandResult
+
+        class Runner:
+            def __init__(self, output):
+                self.output = output
+
+            def run(self, argv):
+                return CommandResult(tuple(argv), 0, self.output if argv[0] == "ps" and "uid=,user=,stat=,comm=" in argv[-1] else "", "")
+
+        valid = "4242 1 501 fixture S /synthetic/tool\n"
+        for output, expected in ((valid, True), (valid + "1 0 0 root S kernel_task\n", True), (valid + "unparsed row\n", False),
+                                 (valid * 2, False), ("4242 1 fixture /synthetic/tool\n", False)):
+            collector = LiveTriageCollector(Runner(output))
+            finding = collector.collect()[0]
+            self.assertEqual(finding.evidence[0].value["inventory_complete"], expected)
+            self.assertEqual(bool(collector.collection_errors), not expected)
+            self.assertTrue(finding.evidence[0].value["running_processes"])
+
+    def test_response_recheck_rejects_invalid_chronology_host_and_ambiguous_inventory(self):
+        action, report, snapshot = response_fixture()
+        for field, value in (("started_at", "2025-12-31T23:59:00Z"), ("started_at", "2026-01-01T00:03:00Z"),
+                             ("started_at", "2026-01-01T00:01:00"), ("completed_at", "invalid"),
+                             ("hostname", "different-host")):
+            changed = copy.deepcopy(report)
+            changed["metadata"][field] = value
+            with self.subTest(field=field, value=value):
+                self.assertEqual(evaluate_response_recheck(action, changed)[0], "unable_to_verify")
+        for value in (None, "2025-12-31T23:59:00Z", "2026-01-01T00:03:00Z", "2026-01-01T00:01:30"):
+            changed = copy.deepcopy(report)
+            changed["findings"][0]["evidence"][0]["collected_at"] = value
+            self.assertEqual(evaluate_response_recheck(action, changed)[0], "unable_to_verify")
+        for field, value in (("timestamp", None), ("timestamp", "invalid"), ("hostname", None),
+                             ("pid", True), ("uid", True), ("executable", "relative"), ("process_start", {})):
+            self.assertEqual(evaluate_response_recheck({**action, field: value}, report)[0], "unable_to_verify")
+        snapshot["running_processes"].append(dict(action))
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "unable_to_verify")
+        snapshot["running_processes"] = [{**action, "pid": True}]
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "unable_to_verify")
+        for findings in (None, [None], report["findings"] * 2):
+            self.assertEqual(evaluate_response_recheck(action, {**report, "findings": findings})[0], "unable_to_verify")
+
+    def test_response_recheck_matches_executable_and_owner_without_claiming_restart(self):
+        action, report, snapshot = response_fixture()
+        snapshot["running_processes"] = [{**action, "pid": 5000, "process_start": "other-start"}]
+        outcome, explanation = evaluate_response_recheck(action, report)
+        self.assertEqual(outcome, "executable_observed")
+        self.assertIn("5000", explanation)
+        self.assertIn("existing instances or a restart", explanation)
+        self.assertIn("does not establish identical file contents", explanation)
+        snapshot["running_processes"][0]["uid"] = 502
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "not_observed")
+        snapshot["running_processes"][0].update(uid=501, executable="/synthetic/other")
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "not_observed")
+        snapshot["running_processes"][0]["executable"] = action["executable"]
+        snapshot["snapshot_truncated"] = True
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "unable_to_verify")
+        snapshot["snapshot_truncated"] = False
+        report["metadata"]["collection_errors"] = ["live-triage: failed"]
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "unable_to_verify")
+        report["metadata"]["collection_errors"] = []
+        snapshot["running_processes"] = [{**action, "pid": 5000 + index} for index in range(8)]
+        snapshot["process_count"] = 8
+        self.assertIn("5000, 5001, 5002, 5003, 5004 and 3 more", evaluate_response_recheck(action, report)[1])
+
+    def test_response_recheck_compares_timezone_offsets_as_instants(self):
+        action, report, _ = response_fixture()
+        action["timestamp"] = "2026-01-01T02:00:00+02:00"
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "still_observed")
+        action["timestamp"] = "2026-01-01T00:30:00-02:00"
+        self.assertEqual(evaluate_response_recheck(action, report)[0], "unable_to_verify")
 
     def test_response_recheck_job_requires_a_retained_action_and_exact_scope(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ):
@@ -177,10 +270,10 @@ class ReleaseContextTests(unittest.TestCase):
         from macos_inspector.core.models import Evidence, ScanMetadata, ScanResult
         import threading
         action = {"action_id": "fixture", "scan_id": "source", "timestamp": "2026-01-01T00:00:00Z", "pid": 4242,
-                  "uid": 501, "process_start": "fixture-start", "signal": "SIGTERM", "status": "signal_sent", "executable": "/synthetic/tool"}
+                  "uid": 501, "process_start": "fixture-start", "hostname": "fixture", "signal": "SIGTERM", "status": "signal_sent", "executable": "/synthetic/tool"}
         metadata = ScanMetadata("fixture", "later", "2026-01-01T00:01:00Z", "2026-01-01T00:02:00Z", "fixture", "fixture", "fixture", ("live-triage",))
         finding = Finding("LIVE-PROCESS-TREE", "Live Triage", "Synthetic snapshot", Severity.INFORMATIONAL, "Pass", "", "", "", "", "", "",
-                          evidence=(Evidence("process_snapshot", "local", {"process_count": 0, "running_processes": [], "snapshot_truncated": False}),))
+                          evidence=(Evidence("process_snapshot", "local", {"process_count": 0, "running_processes": [], "inventory_complete": True, "snapshot_truncated": False}, "2026-01-01T00:01:30Z"),))
         result = ScanResult(metadata, (finding,), 100, {})
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ):
             state = DashboardState(Path(directory))

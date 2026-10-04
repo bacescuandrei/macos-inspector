@@ -8,6 +8,7 @@ import sqlite3
 import json
 import importlib.util
 import os
+import socket
 import plistlib
 import re
 import signal
@@ -1505,6 +1506,7 @@ class CoreTests(unittest.TestCase):
             action_log = state.data_root / "response-actions.jsonl"
             self.assertEqual(action_log.stat().st_mode & 0o777, 0o600)
             self.assertEqual(json.loads(action_log.read_text())["scan_id"], "response-scan")
+            self.assertEqual(json.loads(action_log.read_text())["hostname"], socket.gethostname())
 
     def test_process_response_endpoint_requires_protected_post(self):
         with tempfile.TemporaryDirectory() as directory:

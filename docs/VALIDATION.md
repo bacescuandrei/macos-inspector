@@ -23,12 +23,13 @@ The optional output is written with owner-only permissions. The report includes 
 
 ## Bundled scenarios
 
-The initial set has 18 scenarios:
+The development set has 26 scenarios (the published 1.4.3 set has 18):
 
 - Accepted Developer ID and Mac App Store trust results, and an Apple component that Gatekeeper cannot assess as a standalone app.
 - Signature timeout, unavailable Gatekeeper, and internal trust-service error, which must remain unknown.
 - Disallowed extended metadata on an otherwise accepted app, a missing sealed resource, an unsigned executable, Gatekeeper rejection, ad-hoc identity, and a missing declared executable.
 - The same process still observed after an action, PID reuse, zombie state, original PID absent from an untruncated snapshot, truncated inventory, and a legacy snapshot without start identity.
+- The same executable under another PID, a different numeric owner, a prior or overlapping scan, mismatched host context, missing timezone or process-evidence timestamp, and duplicate PIDs.
 
 The result counts are descriptive for this small synthetic set. Zero unexpected alerts and zero missed review outcomes here are not estimates of real-world false-positive or false-negative rates. These cases do not cover all collector behavior, all macOS releases, races, malformed operating-system outputs, or adversarial evasion. The broader unit suite tests additional parsers, privacy boundaries, report output, comparison gaps, and process authorization.
 

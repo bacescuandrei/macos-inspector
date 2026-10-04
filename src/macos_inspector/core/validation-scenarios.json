@@ -18,6 +18,14 @@
     {"id":"response-zombie","kind":"response","expected":"zombie_observed","state":"zombie"},
     {"id":"response-not-observed","kind":"response","expected":"not_observed","state":"absent"},
     {"id":"response-truncated","kind":"response","expected":"unable_to_verify","state":"truncated"},
-    {"id":"response-legacy-identity","kind":"response","expected":"unable_to_verify","state":"legacy"}
+    {"id":"response-legacy-identity","kind":"response","expected":"unable_to_verify","state":"legacy"},
+    {"id":"response-executable-under-other-pid","kind":"response","expected":"executable_observed","state":"other_pid"},
+    {"id":"response-different-owner","kind":"response","expected":"not_observed","state":"other_owner"},
+    {"id":"response-prior-scan","kind":"response","expected":"unable_to_verify","state":"prior_scan"},
+    {"id":"response-overlapping-scan","kind":"response","expected":"unable_to_verify","state":"overlapping_scan"},
+    {"id":"response-different-host","kind":"response","expected":"unable_to_verify","state":"different_host"},
+    {"id":"response-timezone-missing","kind":"response","expected":"unable_to_verify","state":"naive_time"},
+    {"id":"response-snapshot-time-missing","kind":"response","expected":"unable_to_verify","state":"missing_snapshot_time"},
+    {"id":"response-duplicate-pid","kind":"response","expected":"unable_to_verify","state":"duplicate_pid"}
   ]
 }
