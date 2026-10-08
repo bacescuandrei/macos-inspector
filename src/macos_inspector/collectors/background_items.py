@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from pathlib import Path
 
 from .base import Collector
 from macos_inspector.core.models import Evidence, Finding, Severity

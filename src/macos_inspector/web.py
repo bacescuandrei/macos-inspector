@@ -41,7 +41,6 @@ from macos_inspector.reporters import REPORTERS, report_format_capabilities, req
 from macos_inspector.reporters.manifest_reporter import MAX_KEY_BYTES, MAX_MANIFEST_BYTES, verify_manifest
 from macos_inspector.reporters.comparison_reporter import write_comparison_reports
 from macos_inspector.reporters.common import secure_write_bytes, secure_write_text
-from macos_inspector.reporters.encrypted_bundle import encryption_available
 
 
 MAX_JOB_JOURNAL_BYTES = 2 * 1024 * 1024

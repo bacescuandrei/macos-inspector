@@ -37,7 +37,7 @@ def write_pdf(result: ScanResult, path: Path) -> None:
     temporary_path = Path(temporary)
     try:
         styles = getSampleStyleSheet()
-        navy, blue, pale, line = colors.HexColor("#17233b"), colors.HexColor("#2563eb"), colors.HexColor("#edf3ff"), colors.HexColor("#cbd5e1")
+        navy, pale, line = colors.HexColor("#17233b"), colors.HexColor("#edf3ff"), colors.HexColor("#cbd5e1")
         styles.add(ParagraphStyle(name="CoverTitle", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=28, leading=33, textColor=navy, alignment=TA_CENTER, spaceAfter=12))
         styles.add(ParagraphStyle(name="Section", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=17, leading=21, textColor=navy, spaceBefore=10, spaceAfter=10))
         styles.add(ParagraphStyle(name="FindingTitle", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=12, leading=15, textColor=navy, spaceBefore=8, spaceAfter=5))
@@ -91,7 +91,7 @@ def write_pdf(result: ScanResult, path: Path) -> None:
         ])
 
         category_rows = [[paragraph("Category", "TableHeader"), paragraph("Rule index", "TableHeader"), paragraph("Status availability", "TableHeader")]]
-        for category, score in result.category_scores.items():
+        for category in result.category_scores:
             category_rows.append([paragraph(category), paragraph(result.category_rule_index_label(category)), paragraph(f"{result.category_coverage.get(category, 100)}%")])
         category_table = Table(category_rows, colWidths=[100 * mm, 25 * mm, 27 * mm], repeatRows=1)
         category_table.setStyle(TableStyle([
