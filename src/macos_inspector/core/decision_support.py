@@ -376,7 +376,6 @@ def build_application_review(
         else:
             group = "recorded"
         signature = evidence_value(finding, "code_signature")
-        gatekeeper = evidence_value(finding, "gatekeeper_assessment")
         executable = evidence_value(finding, "executable_integrity")
         next_actions = guide.get("next_actions", []) if isinstance(guide, dict) else []
         application_path = str(app.get("path") or "")
