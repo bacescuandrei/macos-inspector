@@ -25,10 +25,14 @@ alert_error() {
 }
 
 open_dashboard() {
+  LAUNCH_URL="$($PYTHON -c 'import json,sys; from pathlib import Path; p=Path(sys.argv[1]); data=json.loads(p.read_text()); assert data["port"]==int(sys.argv[2]); print(data["url"])' "${OUTPUT_DIR}/.macos-inspector-session-${PORT}.json" "$PORT" 2>/dev/null)" || {
+    alert_error "The running dashboard has no usable private session link in this release folder. Close its launcher and start this version again."
+    return 1
+  }
   if [ "${MACOS_INSPECTOR_NO_OPEN:-0}" = "1" ]; then
     print -- "$URL"
   else
-    /usr/bin/open "$URL"
+    "$PYTHON" -c 'import json,subprocess,sys; from pathlib import Path; url=json.loads(Path(sys.argv[1]).read_text())["url"]; subprocess.run(["/usr/bin/osascript","-"], input="open location "+json.dumps(url)+"\n", text=True, stdout=subprocess.DEVNULL, check=True, timeout=10)' "${OUTPUT_DIR}/.macos-inspector-session-${PORT}.json"
   fi
 }
 
@@ -71,11 +75,6 @@ if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
   exit 1
 fi
 
-if dashboard_ready; then
-  open_dashboard
-  exit 0
-fi
-
 PYTHON=""
 if [ -n "${MACOS_INSPECTOR_PYTHON:-}" ]; then
   candidates=("$MACOS_INSPECTOR_PYTHON")
@@ -92,6 +91,11 @@ if [ -z "$PYTHON" ]; then
   open_setup_help
   alert_error "A compatible Python 3.10 or newer was not found. Open docs/START_HERE.html for setup instructions. If MACOS_INSPECTOR_PYTHON is set, it must point to a compatible executable. No software was installed or downloaded."
   exit 1
+fi
+
+if dashboard_ready; then
+  open_dashboard
+  exit 0
 fi
 
 /bin/mkdir -p "$STATE_DIR" "$OUTPUT_DIR"

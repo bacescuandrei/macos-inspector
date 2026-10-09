@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 2.0.0 - 2026-10-09
+
+- Add a dependency-free PDF Inspector on its own HTML page. Inspect local uploads without rendering pages, running JavaScript, extracting attachments, or contacting destinations.
+- Separate PDF analysis and PDF history from Mac audit controls, process actions, and scan history. Each page loads only its module script, with shared session helpers and clear links between pages. Opening the PDF page does not load audit code, Mac inventory, or audit history. Saved PDF reports remain available after returning; warn before leaving an in-progress analysis.
+- Introduce a responsive PDF layout with a document selection card, inspection steps, grouped evidence, mobile-friendly labeled rows, a clear action, and subtle reduced-motion-aware transitions.
+- Record document SHA-256, headers, recovered objects, escaped names, supported compressed object streams, JavaScript excerpts, action triggers/chains, destinations, embedded-file references, and declared metadata.
+- Distinguish document-open actions, document-level JavaScript registration, additional events, and user interaction. URL strings are not labeled as observed requests; no result declares a document safe or malicious.
+- Bound uploads, worker time/CPU, decoded bytes, objects, tokens, nesting, and output. Encrypted, malformed, unsupported, revised, and limited documents disclose incomplete interpretation.
+- Save owner-only HTML/JSON PDF reports and expose the latest 25 inspections separately from Mac scan history. Do not retain original PDFs.
+- Require per-launch authorization for API calls and report access. The launcher exchanges a private fragment without a user account. API credentials are origin-scoped; report cookies use separate credentials and a private path. Restarting the server invalidates earlier credentials. Unauthenticated health is minimal.
+- Fix YARA failure handling, including nonzero exit codes with empty stderr, and propagate collection errors to coverage context.
+- Preserve the previously released 1.4.4 history and tag. These are new changes, not a rewrite of the published release.
+
 ## 1.4.4 - 2026-10-04
 
 - Document the trusted-local-session requirement and distinguish browser-origin protections from API client authentication. The local API is not intended as a shared service on a host with untrusted local accounts.

@@ -112,6 +112,7 @@ def dashboard_request(server, method, path, host, *, origin=None, payload=None, 
     body = json.dumps(payload).encode() if payload is not None else None
     connection.putrequest(method, path, skip_host=True)
     connection.putheader("Host", host)
+    connection.putheader("Authorization", f"Bearer {server.session_secret}")
     if extra_host is not None:
         connection.putheader("Host", extra_host)
     if origin is not None:
@@ -1910,6 +1911,8 @@ class CoreTests(unittest.TestCase):
             self.assertTrue(any(name.endswith("/docs/INSTALLATION.md") for name in names))
             self.assertTrue(any(name.endswith("/docs/USAGE.md") for name in names))
             self.assertTrue(any(name.endswith("/src/macos_inspector/webui/index.html") for name in names))
+            for asset in ("pdf-inspector.html", "pdf-inspector.js", "dashboard-common.js"):
+                self.assertTrue(any(name.endswith(f"/src/macos_inspector/webui/{asset}") for name in names))
             self.assertFalse(any("macos-inspector-reports" in name or "/tmp/" in name or "/output/" in name for name in names))
             self.assertFalse(any(".DS_Store" in name or ".egg-info/" in name or "/._" in name for name in names))
 

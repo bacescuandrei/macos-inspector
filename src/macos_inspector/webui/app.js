@@ -1,4 +1,4 @@
-const state = { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, loadingReport: false, reportLoadId: 0, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', currentReportMetadata: null, guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map(), viewMode: 'simple' };
+Object.assign(state, { config: null, settings: null, cases: [], applications: [], activeCaseId: '', activeJob: null, baselineJob: null, poll: null, healthPoll: null, online: false, starting: false, loadingConfig: false, loadingReport: false, reportLoadId: 0, findings: [], filteredFindings: [], findingPage: 1, findingPageSize: 50, historyScans: [], currentScanId: '', currentReportMetadata: null, guidance: null, decisionSupport: null, applicationReviewFilter: 'attention', processCandidates: new Map(), viewMode: 'simple' });
 const PROCESS_RESPONSE_MAX_AGE_MS = 15 * 60 * 1000;
 
 const COPY = {
@@ -6,10 +6,7 @@ const COPY = {
     publicNoKey:'Public source | no key', optionalKey:'Public API | optional key', optionalFreeKey:'Optional | free Auth-Key', optional:'optional', explicitLookup:'Explicit ThreatFox IOC lookup', lookup:'Lookup', threatfoxPrivacy:'Only the indicator entered above is sent to ThreatFox after you press Lookup. Nothing is submitted automatically.', iocPacks:'IOC packs', yaraRules:'YARA rules', readinessTitle:'Collection readiness', recheck:'Recheck', checkingAccess:'Checking local access...', runningDiagnostics:'Running read-only diagnostics...', auditSections:'Audit sections', all:'All', clear:'Clear', scanProfiles:'What do you want to investigate?', individualSections:'Individual sections', reportFormats:'Report formats', caseReferenceOptional:'Case reference', analystOptional:'Analyst', optionalLabel:'optional', casePlaceholder:'Incident or case ID', analystPlaceholder:'Name or team', minimumSeverity:'Minimum severity shown', severityAll:'All findings', severityLow:'Low and above', severityMedium:'Medium and above', severityHigh:'High and above', severityCritical:'Critical only', runSelected:'Run selected audit', cancelScan:'Cancel running scan', scanResults:'Scan results', ready:'Ready', readyTitle:'Ready when you are.', readyHelp:'Select a section and start an audit.', scanComparison:'Scan comparison', close:'Close', searchFindings:'Search findings', searchFindingsPlaceholder:'Title, ID, evidence...', status:'Status', allStatuses:'All statuses', category:'Category', allCategories:'All categories', previous:'Previous', next:'Next', noScan:'No scan selected', noScanHelp:'Your findings will appear here with evidence, commands and recommendations.', previousScans:'Previous scans', refresh:'Refresh', findScan:'Find a scan', findScanPlaceholder:'Case, analyst, collector or scan ID', interfaceLanguage:'Interface language', onlineOptIn:'Online opt-in', run:'Run', sections:'sections', unavailable:'Unavailable'
 };
 
-const $ = (selector) => document.querySelector(selector);
-const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const t = (key) => COPY[key] || key;
-const writeOptions = (method, body) => ({method, headers:{'Content-Type':'application/json', 'X-MacOS-Inspector':'1'}, body:JSON.stringify(body)});
 
 function applyEnglishCopy() {
   document.documentElement.lang = 'en';
@@ -36,23 +33,6 @@ function setViewMode(mode, persist = true) {
     try { window.localStorage.setItem('macos-inspector-view-mode', state.viewMode); } catch (error) { /* Local preferences are optional. */ }
   }
 }
-const api = async (url, options = {}) => {
-  let response;
-  try {
-    response = await fetch(url, options);
-  } catch (error) {
-    setConnection('offline');
-    throw new Error('Dashboard server unavailable. Open macOS Inspector.command and keep its launcher window open.');
-  }
-  let payload;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    throw new Error('Dashboard returned an invalid response. Open this page through http://127.0.0.1:8765, not as a file.');
-  }
-  if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
-  return payload;
-};
 
 function setMessage(message, error = false) {
   document.querySelectorAll('#action-message, [data-scan-message]').forEach((element) => {
@@ -105,16 +85,6 @@ async function startGuidedCheck() {
   await startScan();
 }
 
-function setConnection(status, health = null) {
-  const element = $('#connection');
-  state.online = status === 'online';
-  if (element) {
-    element.className = `connection ${status}`;
-    element.textContent = status === 'online' ? `Connected | v${health?.version || '?'}` : status === 'checking' ? 'Connecting...' : 'Offline | retrying';
-    element.title = status === 'online' && health?.started_at ? `Server started ${health.started_at}` : 'The dashboard will reconnect automatically.';
-  }
-  updateRunAvailability();
-}
 
 function finishActiveJob(jobId) {
   if (state.activeJob === jobId) state.activeJob = null;
@@ -1016,12 +986,6 @@ function renderResponseHistory(payload) {
   updateRunAvailability();
 }
 
-function setInline(selector, message, error = false) {
-  const element = $(selector);
-  if (!element) return;
-  element.textContent = message || '';
-  element.classList.toggle('error', error);
-}
 
 async function runDetectionValidation() {
   const button = $('#run-detection-validation');
@@ -1264,6 +1228,13 @@ async function checkHealth() {
   const wasOffline = !state.online;
   try {
     const health = await api('/api/health');
+    if (health.session_required) {
+      setConnection('offline');
+      $('#session-help').classList.remove('hidden');
+      setMessage('Browser session not authorized. Reopen macOS Inspector.command.', true);
+      return health;
+    }
+    $('#session-help').classList.add('hidden');
     setConnection('online', health);
     if (!state.config) await loadDashboardData();
     if (health.active_job && !state.activeJob) {
@@ -1349,6 +1320,7 @@ async function loadHistoryJob(job) {
   document.querySelector('.results-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.location.protocol === 'file:' || new URLSearchParams(window.location.search).has('source-preview')) {
     document.body.classList.add('file-mode');
@@ -1356,6 +1328,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyEnglishCopy();
     return;
   }
+  if (new URLSearchParams(window.location.search).get('workspace') === 'pdf' || window.location.hash === '#pdf-inspector') {
+    const destination = new URL('pdf-inspector.html', window.location.href);
+    destination.search = window.location.search;
+    destination.searchParams.delete('workspace');
+    if (new URLSearchParams(window.location.hash.slice(1)).has('launch')) destination.hash = window.location.hash;
+    window.location.replace(destination.href);
+    return;
+  }
+  window.addEventListener('hashchange', async () => {
+    if (new URLSearchParams(window.location.hash.slice(1)).has('launch')) {
+      await authorizeLaunchFragment();
+      await checkHealth();
+    }
+  });
   $('#select-all').addEventListener('click', () => {
     document.querySelectorAll('[data-collector]').forEach((input) => { input.checked = true; });
     syncActiveProfile();
@@ -1402,6 +1388,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#findings-next').addEventListener('click', () => { if (state.findingPage * state.findingPageSize < state.filteredFindings.length) { state.findingPage += 1; renderFindingPage(); document.querySelector('.results-panel').scrollIntoView({behavior: 'smooth'}); } });
   setConnection('checking');
   applyEnglishCopy();
+  await authorizeLaunchFragment();
   try { setViewMode(window.localStorage.getItem('macos-inspector-view-mode') || 'simple', false); } catch (error) { setViewMode('simple', false); }
   try { if (window.localStorage.getItem('macos-inspector-guide-1.3.0') === 'dismissed') setGuideVisible(false); } catch (error) { /* Show the guide when local preferences are unavailable. */ }
   const health = await checkHealth();

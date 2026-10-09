@@ -7,7 +7,7 @@
   <title>macOS Inspector dashboard</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body data-workspace="audit">
   <section id="local-launcher-help" class="local-launcher-help hidden" aria-labelledby="local-launcher-title">
     <div class="launcher-shell">
       <div class="launcher-brand"><span class="brand-mark" aria-hidden="true">⌘</span><div><p class="eyebrow">MACOS INSPECTOR | LOCAL DASHBOARD</p><strong>macOS Inspector</strong></div></div>
@@ -42,6 +42,11 @@
   </header>
 
   <main class="layout">
+    <nav class="workspace-nav" aria-label="Inspector pages">
+      <a href="index.html" data-workspace-link="audit" aria-current="page"><span aria-hidden="true">⌘</span> Mac audit</a>
+      <a href="pdf-inspector.html" data-workspace-link="pdf"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"/></svg> PDF Inspector</a>
+    </nav>
+    <section id="session-help" class="welcome-guide hidden" aria-labelledby="session-help-title"><div><h2 id="session-help-title">Authorize this browser</h2><p>Double-click macOS Inspector.command again. The launcher opens a private session link automatically. No account or password is needed. Links from an earlier server session no longer work.</p></div></section>
     <section class="intro" aria-labelledby="intro-title">
       <div>
         <p class="eyebrow">AUDIT CONSOLE</p>
@@ -249,6 +254,7 @@
     </section>
     <details class="history-section"><summary>Detection regression validation</summary><p class="muted">Evaluate bundled synthetic scenarios without scanning your Mac, contacting providers, or sending process signals. These tests are not a malware detection benchmark.</p><button id="run-detection-validation" type="button" class="secondary-button">Run detection validation</button><div id="detection-validation-result" role="status"></div></details>
   </main>
+  <script src="dashboard-common.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -34,6 +34,10 @@ jobs:
 
       - name: Check dashboard JavaScript syntax
         run: node --check src/macos_inspector/webui/app.js
+      - name: Check PDF Inspector JavaScript syntax
+        run: node --check src/macos_inspector/webui/pdf-inspector.js
+      - name: Check shared dashboard JavaScript syntax
+        run: node --check src/macos_inspector/webui/dashboard-common.js
 
       - name: Build portable macOS package
         env:

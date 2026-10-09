@@ -3,6 +3,199 @@ const { execFileSync } = require('node:child_process');
 const { default: AxeBuilder } = require('@axe-core/playwright');
 const { readFileSync } = require('node:fs');
 
+function pdfInspectionFixture() {
+  return {report: {
+    tool_version: 'fixture', analyzed_at: '2026-10-09T10:00:00Z',
+    file: {name: '<img src=x onerror=window.pdfInjected=true>' + 'a'.repeat(200), bytes: 42, sha256: 'a'.repeat(64)},
+    structure: {header: '%PDF-1.7', header_offset: 0, object_count: 3, compressed_object_count: 1,
+      final_eof_marker: true, encrypted_or_indicated: false, xref_validation: 'Not full PDF conformance validation.'},
+    assessment: {label: 'Review features', explanation: 'Review declared actions, not a malware verdict.', next_step: 'Keep the original closed and validate its source.'},
+    boundary: 'No code was executed, no pages rendered, and no destinations contacted.',
+    answers: [{question: 'Does it contain JavaScript?', answer: 'JavaScript is present or indicated.', note: 'Not proof of malware. Analysis is limited.'}, {question: 'Does anything run when it opens?', answer: 'Active document or page-open features are declared.', note: 'Reader execution was not tested.'}],
+    privacy: 'Original not retained. Reports may contain sensitive metadata.',
+    actions: [{type: 'JavaScript', trigger: 'Document open', target: 'Not recorded', context: 'Object 1 /OpenAction'}],
+    javascript: [{context: 'Object 2 /JS', bytes: 40, sha256: 'b'.repeat(64), preview: '<script>window.pdfInjected=true</script>' + 'b'.repeat(300), preview_truncated: true, indicators: ['Possible URL opening or form submission']}],
+    destinations: [{value: 'https://example.invalid/' + 'c'.repeat(300), kind: 'String in JavaScript; execution not established', context: 'Object 2'}],
+    attachments: [{filename: '<svg onload=window.pdfInjected=true>', context: 'Object 3', note: 'Not extracted or executed.'}],
+    name_counts: {JavaScript: 1, JS: 1, OpenAction: 1}, metadata: {Author: '<script>window.pdfInjected=true</script>'},
+    limitations: ['Unsupported stream filter; absence claims unavailable.'],
+  }, reports: {html: '/reports/macos-inspector-pdf-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.html', json: '/reports/macos-inspector-pdf-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.json'}};
+}
+
+async function openPdfPage(page) {
+  await page.getByRole('link', {name: 'PDF Inspector', exact: true}).click();
+  await page.waitForFunction(() => typeof state !== 'undefined' && state.healthPoll !== null);
+  await expect(page.locator('#connection')).toHaveText('Offline | retrying');
+  await page.evaluate(() => clearInterval(state.healthPoll));
+}
+
+test('PDF inspection is explicit, bounded, escaped and responsive on its own page', async ({ page }) => {
+  await openPdfPage(page);
+  let calls = 0;
+  let upload;
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/pdf-inspector', async route => {
+    calls += 1;
+    upload = route.request();
+    await pending;
+    await route.fulfill({status: 201, json: pdfInspectionFixture()});
+  });
+  await page.route('**/api/pdf-inspections', route => route.fulfill({json: {inspections: []}}));
+  await page.evaluate(() => { state.online = true; updatePdfAvailability(); });
+  await page.evaluate(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (url, options) => {
+      if (url === '/api/pdf-inspector' && options?.body instanceof File) window.pdfUploadText = await options.body.text();
+      return originalFetch(url, options);
+    };
+  });
+  await page.locator('#pdf-file').setInputFiles({name: 'sample.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7\nsynthetic fixture')});
+  expect(calls).toBe(0);
+  await page.getByRole('button', {name: 'Inspect PDF', exact: true}).click();
+  await expect(page.locator('#pdf-file')).toBeDisabled();
+  await expect(page.locator('#inspect-pdf')).toBeDisabled();
+  release();
+  await expect(page.locator('#pdf-result')).toContainText('Review features');
+  expect(upload.headers()['content-type']).toBe('application/pdf');
+  expect(await page.evaluate(() => window.pdfUploadText)).toContain('%PDF-1.7');
+  expect(calls).toBe(1);
+  await expect(page.locator('#pdf-result')).toContainText('Document open');
+  await expect(page.locator('#pdf-result')).toContainText('Unsupported stream filter');
+  expect(await page.evaluate(() => window.pdfInjected)).toBeUndefined();
+  expect(await page.locator('#pdf-result img, #pdf-result svg, #pdf-result script, #pdf-result iframe').count()).toBe(0);
+  expect(await page.locator('#pdf-result a[href^="https:"]').count()).toBe(0);
+  await page.locator('#pdf-result').getByText('Destinations, not observed requests', {exact: true}).click();
+  await page.locator('#pdf-result').getByText('Attachments', {exact: true}).click();
+  await page.locator('#pdf-result').getByText('Parsed structural names and declared metadata', {exact: true}).click();
+  await page.locator('#pdf-result').getByText(/JavaScript \| Object 2/).click();
+  await expect(page.locator('#pdf-inspector')).toBeVisible();
+  for (const width of [320, 375, 768, 1280]) {
+      await page.setViewportSize({width, height: 850});
+      expect(await page.locator('#pdf-inspector').evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  }
+  const results = await new AxeBuilder({page}).include('#pdf-inspector').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(results.violations.map(row => row.id)).toEqual([]);
+});
+
+test('PDF invalid sizes and failed analysis do not leave a previous verdict visible', async ({ page }) => {
+  await openPdfPage(page);
+  await page.evaluate(() => { state.online = true; updatePdfAvailability(); });
+  await page.locator('#pdf-file').setInputFiles({name: 'empty.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(0)});
+  await expect(page.locator('#inspect-pdf')).toBeDisabled();
+  await expect(page.locator('#pdf-message')).toContainText('nonempty');
+  await page.locator('#pdf-file').setInputFiles({name: 'large.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(25 * 1024 * 1024 + 1)});
+  await expect(page.locator('#inspect-pdf')).toBeDisabled();
+  await page.evaluate(payload => renderPdfInspection(payload), pdfInspectionFixture());
+  await page.route('**/api/pdf-inspector', route => route.fulfill({status: 400, json: {error: 'Analysis resource limit reached. No complete result is available.'}}));
+  await page.locator('#pdf-file').setInputFiles({name: 'broken.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-broken')});
+  await expect(page.locator('#pdf-result')).toBeHidden();
+  await page.locator('#inspect-pdf').click();
+  await expect(page.locator('#pdf-message')).toContainText('No complete result');
+  await expect(page.locator('#pdf-result')).toBeHidden();
+  await expect(page.locator('#inspect-pdf')).toBeEnabled();
+});
+
+test('PDF page is isolated, deep-linkable and does not load Mac audit code or data', async ({page}) => {
+  const calls = [];
+  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) calls.push(new URL(request.url()).pathname); });
+  await page.route('**/api/health', route => route.fulfill({json: {version: 'fixture', session_required: false}}));
+  await page.route('**/api/pdf-inspections', route => route.fulfill({json: {inspections: []}}));
+  await page.goto('/pdf-inspector.html');
+  await expect(page.locator('#connection')).toContainText('Connected');
+  await expect(page.locator('#pdf-history-list')).toContainText('No PDF inspections');
+  await expect(page.locator('#collectors, #history, #response-history-list, #view-simple, #show-guide')).toHaveCount(0);
+  await expect(page.locator('script[src="app.js"]')).toHaveCount(0);
+  expect(await page.evaluate(() => typeof startScan)).toBe('undefined');
+  await expect(page.getByRole('heading', {name: 'Previous scans', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('heading', {name: 'Audit sections', exact: true})).toHaveCount(0);
+  await expect(page.locator('[data-workspace-link="pdf"]')).toHaveAttribute('aria-current', 'page');
+  expect(calls.filter(path => !['/api/health', '/api/pdf-inspections'].includes(path))).toEqual([]);
+  await page.reload();
+  await expect(page.locator('#pdf-inspector')).toBeVisible();
+  expect(calls.filter(path => !['/api/health', '/api/pdf-inspections'].includes(path))).toEqual([]);
+  for (const width of [320,375,768,1280]) {
+    await page.setViewportSize({width,height:850});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  }
+  const result = await new AxeBuilder({page}).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(result.violations.map(row => row.id)).toEqual([]);
+  let launchToken;
+  await page.route('**/api/session', route => { launchToken = route.request().postDataJSON().token; return route.fulfill({json: {api_token: 'synthetic-page-session'}}); });
+  calls.length = 0;
+  await page.goto('/?workspace=pdf#launch=synthetic-page-launch');
+  await expect(page).toHaveURL(/\/pdf-inspector\.html$/);
+  await expect.poll(() => launchToken).toBe('synthetic-page-launch');
+  await expect(page.locator('#pdf-history-list')).toContainText('No PDF inspections');
+  expect(calls.filter(path => !['/api/session', '/api/health', '/api/pdf-inspections'].includes(path))).toEqual([]);
+});
+
+test('PDF page asks before leaving a running inspection and allows navigation when finished', async ({page}) => {
+  await openPdfPage(page);
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/pdf-inspector', async route => { await pending; await route.fulfill({status: 201, json: pdfInspectionFixture()}); });
+  await page.route('**/api/pdf-inspections', route => route.fulfill({json: {inspections: []}}));
+  await page.evaluate(() => { state.online = true; updatePdfAvailability(); });
+  await page.locator('#pdf-file').setInputFiles({name: 'waiting.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7')});
+  await page.locator('#inspect-pdf').click();
+  await expect(page.locator('#inspect-pdf')).toBeDisabled();
+  let dialogType;
+  page.once('dialog', async dialog => { dialogType = dialog.type(); await dialog.dismiss(); });
+  await page.getByRole('link', {name: 'Back to Mac audit', exact: true}).click({noWaitAfter: true});
+  await expect.poll(() => dialogType).toBe('beforeunload');
+  expect(new URL(page.url()).pathname).toBe('/pdf-inspector.html');
+  release();
+  await expect(page.locator('#pdf-result')).toContainText('Review features');
+  await expect(page.locator('#inspect-pdf')).toBeEnabled();
+  await page.getByRole('link', {name: 'Back to Mac audit', exact: true}).click();
+  await expect(page).toHaveURL(/\/index\.html$/);
+});
+
+test('separate pages have reciprocal navigation, browser history and reduced motion', async ({page}) => {
+  await openPdfPage(page);
+  expect(new URL(page.url()).pathname).toBe('/pdf-inspector.html');
+  await page.getByRole('link', {name: 'Back to Mac audit', exact: true}).click();
+  await expect(page.locator('#pdf-file, #pdf-result, script[src="pdf-inspector.js"]')).toHaveCount(0);
+  await expect(page.getByRole('heading', {name: 'Audit sections', exact: true})).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/index.html');
+  await page.goBack();
+  await expect(page.locator('#pdf-inspector')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/pdf-inspector.html');
+  await page.goForward();
+  await expect(page.getByRole('heading', {name: 'Audit sections', exact: true})).toBeVisible();
+  await openPdfPage(page);
+  await page.locator('#pdf-file').setInputFiles({name: 'example.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7')});
+  await page.evaluate(payload => renderPdfInspection(payload), pdfInspectionFixture());
+  await page.emulateMedia({reducedMotion: 'reduce'});
+  expect(await page.locator('#pdf-inspector').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeLessThanOrEqual(.001);
+  await page.locator('#clear-pdf').click();
+  await expect(page.locator('#pdf-result')).toBeHidden();
+  await expect(page.locator('#pdf-result')).toBeEmpty();
+  await expect(page.locator('#pdf-empty')).toBeVisible();
+  await expect(page.locator('#pdf-file')).toBeFocused();
+  await expect(page.locator('#inspect-pdf')).toBeDisabled();
+  await expect(page.locator('#pdf-step-select')).toHaveAttribute('aria-current', 'step');
+});
+
+test('launch credential is removed from the address and API credentials stay same-origin', async ({ page }) => {
+  let token;
+  let authorization;
+  let externalCalls = 0;
+  await page.route('**/api/session', route => { token = route.request().postDataJSON().token; return route.fulfill({json: {authorized: true, api_token: 'synthetic-session-secret'}}); });
+  await page.route('**/api/config', route => { authorization = route.request().headers()['authorization']; return route.fulfill({json: {fixture: true}}); });
+  await page.route('https://example.invalid/**', route => { externalCalls += 1; return route.abort(); });
+  await page.goto('/#launch=synthetic-launch-secret');
+  await expect.poll(() => token).toBe('synthetic-launch-secret');
+  await page.waitForFunction(() => window.sessionStorage.getItem('macos-inspector-session') === 'synthetic-session-secret');
+  expect(new URL(page.url()).hash).toBe('');
+  await page.evaluate(() => api('/api/config'));
+  expect(authorization).toBe('Bearer synthetic-session-secret');
+  await page.evaluate(() => api('https://example.invalid/').catch(() => null));
+  expect(externalCalls).toBe(0);
+  expect(await page.locator('body').textContent()).not.toContain('synthetic-session-secret');
+});
+
 test('offline setup help is responsive and accessible without a running dashboard', async ({ page }) => {
   const body = readFileSync('docs/START_HERE.html', 'utf8');
   await page.route('**/setup-help.html', route => route.fulfill({contentType: 'text/html', body}));

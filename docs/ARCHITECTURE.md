@@ -17,10 +17,11 @@ Collectors do not write reports. Reporters do not run host commands. This bounda
 
 - `collectors`: read-only host inspection and parsing logic.
 - `core`: models, command execution, scan orchestration, scoring, storage, comparison, guided interpretation, intelligence caching, and timeline generation.
+- `core/pdf_inspector`: bounded static PDF object recovery and evidence interpretation, executed in a separate worker for dashboard uploads. PDF results are independent of host scan scores, comparisons, and process-response authorization.
 - `core.process_control`: guarded validation and signaling for report-listed current-user processes.
 - `reporters`: HTML, JSON, Markdown, CSV, SARIF, PDF, manifest, ZIP, and encrypted ZIP output.
 - `web.py`: loopback-only dashboard API, job state, cancellation, settings, cases, and report access.
-- `webui`: static HTML, CSS, and JavaScript served by the local dashboard.
+- `webui`: separate audit (`index.html`, `app.js`) and document-triage (`pdf-inspector.html`, `pdf-inspector.js`) pages served by the local dashboard. `dashboard-common.js` provides only shared connection, authorization, API, and escaping helpers. Each page loads only its own module; both share the same tab-scoped browser authorization and report-access cookie.
 
 ## Trust boundaries
 

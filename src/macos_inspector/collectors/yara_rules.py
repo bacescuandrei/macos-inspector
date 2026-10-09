@@ -17,7 +17,10 @@ def discover_yara_rules(directory: Path) -> tuple[list[Path], list[str]]:
     rules, errors = [], []
     if not directory.is_dir():
         return rules, errors
-    for path in sorted((*directory.glob("*.yar"), *directory.glob("*.yara")))[:MAX_RULE_FILES]:
+    candidates = sorted((*directory.glob("*.yar"), *directory.glob("*.yara")))
+    if len(candidates) > MAX_RULE_FILES:
+        errors.append(f"Only the first {MAX_RULE_FILES} rule files are in scope; additional rule files were not inspected.")
+    for path in candidates[:MAX_RULE_FILES]:
         try:
             if not path.is_file() or path.stat().st_size > MAX_RULE_BYTES:
                 errors.append(f"{path.name}: not a regular rule file or exceeds {MAX_RULE_BYTES} bytes")
@@ -43,6 +46,8 @@ def parse_yara_matches(text: str) -> list[dict[str, str]]:
 
 def _targets(values: list[str]) -> tuple[list[Path], list[str]]:
     targets, errors = [], []
+    if len(values) > MAX_TARGETS:
+        errors.append(f"Only the first {MAX_TARGETS} explicit targets are in scope.")
     for value in values[:MAX_TARGETS]:
         path = Path(value).expanduser()
         try:
@@ -70,9 +75,11 @@ class YARARulesCollector(Collector):
         self.rules_directory = rules_directory or application_data_dir() / "yara-rules"
 
     def collect(self) -> list[Finding]:
+        self.collection_errors = []
         if not self.settings["yara"]["enabled"]:
             return [self._summary("Not Applicable", [], [], ["YARA scanning is disabled in local settings."], ())]
         rules, errors = discover_yara_rules(self.rules_directory)
+        self.collection_errors = errors
         targets, target_errors = _targets(self.settings["yara"]["targets"])
         errors.extend(target_errors)
         if not rules or not targets:
@@ -90,12 +97,13 @@ class YARARulesCollector(Collector):
                     return [self._summary("Unknown", rules, targets, errors, tuple(commands))]
                 if result.timed_out:
                     errors.append(f"Timed out: {rule.name} -> {target}")
-                elif result.returncode not in {0, 1} and result.stderr:
-                    errors.append(f"{rule.name}: {result.stderr[:500]}")
-                matches.extend({**item, "rule_file": rule.name, "target": str(target)} for item in parse_yara_matches(result.stdout))
+                elif result.returncode != 0:
+                    errors.append(f"{rule.name}: YARA exited with code {result.returncode}. {result.stderr[:500]}".strip())
+                else:
+                    matches.extend({**item, "rule_file": rule.name, "target": str(target)} for item in parse_yara_matches(result.stdout))
                 completed += 1
                 self.report_progress(None, completed, total)
-        status = "Match" if matches else ("Review" if errors else "Pass")
+        status = "Match" if matches else ("Unknown" if errors else "Pass")
         return [self._summary(status, rules, targets, errors, tuple(commands), matches)]
 
     def _summary(self, status: str, rules: list[Path], targets: list[Path], errors: list[str], commands: tuple[str, ...], matches: list[dict] | None = None) -> Finding:

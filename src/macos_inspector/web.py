@@ -4,6 +4,11 @@ import ipaddress
 import json
 import mimetypes
 import os
+import hmac
+import secrets
+import signal
+import subprocess
+import sys
 import re
 import socket
 import threading
@@ -14,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie, CookieError
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -31,6 +37,8 @@ from macos_inspector.core.guidance import build_guidance
 from macos_inspector.core.process_control import terminate_reported_process
 from macos_inspector.core.response_history import append_response_event, read_response_history, evaluate_response_recheck
 from macos_inspector.core.detection_validation import validate_detections
+from macos_inspector.core.pdf_inspector import inspect_pdf_isolated, MAX_PDF_BYTES
+from macos_inspector.reporters.pdf_inspection_reporter import render_pdf_inspection
 from macos_inspector.core.readiness import collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.runner import CommandRunner, ScanCancelled
@@ -234,6 +242,7 @@ class DashboardState:
         self.cancel_events: dict[str, threading.Event] = {}
         self.item_progress_runtime: dict[str, dict] = {}
         self.lock = threading.Lock()
+        self.pdf_slot = threading.BoundedSemaphore(1)
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.started_monotonic = time.monotonic()
         self.journal_path = self.output / ".macos-inspector-jobs.json"
@@ -462,6 +471,8 @@ class DashboardState:
         historical = []
         candidates = []
         for path in self.output.glob("macos-inspector-*.json"):
+            if path.name.startswith("macos-inspector-pdf-") or path.is_symlink():
+                continue
             try:
                 candidates.append((path.stat().st_mtime, path))
             except OSError:
@@ -506,6 +517,24 @@ class DashboardState:
             "uptime_seconds": max(0, int(time.monotonic() - self.started_monotonic)),
             "active_job": active_job,
         }
+
+    def pdf_history(self) -> list[dict]:
+        paths = []
+        for path in self.output.glob("macos-inspector-pdf-*.json"):
+            if not path.is_symlink() and re.fullmatch(r"macos-inspector-pdf-[0-9a-f-]{36}\.json", path.name):
+                try:
+                    paths.append((path.stat().st_mtime, path))
+                except OSError:
+                    pass
+        results = []
+        for _, path in sorted(paths, reverse=True)[:25]:
+            try:
+                report = read_json_limited(path, 2 * 1024 * 1024)
+                results.append({"file": report["file"], "label": report["assessment"]["label"], "analyzed_at": report["analyzed_at"],
+                                "reports": {"json": f"/reports/{path.name}", "html": f"/reports/{path.stem}.html"}})
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        return results
 
     def readiness(self) -> dict:
         return collect_readiness(self.output)
@@ -780,6 +809,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _authenticated(self) -> bool:
+        credentials = self.headers.get_all("Authorization", [])
+        if len(credentials) == 1:
+            value = credentials[0]
+            if value.startswith("Bearer ") and value[7:].isascii():
+                return hmac.compare_digest(value[7:], self.server.session_secret)
+        try:
+            cookies = SimpleCookie()
+            cookies.load(self.headers.get("Cookie", ""))
+            value = cookies.get(self.server.cookie_name)
+            return bool(urlparse(self.path).path.startswith(self.server.report_prefix) and value and value.value.isascii() and hmac.compare_digest(value.value, self.server.report_secret))
+        except CookieError:
+            return False
+
+    def _require_session(self) -> bool:
+        if self._authenticated():
+            return True
+        self._send_json({"error": "Open the dashboard using macOS Inspector.command to authorize this browser session."}, HTTPStatus.UNAUTHORIZED)
+        return False
+
     def _headers(self, status: int, content_type: str, length: int, report: bool = False, download_name: str | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -790,6 +839,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if getattr(self, "session_cookie", False):
+            self.send_header("Set-Cookie", f"{self.server.cookie_name}={self.server.report_secret}; HttpOnly; SameSite=Strict; Path={self.server.report_prefix}")
         if download_name:
             self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
         if report:
@@ -799,6 +850,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _send_json(self, payload: object, status: int = 200) -> None:
+        def scoped_links(value):
+            if isinstance(value, dict):
+                return {key: ({format: self.server.report_prefix + url.removeprefix("/reports/") if isinstance(url, str) and url.startswith("/reports/") else url for format, url in item.items()} if key == "reports" and isinstance(item, dict) else scoped_links(item)) for key, item in value.items()}
+            if isinstance(value, list):
+                return [scoped_links(item) for item in value]
+            return value
+        payload = scoped_links(payload)
         body = json.dumps(payload, ensure_ascii=False).encode()
         self._headers(status, "application/json; charset=utf-8", len(body))
         self.wfile.write(body)
@@ -830,12 +888,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         parsed = urlparse(self.path)
         path = parsed.path
-        if path == "/":
+        if path == "/api/health" and not self._authenticated():
+            self._send_json({"status": "ok", "version": __version__, "session_required": True})
+            return
+        if (path.startswith("/api/") or path.startswith("/reports/") or path.startswith("/private-reports/")) and not self._require_session():
+            return
+        if path in {"/", "/index.html"}:
             self._send_asset("index.html")
+        elif path == "/pdf-inspector.html":
+            self._send_asset("pdf-inspector.html")
+        elif path == "/dashboard-common.js":
+            self._send_asset("dashboard-common.js")
         elif path == "/app.js":
             self._send_asset("app.js")
         elif path == "/styles.css":
             self._send_asset("styles.css")
+        elif path == "/pdf-inspector.js":
+            self._send_asset("pdf-inspector.js")
+        elif path == "/api/pdf-inspections":
+            self._send_json({"inspections": self.state.pdf_history()})
         elif path == "/api/config":
             self._send_json({
                 "collectors": [{
@@ -905,6 +976,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json(job or {"error": "Scan not found."}, 200 if job else 404)
         elif path.startswith("/reports/"):
             self._send_report(unquote(path.removeprefix("/reports/")))
+        elif path.startswith(self.server.report_prefix):
+            self._send_report(unquote(path.removeprefix(self.server.report_prefix)))
         else:
             self.send_error(404)
 
@@ -944,6 +1017,58 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not self._require_local_request():
             return
         path = urlparse(self.path).path
+        if path == "/api/session":
+            try:
+                payload = self._read_json_body(1024)
+                token = payload.get("token", "")
+                if not isinstance(token, str) or not token.isascii() or not hmac.compare_digest(token, self.server.launch_secret):
+                    raise PermissionError("Invalid or expired launch credential. Reopen macOS Inspector.command.")
+                self.session_cookie = True
+                self._send_json({"authorized": True, "api_token": self.server.session_secret})
+            except PermissionError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+            except (ValueError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if not self._require_session():
+            return
+        if path == "/api/pdf-inspector":
+            if not self.state.pdf_slot.acquire(blocking=False):
+                self._send_json({"error": "A PDF analysis is already running. Try again when it finishes."}, HTTPStatus.CONFLICT)
+                return
+            try:
+                lengths = self.headers.get_all("Content-Length", [])
+                if self.headers.get("X-MacOS-Inspector") != "1" or self.headers.get_content_type() != "application/pdf":
+                    raise PermissionError("Invalid local PDF upload.")
+                if len(lengths) != 1 or self.headers.get("Transfer-Encoding"):
+                    raise ValueError("A single bounded Content-Length is required.")
+                length = int(lengths[0])
+                if not 0 < length <= MAX_PDF_BYTES:
+                    raise ValueError("Select a nonempty PDF no larger than 25 MiB.")
+                self.connection.settimeout(10)
+                content = self.rfile.read(length)
+                if len(content) != length:
+                    raise ValueError("PDF upload was incomplete.")
+                filename = unquote(self.headers.get("X-PDF-Filename", "document.pdf"))[:500]
+                report = inspect_pdf_isolated(content, filename)
+                identifier = str(uuid.uuid4())
+                stem = f"macos-inspector-pdf-{identifier}"
+                html_path, json_path = self.state.output / f"{stem}.html", self.state.output / f"{stem}.json"
+                try:
+                    secure_write_text(html_path, render_pdf_inspection(report))
+                    secure_write_text(json_path, json.dumps(report, ensure_ascii=False, indent=2))
+                except OSError:
+                    html_path.unlink(missing_ok=True)
+                    json_path.unlink(missing_ok=True)
+                    raise
+                self._send_json({"report": report, "reports": {"json": f"/reports/{stem}.json", "html": f"/reports/{stem}.html"}}, HTTPStatus.CREATED)
+            except PermissionError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+            except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            finally:
+                self.state.pdf_slot.release()
+            return
         if path == "/api/processes/terminate":
             try:
                 payload = self._read_json_body(4096)
@@ -1075,6 +1200,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         if not self._require_local_request():
             return
+        if not self._require_session():
+            return
         path = urlparse(self.path).path
         if self.headers.get("X-MacOS-Inspector") != "1":
             self._send_json({"error": "Invalid local request."}, HTTPStatus.FORBIDDEN)
@@ -1092,24 +1219,70 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
 
+def _open_private_dashboard_url(url: str) -> None:
+    """Use stdin on macOS so the launch capability is not a process argument."""
+    if sys.platform == "darwin":
+        subprocess.run(["/usr/bin/osascript", "-"], input="open location " + json.dumps(url) + "\n",
+                       text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False)
+    else:
+        webbrowser.open(url)
+
+
 class DashboardServer(ThreadingHTTPServer):
     def __init__(self, address, state: DashboardState) -> None:
         self.state = state
+        self.launch_secret = secrets.token_urlsafe(32)
+        self.session_secret = secrets.token_urlsafe(32)
+        self.report_secret = secrets.token_urlsafe(32)
+        self.report_prefix = f"/private-reports/{secrets.token_hex(24)}/"
+        self.session_path = state.output / f".macos-inspector-session-{address[1]}.json"
+        self.launch_url = ""
+        if ":" in address[0]:
+            self.address_family = socket.AF_INET6
         super().__init__(address, DashboardHandler)
+        self.session_path = state.output / f".macos-inspector-session-{self.server_port}.json"
+        self.cookie_name = f"macos_inspector_session_{self.server_port}"
+        authority = "[::1]" if self.address_family == socket.AF_INET6 else "127.0.0.1"
+        self.launch_url = f"http://{authority}:{self.server_port}/?session={uuid.uuid4().hex}#launch={self.launch_secret}"
+        try:
+            secure_write_text(self.session_path, json.dumps({"url": self.launch_url, "port": self.server_port}))
+        except OSError:
+            self.server_close()
+            raise
+
+    def server_close(self) -> None:
+        super().server_close()
+        try:
+            if json.loads(self.session_path.read_text()).get("url") == self.launch_url:
+                self.session_path.unlink()
+        except (OSError, ValueError):
+            pass
 
 
 def serve(host: str, port: int, output: Path, open_browser: bool = True) -> int:
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("The dashboard may only bind to the local computer.")
     server = DashboardServer((host, port), DashboardState(output))
-    url = f"http://{host}:{server.server_port}/"
+    authority = f"[{host}]" if ":" in host else host
+    url = f"http://{authority}:{server.server_port}/"
     print(f"macOS Inspector dashboard: {url}")
+    previous_term = None
+    if threading.current_thread() is threading.main_thread():
+        def stop(signum, frame):
+            raise KeyboardInterrupt
+        previous_term = signal.signal(signal.SIGTERM, stop)
+    browser_timer = None
     if open_browser:
-        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+        browser_timer = threading.Timer(0.4, lambda: _open_private_dashboard_url(server.launch_url))
+        browser_timer.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if browser_timer:
+            browser_timer.cancel()
         server.server_close()
+        if previous_term is not None:
+            signal.signal(signal.SIGTERM, previous_term)
     return 0

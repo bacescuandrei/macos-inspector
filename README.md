@@ -10,17 +10,17 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current release: `v1.4.4`
+Current release: `v2.0.0` ([download](https://github.com/bacescuandrei/macos-inspector/releases/tag/v2.0.0))
 
-## New in 1.4.4
+## New in 2.0.0
 
-Process follow-up now checks recorded host context and action, scan, and evidence timing before describing an outcome. It distinguishes an absent original PID from the same executable path and owner under another PID, without assuming a restart, malware, or successful remediation. Incomplete process inventories cannot establish absence. Normal `Observed` snapshots are handled correctly.
+**PDF Inspector** adds local, static document triage on a separate HTML page, with its own module script and PDF history. The audit page links to PDF Inspector, and **Back to Mac audit** returns to application, process, and system investigations. Select a PDF and press **Inspect PDF** to review its header, object structure, JavaScript, declared open and interaction actions, destinations, embedded-file references, and declared metadata. Supported compressed object streams and escaped PDF names are inspected. Reports include object context, limitations, SHA-256 identity, bounded script excerpts, and HTML/JSON exports. No viewer, JavaScript runtime, or online service is used. The original PDF is not retained.
 
-**Local rules and provenance** shows recorded IOC/YARA fingerprints, file counts, visible result availability, and bounded IOC pack provenance in both views and HTML exports. A stable rule snapshot does not mean the checks ran or the rules are reliable. Disabled checks, unavailable results, and changed rule context remain explicit. Opening the panel does not contact a source.
+PDF findings distinguish document-open actions, document-level script registration, additional events, and annotation interaction. A URL string is not an observed request, JavaScript is not automatically malware, and missing supported indicators never establish safety. Encrypted content, unsupported stream filters, revisions, malformed structures, and analysis bounds remain explicit. See the [PDF Inspector guide](docs/PDF_INSPECTOR.md).
 
-Report selection keeps evidence, decision support, and export links together. Delayed responses from an earlier selection cannot replace the chosen scan. Process response is blocked during report loading, and investigation saves remain tied to their original report.
+**Private local sessions** protect API calls and report downloads. The double-click launcher authorizes the browser without an account or password. API credentials are scoped to the browser origin; report access uses a separate, path-scoped cookie and private report route. Restarting the server invalidates earlier credentials. API clients must now authenticate; a custom header alone no longer authorizes access.
 
-**Detection regression validation** now contains 26 synthetic trust and response scenarios. Browser checks cover Chromium, WebKit, narrow layouts, targeted accessibility, and delayed-response handling. These are regression checks, not a real-world detection benchmark. See the [changelog](CHANGELOG.md) and [validation guide](docs/VALIDATION.md).
+**YARA error handling** no longer reports `Pass` after a failed command with empty stderr. Collection errors contribute to the recorded coverage limits. Existing application trust, process follow-up, rule provenance, and scan-selection protections remain in place. See the [changelog](CHANGELOG.md) and [validation guide](docs/VALIDATION.md).
 
 ## What it can help answer
 
@@ -33,6 +33,7 @@ Report selection keeps evidence, decision support, and export links together. De
 - Did a bounded local IOC or YARA rule match the files explicitly selected by the analyst?
 - What changed since the last scan with the same scope, and which observations are connected by the same application path?
 - How complete is the evidence behind a result, independently from its severity?
+- Does a PDF declare JavaScript, document-open actions, links, form submission, or embedded-file references before I open it in a reader?
 
 macOS Inspector reports observations and rule outcomes. A `Review`, `Fail`, or `Match` result is not by itself proof of malware, exploitation, or compromise.
 
@@ -47,6 +48,7 @@ macOS Inspector reports observations and rule outcomes. A `Review`, `Fail`, or `
 | Vulnerability Intelligence | Local macOS version correlation with public Apple, CISA, FIRST, and NIST data | Explicit opt-in |
 | Threat Hunting | Live process and network context plus imported IOC and optional YARA rules | None, except separate manual ThreatFox lookup |
 | Full local collection | Every local collector in one scan | None |
+| PDF Inspector | Separate document-triage page with scripts, declared actions, destinations, attachment references, and HTML/JSON reports | None |
 
 Fifteen collectors cover accounts and access, Application Trust, background items, browser artifacts, IOCs, live triage, management profiles, network configuration, free OSINT context, persistence, privacy permissions, security controls, system extensions, vulnerability exposure, and YARA rules.
 
@@ -73,11 +75,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-1.4.4-macos.zip` and `SHA256SUMS` from the latest GitHub release.
+1. Download `macos-inspector-2.0.0-macos.zip` and `SHA256SUMS` from the [2.0.0 release](https://github.com/bacescuandrei/macos-inspector/releases/tag/v2.0.0).
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-1.4.4-macos.zip
+   shasum -a 256 macos-inspector-2.0.0-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
@@ -203,7 +205,8 @@ More workflows, including privacy grants, persistence, IOC/YARA matches, scan co
 ## Data, privacy, and system behavior
 
 - The dashboard binds to loopback only. Non-local bind addresses, non-loopback `Host` authorities, and non-local browser origins are rejected.
-- The local API has no login or per-client authentication. Its browser-origin checks do not identify other local programs or accounts. Use a trusted local session, close the dashboard when finished, and do not run it as a shared service on a host with untrusted local users. See the [threat model](docs/THREAT_MODEL.md).
+- The launcher exchanges an owner-only per-launch credential for browser-session API access and separate private report access. A bare local HTTP client is not authorized by its headers or Origin alone. This does not defend against a compromised same-user account, administrator, browser, or operating system. See the [threat model](docs/THREAT_MODEL.md).
+- PDF inspection is local and static. The original is not retained, rendered, executed, or uploaded to an external provider. Derived reports contain document evidence and may be sensitive. PDFs are processed in a separate time-bounded worker, not a full operating-system sandbox.
 - Collectors use an allowlist of read-only commands without a shell. The tool does not execute browser-supplied commands.
 - Collection remains read-only. The only host-changing response action is an explicit, confirmed signal to a current-user process already listed as a Live Triage review candidate.
 - Process response is disabled when the dashboard runs as root, rejects arbitrary PIDs and stale snapshots or process identities, protects the dashboard and its parent, and records successful actions in a private local log. Revalidation reduces but cannot eliminate the narrow race between the final identity check and signal delivery.
@@ -272,6 +275,7 @@ Findings do not change the process exit code. The CLI exits `0` when collection 
 
 - [Installation and verification](docs/INSTALLATION.md)
 - [Usage and interpretation](docs/USAGE.md)
+- [PDF Inspector](docs/PDF_INSPECTOR.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Detection and browser validation](docs/VALIDATION.md)

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>PDF Inspector | macOS Inspector</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-workspace="pdf">
+  <section id="local-launcher-help" class="local-launcher-help hidden" aria-labelledby="local-launcher-title">
+    <div class="launcher-shell">
+      <div class="launcher-brand"><span class="brand-mark" aria-hidden="true">⌘</span><div><p class="eyebrow">MACOS INSPECTOR | LOCAL DASHBOARD</p><strong>macOS Inspector</strong></div></div>
+      <div class="launcher-card">
+        <span class="launcher-status"><i></i> Direct HTML source file</span>
+        <h1 id="local-launcher-title">The complete interface requires the secure local server</h1>
+        <p>This file contains the interface source; it is not the application launcher. Scans and reports require the local service at <code>127.0.0.1</code>.</p>
+        <div class="launcher-actions">
+          <a id="open-live-dashboard" class="launcher-primary" href="http://127.0.0.1:8765/">Open dashboard</a>
+          <span>The local server must be running.</span>
+        </div>
+        <div class="launcher-steps">
+          <div><b>01</b><span>Return to the project's top-level folder.</span></div>
+          <div><b>02</b><span>Double-click <strong>macOS Inspector.command</strong>.</span></div>
+          <div><b>03</b><span>The launcher starts the server and opens the correct page automatically.</span></div>
+        </div>
+        <p class="launcher-note">No commands need to be typed manually. Keep the launcher window open while using the application.</p>
+      </div>
+    </div>
+  </section>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true">⌘</div>
+    <div><p class="eyebrow">MACOS INSPECTOR</p><h1>PDF Inspector</h1></div>
+    <span id="connection" class="connection checking" role="status" aria-live="polite">Connecting...</span>
+  </header>
+  <main class="layout">
+    <nav class="workspace-nav" aria-label="Inspector pages">
+      <a href="index.html" data-workspace-link="audit"><span aria-hidden="true">←</span> Back to Mac audit</a>
+      <a href="pdf-inspector.html" data-workspace-link="pdf" aria-current="page">PDF Inspector</a>
+    </nav>
+    <section id="session-help" class="welcome-guide hidden" aria-labelledby="session-help-title"><div><h2 id="session-help-title">Authorize this browser</h2><p>Double-click macOS Inspector.command again. The launcher opens a private session link automatically. No account or password is needed. Links from an earlier server session no longer work.</p></div></section>
+    <section id="pdf-inspector" class="pdf-inspector workspace-panel" aria-labelledby="pdf-inspector-title">
+      <div class="pdf-hero">
+        <div><p class="eyebrow">PDF INSPECTOR / DOCUMENT TRIAGE</p><h2 id="pdf-inspector-title" tabindex="-1">Look inside.<br><span>Before you open it.</span></h2><p class="pdf-lede">Inspect a PDF's structure, scripts and declared actions. Understand what is there, what it could do, and what the analysis cannot establish.</p></div>
+        <div class="pdf-local-note"><span class="pdf-local-dot" aria-hidden="true"></span><strong>On this computer only</strong><span>No rendering. No code execution.<br>No external uploads or requests.</span></div>
+      </div>
+      <ol class="pdf-workflow" aria-label="PDF inspection steps"><li id="pdf-step-select" aria-current="step"><span>01</span> Select a document</li><li id="pdf-step-inspect"><span>02</span> Inspect locally</li><li id="pdf-step-review"><span>03</span> Review the evidence</li></ol>
+      <div class="pdf-start-grid">
+        <section class="pdf-upload-card" aria-labelledby="pdf-upload-title">
+          <div class="pdf-card-heading"><span class="pdf-document-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"/></svg></span><div><h3 id="pdf-upload-title">Choose a PDF</h3><p>Up to 25 MiB. Selection alone does not start analysis.</p></div></div>
+          <div class="pdf-upload-controls"><label for="pdf-file"><span class="visually-hidden">Select a PDF (up to 25 MiB)</span><input id="pdf-file" class="field" type="file" accept=".pdf,application/pdf" aria-describedby="pdf-selected-file"></label></div>
+          <p id="pdf-selected-file" class="pdf-file-caption">No document selected.</p>
+          <div class="pdf-upload-actions"><button id="inspect-pdf" class="pdf-primary" type="button" disabled><span class="pdf-spinner" aria-hidden="true"></span><span id="pdf-button-label">Inspect PDF</span></button><button id="clear-pdf" class="text-button" type="button" disabled>Clear</button></div>
+          <p id="pdf-message" class="inline-message" role="status" aria-live="polite">The original is not retained. Reports can contain sensitive document data.</p>
+        </section>
+        <aside class="pdf-scope-card" aria-labelledby="pdf-scope-title"><p class="eyebrow">WHAT TO LOOK FOR</p><h3 id="pdf-scope-title">Features, not a malware verdict</h3><ul><li><strong>JavaScript &amp; actions</strong><span>Open triggers, interactions and action chains.</span></li><li><strong>Destinations &amp; attachments</strong><span>Declared links and embedded-file references.</span></li><li><strong>Structure &amp; limits</strong><span>Headers, object context and gaps in coverage.</span></li></ul><p>A declared feature is not proof it runs. Missing indicators do not establish safety.</p></aside>
+      </div>
+      <div id="pdf-empty" class="pdf-empty"><span aria-hidden="true">↓</span><h3>Your document evidence will appear here</h3><p>Select a PDF, then press Inspect PDF. No viewer will be opened.</p></div>
+      <div id="pdf-result" class="hidden" aria-label="PDF inspection results" aria-busy="false"></div>
+      <details class="pdf-history"><summary>Recent PDF inspections</summary><p class="pdf-history-note">Only PDF reports from this output directory. The original documents are not stored here.</p><button id="refresh-pdf-history" class="text-button" type="button">Refresh PDF history</button><div id="pdf-history-list"><p class="muted">Authorize the dashboard to load local history.</p></div></details>
+    </section>
+  </main>
+  <script src="dashboard-common.js"></script>
+  <script src="pdf-inspector.js"></script>
+</body>
+</html>

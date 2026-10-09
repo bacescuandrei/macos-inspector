@@ -1,5 +1,9 @@
 # Usage and interpretation
 
+For document triage, use the dashboard's **PDF Inspector** and read the [PDF Inspector guide](PDF_INSPECTOR.md). The module is separate from Mac scans and does not render or execute the uploaded document.
+
+In 2.0.0, dashboard API calls and report downloads require a per-launch private session. Double-click the launcher to authorize a browser; opening the bare address is not authorization. Existing unauthenticated API integrations must exchange the owner-only launch credential at `POST /api/session` and use the returned API token as a Bearer header. Do not put credentials into public logs, reports, URLs, or issue attachments.
+
 This guide explains the dashboard workflows, representative results, and the next investigative step. Examples are derived from the project's automated fixtures and are not claims about a real host.
 
 ## Guided investigation
