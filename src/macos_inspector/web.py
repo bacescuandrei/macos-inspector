@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie, CookieError
+from socketserver import TCPServer
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -1229,6 +1230,11 @@ def _open_private_dashboard_url(url: str) -> None:
 
 
 class DashboardServer(ThreadingHTTPServer):
+    def server_bind(self) -> None:
+        # Loopback serving does not need HTTPServer's potentially blocking reverse DNS lookup.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
     def __init__(self, address, state: DashboardState) -> None:
         self.state = state
         self.launch_secret = secrets.token_urlsafe(32)

@@ -13,6 +13,7 @@
 - Save owner-only HTML/JSON PDF reports and expose the latest 25 inspections separately from Mac scan history. Do not retain original PDFs.
 - Require per-launch authorization for API calls and report access. The launcher exchanges a private fragment without a user account. API credentials are origin-scoped; report cookies use separate credentials and a private path. Restarting the server invalidates earlier credentials. Unauthenticated health is minimal.
 - Fix YARA failure handling, including nonzero exit codes with empty stderr, and propagate collection errors to coverage context.
+- Avoid reverse DNS during loopback server binding so slow hostname resolution cannot delay dashboard or portable-launcher startup.
 - Preserve the previously released 1.4.4 history and tag. These are new changes, not a rewrite of the published release.
 
 ## 1.4.4 - 2026-10-04

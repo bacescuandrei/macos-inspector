@@ -256,6 +256,16 @@ class SessionAndUploadTests(unittest.TestCase):
         self.assertNotIn("synthetic-private-capability", str(launch.call_args.args))
         self.assertIn(url, launch.call_args.kwargs["input"])
 
+    def test_local_dashboard_binding_never_performs_reverse_dns(self):
+        with tempfile.TemporaryDirectory() as directory, patch("socket.getfqdn", side_effect=AssertionError("Loopback startup must not perform DNS lookup")):
+            server = DashboardServer(("127.0.0.1", 0), DashboardState(Path(directory)))
+            try:
+                self.assertEqual(server.server_name, "127.0.0.1")
+                self.assertEqual(server.server_port, server.server_address[1])
+                self.assertTrue(server.session_path.exists())
+            finally:
+                server.server_close()
+
     def test_audit_and_pdf_pages_have_separate_markup_scripts_and_return_links(self):
         for path in ("/", "/index.html"):
             status, _, body = self.request("GET", path)
