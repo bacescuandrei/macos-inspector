@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 2.1.0 - 2026-10-09
+
+- Explain browser extension API permissions, host patterns, content-script scope, and optional requests from bounded Chromium manifests and Firefox addon metadata. Keep declaration, recorded addon state, actual grants, and observed behavior distinct. Select numeric version directories without claiming the chosen version is active.
+- Add a plain-language extension permission panel in both audit views and include explanations in full HTML reports and investigation summaries. Preserve raw requirements, source context, manifest hashes, and collection limits. Broad requests alone do not raise severity or establish malware; no extension is disabled or removed.
+- Bound manifest/addon inputs, directory enumeration, lists, normalized records, and per-profile evidence. Missing, malformed, unsupported, oversized, symlinked, or truncated declarations remain limited. Propagate browser source limits into scan metadata and explicitly disclose unsupported Safari permission coverage.
+
+- Add an explicit PDF sharing-preview workflow with reduced HTML/JSON downloads. Use a field allowlist rather than text replacement: omit document and attachment names, metadata, timestamps, inspection identifiers, destinations, file paths, script text/hashes, and raw context/diagnostics. Document SHA-256 is omitted unless explicitly selected. Original reports remain unchanged and no sharing copy is saved on the server.
+- Disclose that reduced exports are not anonymized, authenticated evidence, or safety verdicts. Show every JSON field before downloading and preserve the same fields in the HTML presentation. Changing the document or hash option invalidates the preview; late responses cannot restore an older copy.
+- Record OpenAction entries outside a catalog without claiming a document-open trigger, and disclose the unresolved interpretation. Preserve ordinary catalog actions and their chains.
+- Require unambiguous bounded lengths for JSON request bodies, reject transfer-encoding conflicts and incomplete bodies, and limit body read time. Sharing previews require the same authenticated local session as other private APIs.
+- Extend privacy, request-boundary, parser, download, responsive-layout, accessibility, and stale-preview regression coverage. Preserve the released 2.0.0 tag and artifact.
+
 ## 2.0.0 - 2026-10-09
 
 - Add a dependency-free PDF Inspector on its own HTML page. Inspect local uploads without rendering pages, running JavaScript, extracting attachments, or contacting destinations.

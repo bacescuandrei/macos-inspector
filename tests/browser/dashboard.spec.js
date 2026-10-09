@@ -29,6 +29,89 @@ async function openPdfPage(page) {
   await page.evaluate(() => clearInterval(state.healthPoll));
 }
 
+test('PDF sharing ignores delayed previews after a file or privacy option changes', async ({page}) => {
+  await openPdfPage(page);
+  await page.route('**/api/pdf-inspector', route => route.fulfill({status: 201, json: pdfInspectionFixture()}));
+  await page.route('**/api/pdf-inspections', route => route.fulfill({json: {inspections: []}}));
+  let release;
+  let started = false;
+  let pending = new Promise(resolve => { release = resolve; });
+  const summary = {report_kind: 'pdf-sharing-summary', redaction: {warning: 'Reduced summary, not anonymization.'}, assessment: {label: 'Review features'}, observations: {javascript_records: 1}};
+  await page.route('**/api/pdf-sharing-copy', async route => {
+    started = true;
+    await pending;
+    await route.fulfill({json: {summary, html: '<!doctype html><html lang="en"><body>Reduced summary</body></html>'}});
+  });
+  await page.evaluate(() => { state.online = true; updatePdfAvailability(); });
+  const file = {name: 'sample.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7\nsynthetic fixture')};
+  await page.locator('#pdf-file').setInputFiles(file);
+  await page.locator('#inspect-pdf').click();
+  await expect(page.locator('#prepare-pdf-sharing')).toBeEnabled();
+  await page.locator('#prepare-pdf-sharing').click();
+  await expect.poll(() => started).toBe(true);
+  await expect(page.locator('#prepare-pdf-sharing')).toBeDisabled();
+  await page.locator('#pdf-file').setInputFiles({...file, name: 'other.pdf'});
+  const firstResponse = page.waitForResponse('**/api/pdf-sharing-copy');
+  release();
+  await firstResponse;
+  await expect(page.locator('#pdf-result')).toBeHidden();
+  expect(await page.evaluate(() => pdfState.sharingCopy)).toBeNull();
+  started = false;
+  pending = new Promise(resolve => { release = resolve; });
+  await page.locator('#inspect-pdf').click();
+  await expect(page.locator('#prepare-pdf-sharing')).toBeEnabled();
+  await page.locator('#prepare-pdf-sharing').click();
+  await expect.poll(() => started).toBe(true);
+  await page.locator('#pdf-sharing-hash').check();
+  await expect(page.locator('#prepare-pdf-sharing')).toBeEnabled();
+  const secondResponse = page.waitForResponse('**/api/pdf-sharing-copy');
+  release();
+  await secondResponse;
+  await expect(page.locator('#pdf-sharing-preview')).toBeHidden();
+  expect(await page.evaluate(() => pdfState.sharingCopy)).toBeNull();
+  await expect(page.locator('#pdf-sharing-message')).toContainText('Prepare a new preview');
+});
+
+test('extension permission explanations are escaped, responsive and distinguish optional or missing access evidence', async ({page}, info) => {
+  const profile = {browser: 'Chrome', profile: 'Default', collection_notes: ['One declaration was unavailable; not a clean result.'], extensions: [{
+    id: 'example-extension', name: '<img src=x onerror=window.extensionInjected=true>' + 'x'.repeat(120), version: '1.10', active: null,
+    permission_analysis: {schema_version: 1, complete: true, source: 'Manifest; highest observed directory, not confirmed active version',
+      required: {api_permissions: ['activeTab'], host_patterns: ['https://example.invalid/' + 'p'.repeat(300)], content_script_matches: [], content_script_exclusions: []},
+      optional: {available: true, api_permissions: ['cookies'], host_patterns: ['<all_urls>']},
+      features: [{key: 'activeTab', label: 'Temporary access after user interaction', scope: 'Declared requirement', explanation: 'Not persistent access to every site.'},
+        {key: 'cookies', label: 'Cookie access', scope: 'Optional declaration', explanation: 'Optional does not mean granted.'}],
+      limitations: [], effective_access: 'Not established; verify actual access in the browser.', boundary: 'Requirements are not grants or a malware verdict.'},
+  }, {id: 'legacy', version: '1.0', active: false}]};
+  await page.evaluate(profile => renderBrowserExtensionReview([{evidence: [{kind: 'browser_profile', value: profile}]}]), profile);
+  const panel = page.locator('#browser-extension-review');
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText('Optional declaration');
+  await expect(panel).toContainText('Enabled state not verified');
+  await expect(panel).toContainText('Disabled in recorded addon metadata');
+  await expect(panel).toContainText('Permission analysis limited');
+  await expect(panel).toContainText('Run a new browser audit');
+  expect(await page.evaluate(() => window.extensionInjected)).toBeUndefined();
+  expect(await panel.locator('img,script,iframe,a[href^="https:"]').count()).toBe(0);
+  await panel.locator('.extension-review-row').first().getByText('Declared permission details and limits', {exact: true}).click();
+  await expect(panel).toContainText('<all_urls>');
+  for (const mode of ['simple', 'analyst']) {
+    await page.evaluate(mode => setViewMode(mode), mode);
+    await expect(panel).toBeVisible();
+    for (const width of [320,375,768,1280]) {
+      await page.setViewportSize({width,height:850});
+      expect(await panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    }
+  }
+  expect((await new AxeBuilder({page}).include('#browser-extension-review').withTags(['wcag2a','wcag2aa','wcag21aa']).analyze()).violations).toEqual([]);
+  await page.setViewportSize({width:375,height:900});
+  await panel.screenshot({path: info.outputPath('browser-extension-permissions-mobile.png')});
+  await page.evaluate(() => renderFindings([]));
+  await expect(panel).toBeHidden();
+  await page.evaluate(() => renderBrowserExtensionReview([{evidence: [{kind: 'browser_profile', value: {browser: 'Safari', profile: 'Default', extensions: [], collection_notes: ['Safari permissions not assessed.']}}]}]));
+  await expect(panel).toContainText('not proof that no extension exists');
+  await expect(panel).toContainText('Safari permissions not assessed.');
+});
+
 test('PDF inspection is explicit, bounded, escaped and responsive on its own page', async ({ page }) => {
   await openPdfPage(page);
   let calls = 0;

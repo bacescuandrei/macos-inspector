@@ -172,6 +172,12 @@ def _next_actions(finding: dict[str, Any], verdict: str) -> list[str]:
             "Preserve the process details before containment.",
             "Terminate only when the process is unexpected, then run Live Triage again.",
         ]
+    if finding_id.startswith("BROWSER-"):
+        return [
+            "Open the browser's extension settings and confirm which extensions are enabled and expected.",
+            "Review declared and optional permissions separately; confirm actual site access and grants in the browser.",
+            "Preserve the profile before removing anything. Broad permissions alone do not prove malware.",
+        ]
     return [
         "Read why this item was flagged and confirm whether it is expected on this Mac.",
         "Review the evidence before changing or removing anything.",

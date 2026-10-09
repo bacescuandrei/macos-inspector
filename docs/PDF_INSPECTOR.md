@@ -19,6 +19,14 @@ The PDF page adapts to narrow displays with labeled evidence rows instead of wid
 
 The original PDF is read for this analysis and is not saved by Inspector. Reports are stored locally with owner-only permissions. Inspector does not delete or modify the original. Restarting the dashboard invalidates private HTTP report links; use the authorized history to obtain current links or open the saved HTML report locally.
 
+## Prepare a sharing copy
+
+After a new inspection, use **Preview sharing copy** below the analysis limitations. Review the summary and expand **All fields in this sharing copy** before downloading **sharing HTML** or **sharing JSON**. Both exports use the same reduced fields. Downloads use a generic filename, not the original document name. This workflow does not contact an external service or save another copy on the server.
+
+The reduced copy retains the recorded assessment, supported structural-name counts, action-type counts, evidence-record counts, and scope caveats. It omits document and attachment names, metadata, source timestamps and inspection identifiers, destinations and file paths, JavaScript text/indicators/hashes, raw object context, raw diagnostics, and detailed document size/structure. Document SHA-256 is omitted by default. Select **Include document SHA-256** only if the recipient needs the exact fingerprint and you accept that it can identify the PDF.
+
+This is not anonymization: counts and optional fingerprints can still identify a document. Detailed evidence needed for investigation is intentionally omitted, and the copy is not an authenticated original export. Missing indicators do not establish safety. No metadata is changed in the original report. Changing the selected PDF or hash option invalidates the preview and requires preparing another copy. Reports already in history retain their original private HTML/JSON links; inspect a document again to use this current-result workflow.
+
 ## What is inspected
 
 | Evidence | Interpretation |
@@ -34,6 +42,8 @@ The original PDF is read for this analysis and is not saved by Inspector. Report
 The parser supports ordinary object dictionaries, arrays, indirect references, literal/hexadecimal strings, escaped names, and compressed object streams. Stream decoding supports bounded Flate, ASCIIHex, and ASCII85 filter chains without decoding parameters. Other filters or predictor parameters affecting inspected script/object streams produce limitations. Image and page streams are not rendered or comprehensively decoded. Strings that merely mention `/JavaScript` are not treated as structural JavaScript entries.
 
 All recovered revisions can contribute evidence. Cross-reference tables are not validated to establish the reader's final effective object graph. Repeated object identities and possible incremental updates therefore produce explicit limitations; an action recorded in an older revision may no longer be active.
+
+An OpenAction entry outside a catalog is recorded with an unestablished trigger, not as a document-open action. The report retains the feature and an interpretation limit; this does not make a malformed entry harmless. Catalog detection still uses recovered structure rather than validated final cross-reference reachability.
 
 ## Practical examples
 

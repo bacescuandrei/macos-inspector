@@ -1,4 +1,4 @@
-const pdfState = {busy: false, historyLoaded: false, loadingHistory: false};
+const pdfState = {busy: false, historyLoaded: false, loadingHistory: false, inspectionId: null, sharingCopy: null, sharingBusy: false, sharingRevision: 0};
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 
 function confirmPdfNavigation(event) {
@@ -27,6 +27,7 @@ function updatePdfAvailability() {
   if ($('#inspect-pdf')) $('#inspect-pdf').disabled = !state.online || pdfState.busy || !file || file.size === 0 || file.size > MAX_PDF_BYTES;
   if ($('#pdf-file')) $('#pdf-file').disabled = pdfState.busy;
   if ($('#clear-pdf')) $('#clear-pdf').disabled = pdfState.busy || !file;
+  if ($('#prepare-pdf-sharing')) $('#prepare-pdf-sharing').disabled = !state.online || pdfState.busy || pdfState.sharingBusy || !pdfState.inspectionId;
   $('#pdf-inspector')?.classList.toggle('pdf-busy', pdfState.busy);
   $('#pdf-result')?.setAttribute('aria-busy', String(pdfState.busy));
   if ($('#pdf-button-label')) $('#pdf-button-label').textContent = pdfState.busy ? 'Inspecting PDF...' : 'Inspect PDF';
@@ -48,6 +49,8 @@ function pdfTable(rows, fields) {
 }
 
 function renderPdfInspection(payload) {
+  resetPdfSharing();
+  pdfState.inspectionId = (payload.reports?.json || '').match(/\/macos-inspector-pdf-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.json$/)?.[1] || null;
   const report = payload.report;
   const panel = $('#pdf-result');
   const file = report.file;
@@ -64,10 +67,61 @@ function renderPdfInspection(payload) {
     <details class="pdf-evidence"><summary>Destinations, not observed requests</summary><p>Plain text only. No destination was contacted.</p>${pdfTable(report.destinations, [['value','Destination'],['kind','Recorded as'],['context','Object context']])}</details>
     <details class="pdf-evidence"><summary>Attachments</summary>${pdfTable(report.attachments, [['filename','Filename'],['context','Object context'],['note','Limit']])}</details>
     <details class="pdf-evidence"><summary>Parsed structural names and declared metadata</summary><p>Counts are observations, not proof that an action runs.</p>${pdfTable(Object.entries(report.name_counts || {}).map(([name,count]) => ({name: '/' + name,count})), [['name','Name'],['count','Occurrences']])}${pdfTable(Object.entries(report.metadata || {}).map(([name,value]) => ({name,value})), [['name','Field'],['value','Declared value (unverified)']])}</details>
-    <details class="pdf-evidence" ${limits.length ? 'open' : ''}><summary>Analysis limitations (${limits.length})</summary><ul>${limits.map(item => `<li>${escapeHtml(item)}</li>`).join('') || '<li>No additional collection limits recorded within the supported static scope.</li>'}</ul><p>${escapeHtml(report.privacy)}</p></details>`;
+    <details class="pdf-evidence" ${limits.length ? 'open' : ''}><summary>Analysis limitations (${limits.length})</summary><ul>${limits.map(item => `<li>${escapeHtml(item)}</li>`).join('') || '<li>No additional collection limits recorded within the supported static scope.</li>'}</ul><p>${escapeHtml(report.privacy)}</p></details>
+    <section class="pdf-sharing" aria-labelledby="pdf-sharing-title"><p class="eyebrow">SHARE LESS DATA</p><h3 id="pdf-sharing-title">Prepare a sharing copy</h3><p>Keep feature counts, omit document names, metadata, destinations and script text. The original report stays unchanged. This is a reduced summary, not anonymization.</p><label class="pdf-sharing-option"><input type="checkbox" id="pdf-sharing-hash"> Include document SHA-256 (can identify the exact PDF)</label><button id="prepare-pdf-sharing" class="secondary-button" type="button">Preview sharing copy</button><p id="pdf-sharing-message" class="inline-message" role="status" aria-live="polite">Review the preview before downloading. Nothing is sent to an external service.</p><div id="pdf-sharing-preview" class="hidden"></div></section>`;
   panel.classList.remove('hidden');
   $('#pdf-empty').classList.add('hidden');
   updatePdfAvailability();
+}
+
+function resetPdfSharing() {
+  pdfState.sharingRevision += 1;
+  pdfState.inspectionId = null;
+  pdfState.sharingCopy = null;
+  pdfState.sharingBusy = false;
+  $('#pdf-sharing-preview')?.classList.add('hidden');
+}
+
+async function preparePdfSharingCopy() {
+  if (!state.online || pdfState.busy || pdfState.sharingBusy || !pdfState.inspectionId) return;
+  const revision = ++pdfState.sharingRevision;
+  const identifier = pdfState.inspectionId;
+  pdfState.sharingBusy = true;
+  pdfState.sharingCopy = null;
+  $('#pdf-sharing-preview').classList.add('hidden');
+  setInline('#pdf-sharing-message', 'Preparing a reduced copy from the saved report.');
+  updatePdfAvailability();
+  try {
+    const payload = await api('/api/pdf-sharing-copy', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-MacOS-Inspector': '1'}, body: JSON.stringify({inspection_id: identifier, include_hash: $('#pdf-sharing-hash').checked})});
+    if (revision !== pdfState.sharingRevision || identifier !== pdfState.inspectionId) return;
+    if (payload.summary?.report_kind !== 'pdf-sharing-summary' || typeof payload.html !== 'string') throw new Error('The sharing preview is unavailable.');
+    pdfState.sharingCopy = payload;
+    const summary = payload.summary;
+    $('#pdf-sharing-preview').innerHTML = `<h4>Sharing preview</h4><p class="pdf-sharing-warning">${escapeHtml(summary.redaction.warning)}</p><p><strong>${escapeHtml(summary.assessment.label)}</strong> | Malware verdict: Not determined</p>${pdfTable(Object.entries(summary.observations).map(([key,value]) => ({name: key.replaceAll('_', ' '), value})), [['name','Recorded observation'],['value','Count']])}<p>${summary.document_sha256 ? `Document SHA-256 included: <code>${escapeHtml(summary.document_sha256)}</code>` : 'Document SHA-256 omitted.'}</p><details><summary>All fields in this sharing copy</summary><pre id="pdf-sharing-json"></pre></details><p>The HTML download presents these same fields. Detailed evidence is omitted.</p><div class="pdf-report-links"><button class="secondary-button" type="button" data-pdf-sharing-download="html">Download sharing HTML</button><button class="secondary-button" type="button" data-pdf-sharing-download="json">Download sharing JSON</button></div>`;
+    $('#pdf-sharing-json').textContent = JSON.stringify(summary, null, 2);
+    $('#pdf-sharing-preview').classList.remove('hidden');
+    setInline('#pdf-sharing-message', 'Preview ready. Review every field before sharing. No copy was saved on the server.');
+  } catch (error) {
+    if (revision === pdfState.sharingRevision) setInline('#pdf-sharing-message', error.message, true);
+  } finally {
+    if (revision === pdfState.sharingRevision) {
+      pdfState.sharingBusy = false;
+      updatePdfAvailability();
+    }
+  }
+}
+
+function downloadPdfSharingCopy(format) {
+  if (!pdfState.sharingCopy || !['html', 'json'].includes(format)) return;
+  const content = format === 'html' ? pdfState.sharingCopy.html : JSON.stringify(pdfState.sharingCopy.summary, null, 2) + '\n';
+  const url = URL.createObjectURL(new Blob([content], {type: format === 'html' ? 'text/html;charset=utf-8' : 'application/json;charset=utf-8'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `pdf-inspector-sharing-summary.${format}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 async function inspectSelectedPdf() {
@@ -75,6 +129,7 @@ async function inspectSelectedPdf() {
   if (pdfState.busy || !state.online || !file) return;
   if (!file.size || file.size > MAX_PDF_BYTES) return setInline('#pdf-message', 'Select a nonempty PDF no larger than 25 MiB.', true);
   pdfState.busy = true;
+  resetPdfSharing();
   window.addEventListener('beforeunload', confirmPdfNavigation);
   updatePdfAvailability();
   $('#pdf-result').classList.add('hidden');
@@ -107,6 +162,7 @@ async function loadPdfHistory() {
 }
 
 function resetPdfResult() {
+  resetPdfSharing();
   $('#pdf-result').classList.add('hidden');
   $('#pdf-result').innerHTML = '';
   $('#pdf-empty').classList.remove('hidden');
@@ -128,6 +184,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#clear-pdf').addEventListener('click', () => { if (!pdfState.busy) { $('#pdf-file').value = ''; resetPdfResult(); $('#pdf-file').focus(); } });
   $('#inspect-pdf').addEventListener('click', inspectSelectedPdf);
   $('#refresh-pdf-history').addEventListener('click', loadPdfHistory);
+  $('#pdf-result').addEventListener('click', event => {
+    if (event.target.closest('#prepare-pdf-sharing')) preparePdfSharingCopy();
+    const download = event.target.closest('[data-pdf-sharing-download]');
+    if (download) downloadPdfSharingCopy(download.dataset.pdfSharingDownload);
+  });
+  $('#pdf-result').addEventListener('change', event => {
+    if (event.target.id !== 'pdf-sharing-hash') return;
+    pdfState.sharingRevision += 1;
+    pdfState.sharingCopy = null;
+    pdfState.sharingBusy = false;
+    $('#pdf-sharing-preview').classList.add('hidden');
+    setInline('#pdf-sharing-message', 'Options changed. Prepare a new preview before downloading.');
+    updatePdfAvailability();
+  });
   window.addEventListener('hashchange', async () => {
     if (new URLSearchParams(window.location.hash.slice(1)).has('launch')) {
       await authorizeLaunchFragment();

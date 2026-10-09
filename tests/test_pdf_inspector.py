@@ -1,4 +1,5 @@
 import hashlib
+import copy
 import http.client
 import json
 import os
@@ -19,6 +20,8 @@ from macos_inspector.collectors.yara_rules import YARARulesCollector
 from macos_inspector.core.pdf_inspector import inspect_pdf, inspect_pdf_isolated, MAX_PDF_BYTES
 from macos_inspector.core.runner import CommandResult
 from macos_inspector.reporters.pdf_inspection_reporter import render_pdf_inspection
+from macos_inspector.core.pdf_sharing import build_pdf_sharing_summary
+from macos_inspector.reporters.pdf_sharing_reporter import render_pdf_sharing_summary
 from macos_inspector.web import DashboardServer, DashboardState
 
 
@@ -89,6 +92,23 @@ class PDFInspectorTests(unittest.TestCase):
         self.assertTrue(any(row["trigger"] == "Annotation or user interaction" for row in report["actions"]))
         self.assertFalse(any(row["trigger"] == "Document open" for row in report["actions"]))
         self.assertFalse(report["destinations"][0]["contacted"])
+
+    def test_open_action_outside_catalog_is_not_a_document_open_trigger(self):
+        data = pdf_fixture([b"<< /Type /Catalog >>", rb"<< /Type /Annot /OpenAction << /S /JavaScript /JS (app.alert\(1\)) >> >>"])
+        report = inspect_pdf(data)
+        self.assertTrue(report["javascript"])
+        self.assertFalse(any(row["trigger"] == "Document open" for row in report["actions"]))
+        self.assertTrue(any("outside a catalog" in row["trigger"] for row in report["actions"]))
+        self.assertTrue(any("outside a catalog" in message for message in report["limitations"]))
+        self.assertEqual(report["answers"][1]["answer"], "Unable to establish from the limited analysis.")
+
+    def test_catalog_open_action_keeps_chained_triggers(self):
+        data = pdf_fixture([b"<< /Type /Catalog /OpenAction 2 0 R >>",
+                            b"<< /S /JavaScript /JS (app.alert\\(1\\)) /Next 3 0 R >>",
+                            b"<< /S /URI /URI (https://example.invalid/) >>"])
+        report = inspect_pdf(data)
+        opening = [row["type"] for row in report["actions"] if row["trigger"] == "Document open"]
+        self.assertEqual(opening, ["JavaScript", "URI"])
 
     def test_launch_form_attachment_and_nested_additional_actions(self):
         data = pdf_fixture([b"<< /Type /Catalog /AcroForm << /Fields [<< /AA << /K 2 0 R >> >>] >> >>",
@@ -316,6 +336,136 @@ class SessionAndUploadTests(unittest.TestCase):
         finally:
             self.state.pdf_slot.release()
 
+    def test_pdf_sharing_preview_is_authenticated_read_only_and_bounded(self):
+        data = pdf_fixture([b"<< /Type /Catalog /Author (private-marker) >>"])
+        headers = {"Authorization": "Bearer " + self.server.session_secret, "Content-Type": "application/pdf", "X-MacOS-Inspector": "1", "X-PDF-Filename": "private-marker.pdf"}
+        status, _, body = self.request("POST", "/api/pdf-inspector", data, headers)
+        self.assertEqual(status, 201)
+        original = json.loads(body)
+        path = self.state.output / original["reports"]["json"].split("/")[-1]
+        identifier = path.stem.removeprefix("macos-inspector-pdf-")
+        before = {item.name: item.read_bytes() for item in self.state.output.iterdir() if item.is_file()}
+        body = json.dumps({"inspection_id": identifier})
+        json_headers = {**headers, "Content-Type": "application/json"}
+        self.assertEqual(self.request("POST", "/api/pdf-sharing-copy", body)[0], 401)
+        self.assertEqual(self.request("POST", "/api/pdf-sharing-copy", body, {"Content-Type": "application/json", "X-MacOS-Inspector": "1"})[0], 401)
+        self.assertEqual(self.request("POST", "/api/pdf-sharing-copy", body, {"Cookie": f"{self.server.cookie_name}={self.server.report_secret}"})[0], 401)
+        status, _, response = self.request("POST", "/api/pdf-sharing-copy", body, json_headers)
+        self.assertEqual(status, 200)
+        self.assertNotIn(b"private-marker", response)
+        self.assertNotIn(original["report"]["file"]["sha256"].encode(), response)
+        self.assertEqual(json.loads(response)["summary"]["report_kind"], "pdf-sharing-summary")
+        self.assertEqual(before, {item.name: item.read_bytes() for item in self.state.output.iterdir() if item.is_file()})
+        status, _, response = self.request("POST", "/api/pdf-sharing-copy", json.dumps({"inspection_id": identifier, "include_hash": True}), json_headers)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(response)["summary"]["document_sha256"], hashlib.sha256(data).hexdigest())
+        for invalid in ({"inspection_id": "../secret"}, {"inspection_id": []}, {"inspection_id": identifier, "include_hash": "true"}):
+            self.assertEqual(self.request("POST", "/api/pdf-sharing-copy", json.dumps(invalid), json_headers)[0], 400)
+        self.assertEqual(self.request("POST", "/api/pdf-sharing-copy", " " * 1025, json_headers)[0], 400)
+        self.assertEqual(self.request("POST", "/api/pdf-sharing-copy", json.dumps({"inspection_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}), json_headers)[0], 404)
+        target = self.state.output / "macos-inspector-pdf-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.json"
+        target.symlink_to(path)
+        self.assertEqual(self.request("POST", "/api/pdf-sharing-copy", json.dumps({"inspection_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}), json_headers)[0], 400)
+        with patch("macos_inspector.web.read_json_limited", side_effect=RecursionError):
+            self.assertEqual(self.request("POST", "/api/pdf-sharing-copy", body, json_headers)[0], 400)
+
+    def test_json_preview_rejects_ambiguous_or_incomplete_request_framing(self):
+        body = b'{"inspection_id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}'
+        for duplicate, transfer in ((True, False), (False, True)):
+            connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+            connection.putrequest("POST", "/api/pdf-sharing-copy")
+            connection.putheader("Authorization", "Bearer " + self.server.session_secret)
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("X-MacOS-Inspector", "1")
+            connection.putheader("Content-Length", str(len(body)))
+            if duplicate:
+                connection.putheader("Content-Length", str(len(body)))
+            if transfer:
+                connection.putheader("Transfer-Encoding", "chunked")
+            connection.endheaders(body)
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            response.read()
+            connection.close()
+        with socket.create_connection(("127.0.0.1", self.server.server_port), timeout=5) as connection:
+            headers = (f"POST /api/pdf-sharing-copy HTTP/1.0\r\nHost: 127.0.0.1:{self.server.server_port}\r\n"
+                       f"Authorization: Bearer {self.server.session_secret}\r\nContent-Type: application/json\r\n"
+                       "X-MacOS-Inspector: 1\r\nContent-Length: 100\r\n\r\n{}")
+            connection.sendall(headers.encode())
+            connection.shutdown(socket.SHUT_WR)
+            self.assertIn(b"400 Bad Request", connection.recv(4096))
+
+
+class PDFSharingTests(unittest.TestCase):
+    def report(self):
+        return inspect_pdf(pdf_fixture([rb"<< /Type /Catalog /Author (private-marker) /OpenAction << /S /JavaScript /JS (app.launchURL\('https://private-marker.invalid/?token=secret'\)) >> >>",
+                                        b"<< /Type /Filespec /F (private-marker.bin) /EF << /F 3 0 R >> >>",
+                                        stream_fixture(b"/Type /EmbeddedFile", b"private-marker")]), "private-marker.pdf")
+
+    def test_summary_omits_free_text_and_preserves_original(self):
+        report = self.report()
+        report["future_private_field"] = "private-marker"
+        report["tool_version"] = "private-marker"
+        report["limitations"].append("private-marker diagnostic")
+        before = copy.deepcopy(report)
+        summary = build_pdf_sharing_summary(report)
+        self.assertEqual(report, before)
+        self.assertFalse(summary["redaction"]["original_evidence_modified"])
+        self.assertFalse(summary["assessment"]["analysis_complete_within_supported_scope"])
+        self.assertEqual(summary["observations"]["javascript_records"], 1)
+        self.assertEqual(summary["observations"]["attachment_reference_records"], 1)
+        self.assertNotIn("private-marker", json.dumps(summary))
+        self.assertNotIn(report["file"]["sha256"], json.dumps(summary))
+        for item in report["javascript"]:
+            self.assertNotIn(item["sha256"], json.dumps(summary))
+        html = render_pdf_sharing_summary(summary)
+        self.assertNotIn("private-marker", html)
+        for marker in ("<script", "<iframe", "href=", "src="):
+            self.assertNotIn(marker, html)
+        self.assertIn("not anonymization", html)
+
+    def test_hash_is_separate_explicit_opt_in(self):
+        report = self.report()
+        self.assertNotIn("document_sha256", build_pdf_sharing_summary(report))
+        summary = build_pdf_sharing_summary(report, True)
+        self.assertEqual(summary["document_sha256"], report["file"]["sha256"])
+        self.assertTrue(summary["redaction"]["document_hash_included"])
+        self.assertIn(report["file"]["sha256"], render_pdf_sharing_summary(summary))
+        for invalid in ("true", 1, None, []):
+            with self.assertRaises(ValueError):
+                build_pdf_sharing_summary(report, invalid)
+        report["file"]["sha256"] = "private-marker"
+        with self.assertRaises(ValueError):
+            build_pdf_sharing_summary(report, True)
+
+    def test_unknown_values_never_become_shared_labels_or_counts(self):
+        report = self.report()
+        report["assessment"]["label"] = "private-marker"
+        report["actions"] = [{"type": "private-marker"}, {"type": {"private-marker": True}}]
+        report["name_counts"]["private-marker"] = 1
+        report["name_counts"]["JS"] = "private-marker"
+        report["name_counts"]["URI"] = True
+        report["name_counts"]["Launch"] = -1
+        report["name_counts"]["OpenAction"] = 1000000000
+        summary = build_pdf_sharing_summary(report)
+        self.assertNotIn("private-marker", json.dumps(summary))
+        self.assertEqual(summary["assessment"]["label"], "Analysis incomplete")
+        self.assertFalse(summary["assessment"]["analysis_complete_within_supported_scope"])
+        self.assertEqual(summary["action_type_counts"], {"Other action type": 2})
+        for name in ("JS", "URI", "Launch", "OpenAction"):
+            self.assertIsNone(summary["structural_name_counts"][name])
+
+    def test_incomplete_or_oversized_reports_are_rejected(self):
+        for invalid in (None, [], {}, {"schema_version": 2}, {**self.report(), "schema_version": True}):
+            with self.assertRaises(ValueError):
+                build_pdf_sharing_summary(invalid)
+        for key, value in (("actions", "private-marker"), ("javascript", ["private-marker"]), ("limitations", ["marker"] * 101), ("destinations", [{}] * 201), ("file", [])):
+            report = self.report()
+            report[key] = value
+            with self.assertRaises(ValueError):
+                build_pdf_sharing_summary(report)
+
+class PortablePDFReleaseTests(unittest.TestCase):
     @unittest.skipUnless(Path("/bin/zsh").is_file(), "Portable launcher requires zsh")
     def test_extracted_portable_launcher_pdf_worker_and_graceful_cleanup(self):
         from scripts.build_release import build_release

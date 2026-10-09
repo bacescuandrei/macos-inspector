@@ -10,7 +10,15 @@ It was created to make evidence that is normally scattered across command-line t
 
 The project is intended for Mac owners who want a clearer security check, as well as incident responders, forensic analysts, security engineers, and system administrators. It does not replace an EDR platform, malware analysis, or a complete forensic acquisition workflow.
 
-Current release: `v2.0.0` ([download](https://github.com/bacescuandrei/macos-inspector/releases/tag/v2.0.0))
+Current release: `v2.1.0` ([download](https://github.com/bacescuandrei/macos-inspector/releases/tag/v2.1.0))
+
+## New in 2.1.0
+
+**Browser extension permissions** explains required and optional capabilities recorded in supported Chromium manifests and Firefox addon metadata. Run **Privacy and browsers**, then open **Browser extension permissions** in either audit view. Review site patterns, API requests, content-script restrictions, source evidence, and collection limits before checking actual access in the browser's settings. Full HTML reports and investigation summaries include these explanations. Broad permissions do not establish malware or raise severity by themselves. Safari permission coverage remains explicitly unsupported. See the [browser extension guide](docs/BROWSER_EXTENSIONS.md).
+
+**PDF sharing copies** provide reduced HTML/JSON summaries without detailed document evidence. After inspecting a PDF, use **Prepare a sharing copy**, review the preview and its complete field list, then download the copy. Document SHA-256 is excluded unless you select it. Original reports remain unchanged, and no sharing copy is saved on the server. These summaries are not anonymized or authenticated evidence; review them before sending. See the [sharing workflow](docs/PDF_INSPECTOR.md#prepare-a-sharing-copy).
+
+**More precise PDF interpretation and request handling** distinguish an OpenAction entry outside a catalog from an established document-open trigger, reject ambiguous or incomplete JSON request framing, and invalidate stale sharing previews when the document or hash option changes. See the [changelog](CHANGELOG.md) and [validation guide](docs/VALIDATION.md).
 
 ## New in 2.0.0
 
@@ -75,11 +83,11 @@ Requirements:
 - no `sudo`
 - no mandatory Full Disk Access
 
-1. Download `macos-inspector-2.0.0-macos.zip` and `SHA256SUMS` from the [2.0.0 release](https://github.com/bacescuandrei/macos-inspector/releases/tag/v2.0.0).
+1. Download `macos-inspector-2.1.0-macos.zip` and `SHA256SUMS` from the [2.1.0 release](https://github.com/bacescuandrei/macos-inspector/releases/tag/v2.1.0).
 2. Verify the archive before opening it:
 
    ```bash
-   shasum -a 256 macos-inspector-2.0.0-macos.zip
+   shasum -a 256 macos-inspector-2.1.0-macos.zip
    ```
 
    Compare the result with the value in `SHA256SUMS` on the same release.
@@ -276,6 +284,7 @@ Findings do not change the process exit code. The CLI exits `0` when collection 
 - [Installation and verification](docs/INSTALLATION.md)
 - [Usage and interpretation](docs/USAGE.md)
 - [PDF Inspector](docs/PDF_INSPECTOR.md)
+- [Browser extension permissions](docs/BROWSER_EXTENSIONS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Detection and browser validation](docs/VALIDATION.md)

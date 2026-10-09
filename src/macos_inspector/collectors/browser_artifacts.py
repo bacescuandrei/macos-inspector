@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import plistlib
 import sqlite3
 from contextlib import closing
@@ -11,11 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from .base import Collector
+from .browser_extensions import (
+    MAX_EXTENSIONS, chromium_extensions as _chromium_extensions,
+    firefox_extensions as _firefox_extensions, safari_legacy_extensions,
+)
 from macos_inspector.core.models import Evidence, Finding, Severity
 
 
 MAX_RECENT_ROWS = 50
-MAX_EXTENSIONS = 100
 
 
 @dataclass(frozen=True)
@@ -96,33 +98,6 @@ def _iso_timestamp(value: Any, epoch: str) -> str | None:
         return None
 
 
-def _chromium_extensions(path: Path | None) -> tuple[list[dict[str, str]], str | None]:
-    if path is None or not path.is_dir():
-        return [], None
-    extensions = []
-    try:
-        identifiers = sorted(item for item in path.iterdir() if item.is_dir())
-        for identifier in identifiers[:MAX_EXTENSIONS]:
-            versions = sorted((item.name for item in identifier.iterdir() if item.is_dir()), reverse=True)
-            extensions.append({"id": identifier.name, "version": versions[0] if versions else "unknown"})
-        return extensions, None
-    except OSError as exc:
-        return [], f"{type(exc).__name__}: {exc}"
-
-
-def _firefox_extensions(path: Path | None) -> tuple[list[dict[str, Any]], str | None]:
-    if path is None or not path.is_file():
-        return [], None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-        addons = payload.get("addons", []) if isinstance(payload, dict) else []
-        return [{
-            "id": addon.get("id"), "version": addon.get("version"), "active": addon.get("active"), "type": addon.get("type"),
-        } for addon in addons[:MAX_EXTENSIONS] if isinstance(addon, dict)], None
-    except (OSError, json.JSONDecodeError) as exc:
-        return [], f"{type(exc).__name__}: {exc}"
-
-
 def _safari_downloads(profile: BrowserProfile) -> tuple[list[dict[str, Any]], str | None]:
     path = profile.path / "Downloads.plist"
     if not path.is_file():
@@ -147,8 +122,10 @@ class BrowserArtifactsCollector(Collector):
     def __init__(self, runner, home: Path | None = None) -> None:
         super().__init__(runner)
         self.home = Path.home() if home is None else home
+        self.collection_errors: list[str] = []
 
     def collect(self) -> list[Finding]:
+        self.collection_errors = []
         profiles = discover_browser_profiles(self.home)
         if not profiles:
             return [Finding(
@@ -182,9 +159,10 @@ class BrowserArtifactsCollector(Collector):
             for row in history:
                 row["visited_at"] = _iso_timestamp(row.get("visit_time"), "apple")
             downloads, downloads_error = _safari_downloads(profile)
-            extensions, extensions_error = _chromium_extensions(profile.extensions_path)
+            extensions, extensions_error = safari_legacy_extensions(profile.extensions_path)
 
         errors = [error for error in (history_error, downloads_error, extensions_error) if error]
+        self.collection_errors.extend(f"{profile.browser} profile {profile.name}: {error}" for error in errors)
         accessible_sources = sum(error is None for error in (history_error, downloads_error, extensions_error))
         if accessible_sources == 0:
             status, severity = "Unknown", Severity.INFORMATIONAL
@@ -193,6 +171,12 @@ class BrowserArtifactsCollector(Collector):
         else:
             status, severity = "Observed", Severity.INFORMATIONAL
         observed = f"{len(history)} recent history row(s), {len(downloads)} download row(s), and {len(extensions)} extension(s) observed."
+        broad = sum(any(item["key"] == "broad_sites" and item["scope"] == "Declared requirement"
+                        for item in row.get("permission_analysis", {}).get("features", [])) for row in extensions)
+        if broad:
+            observed += f" {broad} extension record(s) declare broad site patterns; this is not proof of malicious behavior."
+        if extensions:
+            observed += " Permission declarations are not confirmed runtime grants."
         if errors:
             observed += f" {len(errors)} source(s) were unavailable."
         evidence = {
@@ -203,11 +187,11 @@ class BrowserArtifactsCollector(Collector):
         return Finding(
             finding_id=_finding_id(profile), category="Browser Artifacts", title=f"{profile.browser} profile: {profile.name}",
             severity=severity, status=status,
-            description="Collects a bounded, read-only inventory of recent browser history, downloads, and extensions.",
+            description="Collects recent browser artifacts and bounded extension permission declarations. Optional requirements and effective grants remain distinct.",
             why_it_matters="Browser artifacts can establish user activity, downloaded payloads, phishing exposure, and extension-based persistence.",
-            what_was_checked=f"Profile sources under {profile.path}; at most {MAX_RECENT_ROWS} recent rows per artifact type.",
+            what_was_checked=f"Profile sources under {profile.path}; at most {MAX_RECENT_ROWS} recent rows and {MAX_EXTENSIONS} extension records. Chromium manifests and Firefox addon metadata record requirements, not runtime permission grants.",
             expected_result="Browser activity and extensions are attributable to expected users and approved software.", observed_result=observed,
-            recommendation="Review unexpected downloads, navigation, and extensions; preserve the source profile before remediation.",
+            recommendation="Review unexpected extensions in the browser's extension settings. Confirm enabled state, site access, and granted permissions there; preserve the source profile before remediation.",
             evidence=(Evidence("browser_profile", str(profile.path), evidence),),
             mitre_attack=("T1185 - Browser Session Cookie", "T1176 - Browser Extensions"),
         )

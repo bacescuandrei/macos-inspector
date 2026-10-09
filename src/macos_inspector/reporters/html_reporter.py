@@ -8,6 +8,7 @@ from macos_inspector.core.models import ScanResult
 from macos_inspector.core.rule_context import build_rule_context_summary
 from .common import secure_write_text
 from .rule_context_reporter import render_rule_context, RULE_CONTEXT_CSS
+from .browser_extension_reporter import render_browser_extension_report, BROWSER_EXTENSION_CSS
 
 
 CSS = """
@@ -30,6 +31,7 @@ function filter(){let n=0;cards.forEach(c=>{const show=(!q.value||c.dataset.sear
 def write_html(result: ScanResult, path: Path) -> None:
     rule_context = render_rule_context(build_rule_context_summary(result.to_dict()))
     cards = []
+    browser_review = render_browser_extension_report(result.to_dict()["findings"])
     for finding in result.findings:
         evidence = html.escape(json.dumps([item.__dict__ for item in finding.evidence], indent=2, ensure_ascii=False))
         haystack = html.escape(f"{finding.finding_id} {finding.category} {finding.title} {finding.description}".lower(), quote=True)
@@ -81,8 +83,8 @@ def write_html(result: ScanResult, path: Path) -> None:
         f'<div class="meta">Target application: {html.escape(result.metadata.target_application)}</div>'
         if result.metadata.target_application else ""
     )
-    document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector report</title><style>{CSS}{RULE_CONTEXT_CSS}</style></head><body><main>
+    document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>macOS Inspector report</title><style>{CSS}{RULE_CONTEXT_CSS}{BROWSER_EXTENSION_CSS}</style></head><body><main>
 <section class="hero"><div><h1>macOS Inspector</h1>{case_html}{scope_html}<div class="meta">{html.escape(result.metadata.hostname)} | {html.escape(result.metadata.completed_at)} | scan {html.escape(result.metadata.scan_id)}</div><p class="muted">The rule outcome index summarizes documented rule results. It is not the probability that this Mac is safe or compromised.</p></div><div class="score">{overall_display}<small>{'No assessed findings' if no_assessed_findings else '/100 rule outcome index'}</small></div></section>
-{errors}{scope_note}{rule_context}<section class="scores">{scores}</section>{timeline}<section class="toolbar"><input id="q" aria-label="Search" placeholder="Search findings"><select id="severity"><option value="">All severities</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option><option>Informational</option></select><select id="category"><option value="">All categories</option>{category_options}</select><button id="theme">Theme</button></section>
+{errors}{scope_note}{rule_context}<section class="scores">{scores}</section>{browser_review}{timeline}<section class="toolbar"><input id="q" aria-label="Search" placeholder="Search findings"><select id="severity"><option value="">All severities</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option><option>Informational</option></select><select id="category"><option value="">All categories</option>{category_options}</select><button id="theme">Theme</button></section>
 <p id="count"></p><section id="findings">{''.join(cards)}</section></main><script>{SCRIPT}</script></body></html>'''
     secure_write_text(path, document)

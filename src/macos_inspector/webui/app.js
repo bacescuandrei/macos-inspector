@@ -725,6 +725,7 @@ function renderTimeline(events) {
 }
 
 function renderFindings(findings) {
+  renderBrowserExtensionReview(findings);
   state.findings = findings;
   state.findingPage = 1;
   const statuses = [...new Set(findings.map((finding) => finding.status).filter(Boolean))].sort();
@@ -734,6 +735,27 @@ function renderFindings(findings) {
   $('#finding-search').value = '';
   $('#findings-toolbar').classList.toggle('hidden', !findings.length);
   applyFindingFilters();
+}
+
+function renderBrowserExtensionReview(findings) {
+  const panel = $('#browser-extension-review');
+  if (!panel) return;
+  const profiles = (findings || []).flatMap(finding => (finding.evidence || []).filter(item => item.kind === 'browser_profile' && item.value && typeof item.value === 'object').map(item => item.value));
+  const extensions = profiles.flatMap(profile => (Array.isArray(profile.extensions) ? profile.extensions : []).filter(row => row && typeof row === 'object').map(row => ({...row, browser: profile.browser, profile: profile.profile})));
+  if (!profiles.length) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+  const limitNotes = profiles.flatMap(profile => Array.isArray(profile.collection_notes) ? profile.collection_notes : []);
+  const rows = extensions.slice(0, 60).map(row => {
+    const analysis = row.permission_analysis?.schema_version === 1 ? row.permission_analysis : null;
+    const complete = analysis?.complete === true;
+    const required = analysis?.required || {};
+    const optional = analysis?.optional || {};
+    const features = Array.isArray(analysis?.features) ? analysis.features : [];
+    const active = row.active === true ? 'Enabled in recorded addon metadata' : row.active === false ? 'Disabled in recorded addon metadata' : 'Enabled state not verified';
+    const list = (values) => Array.isArray(values) && values.length ? `<ul>${values.map(value => `<li><code>${escapeHtml(value)}</code></li>`).join('')}</ul>` : '<p class="muted">No entries recorded in this field. Check completeness and scope.</p>';
+    return `<article class="extension-review-row"><header><div><h4>${escapeHtml(row.name || row.id || 'Unnamed extension record')}</h4><p>${escapeHtml(row.browser || 'Browser')} | ${escapeHtml(row.profile || 'Profile')} | Version ${escapeHtml(row.version || 'Unknown')}</p></div><span class="extension-scope-label">${complete ? 'Requirements recorded' : 'Permission analysis limited'}</span></header><p class="extension-state">${escapeHtml(active)}</p><code>${escapeHtml(row.id || 'Identity not available')}</code><p>${escapeHtml(analysis?.effective_access || 'Permissions were not established in this older or unsupported report. Run a new browser audit.')}</p><div class="extension-capabilities">${features.slice(0,40).map(feature => `<div><span>${escapeHtml(feature.scope)}</span><strong>${escapeHtml(feature.label)}</strong><p>${escapeHtml(feature.explanation)}</p></div>`).join('') || '<p>No supported permission explanation was recorded. This does not establish safety or absence of access.</p>'}</div><details><summary>Declared permission details and limits</summary><p>${escapeHtml(analysis?.source || 'Source unavailable; recheck this profile.')}</p><h5>Required or recorded API permissions</h5>${list(required.api_permissions)}<h5>Required or recorded site patterns</h5>${list(required.host_patterns)}<h5>Content script matches</h5>${list(required.content_script_matches)}<h5>Excluded content script matches</h5>${list(required.content_script_exclusions)}<h5>Content script include-globs (additional restrictions)</h5>${list(required.content_script_include_globs)}<h5>Content script exclude-globs</h5>${list(required.content_script_exclude_globs)}<h5>Optional API permissions (not confirmed granted)</h5>${list(optional.api_permissions)}<h5>Optional site patterns (not confirmed granted)</h5>${list(optional.host_patterns)}${optional.available === false ? '<p>Optional permission metadata was unavailable.</p>' : ''}<p>${escapeHtml(analysis?.boundary || 'Declaration and grant state were not assessed.')}</p>${list(analysis?.limitations)}</details></article>`;
+  }).join('');
+  panel.innerHTML = `<div class="section-heading"><div><p class="eyebrow">BROWSER ACCESS / RECORDED REQUIREMENTS</p><h3 id="browser-extension-review-title">Browser extension permissions</h3></div><span>${extensions.length} extension record(s)</span></div><p>Understand the access an extension requests before deciding what to do. Broad permissions are not a malware verdict. Optional permissions are not confirmed grants.</p><p><strong>Next step:</strong> Open your browser's extension settings. Confirm the extension is expected, whether it is enabled, and which site access or permissions you actually granted. Inspector does not disable or remove extensions.</p>${limitNotes.length ? `<details class="extension-limits" open><summary>Profile collection limits</summary><ul>${limitNotes.map(note => `<li>${escapeHtml(note)}</li>`).join('')}</ul></details>` : ''}${extensions.length > 60 ? '<p>Showing the first 60 records. Original findings retain the collected inventory; this summary is not the full browser inventory.</p>' : ''}<div class="extension-review-list">${rows || '<p>No extension records in the collected profiles. This is not proof that no extension exists; inspect profile visibility and collection limits.</p>'}</div>`;
+  panel.classList.remove('hidden');
 }
 
 function applyFindingFilters(resetPage = false) {

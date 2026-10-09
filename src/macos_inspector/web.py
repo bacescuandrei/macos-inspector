@@ -39,7 +39,9 @@ from macos_inspector.core.process_control import terminate_reported_process
 from macos_inspector.core.response_history import append_response_event, read_response_history, evaluate_response_recheck
 from macos_inspector.core.detection_validation import validate_detections
 from macos_inspector.core.pdf_inspector import inspect_pdf_isolated, MAX_PDF_BYTES
+from macos_inspector.core.pdf_sharing import build_pdf_sharing_summary
 from macos_inspector.reporters.pdf_inspection_reporter import render_pdf_inspection
+from macos_inspector.reporters.pdf_sharing_reporter import render_pdf_sharing_summary
 from macos_inspector.core.readiness import collect_readiness
 from macos_inspector.core.scan import run_scan, write_reports
 from macos_inspector.core.runner import CommandRunner, ScanCancelled
@@ -539,6 +541,16 @@ class DashboardState:
     def readiness(self) -> dict:
         return collect_readiness(self.output)
 
+    def pdf_sharing_copy(self, identifier: str, include_hash: bool = False) -> dict:
+        if not isinstance(identifier, str) or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", identifier):
+            raise ValueError("Select a valid saved PDF inspection.")
+        path = self.output / f"macos-inspector-pdf-{identifier}.json"
+        if path.is_symlink() or path.resolve().parent != self.output:
+            raise ValueError("Select a local PDF inspection report.")
+        report = read_json_limited(path, 2 * 1024 * 1024)
+        summary = build_pdf_sharing_summary(report, include_hash)
+        return {"summary": summary, "html": render_pdf_sharing_summary(summary)}
+
     def verify_evidence(self, scan_id: str) -> dict:
         if not scan_id or Path(scan_id).name != scan_id:
             raise ValueError("Invalid scan identifier.")
@@ -864,10 +876,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _read_json_body(self, max_bytes: int = 65536) -> dict:
         if self.headers.get("X-MacOS-Inspector") != "1" or self.headers.get_content_type() != "application/json":
             raise PermissionError("Invalid local request.")
-        length = int(self.headers.get("Content-Length", "0"))
+        lengths = self.headers.get_all("Content-Length", [])
+        if len(lengths) != 1 or self.headers.get("Transfer-Encoding"):
+            raise ValueError("A single bounded Content-Length is required.")
+        length = int(lengths[0])
         if length <= 0 or length > max_bytes:
             raise ValueError("Invalid request size.")
-        payload = json.loads(self.rfile.read(length))
+        self.connection.settimeout(10)
+        content = self.rfile.read(length)
+        if len(content) != length:
+            raise ValueError("Request body was incomplete.")
+        payload = json.loads(content)
         if not isinstance(payload, dict):
             raise ValueError("Request body must be a JSON object.")
         return payload
@@ -1031,6 +1050,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         if not self._require_session():
+            return
+        if path == "/api/pdf-sharing-copy":
+            try:
+                payload = self._read_json_body(1024)
+                self._send_json(self.state.pdf_sharing_copy(payload.get("inspection_id"), payload.get("include_hash", False)))
+            except PermissionError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.FORBIDDEN)
+            except FileNotFoundError:
+                self._send_json({"error": "Saved PDF inspection not found."}, HTTPStatus.NOT_FOUND)
+            except (OSError, ValueError, KeyError, TypeError, RecursionError, json.JSONDecodeError):
+                self._send_json({"error": "Unable to prepare a sharing copy from this saved PDF report."}, HTTPStatus.BAD_REQUEST)
             return
         if path == "/api/pdf-inspector":
             if not self.state.pdf_slot.acquire(blocking=False):

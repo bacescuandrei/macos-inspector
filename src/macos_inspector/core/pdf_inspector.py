@@ -448,7 +448,11 @@ class Inspector:
                 self.walk(item, f"{context}[{index}]"[:400], depth + 1)
         elif isinstance(value, dict):
             if "OpenAction" in value:
-                self.actions.extend(self.action(value["OpenAction"], "Document open", context + " /OpenAction", set()))
+                is_catalog = _text(value.get("Type")) == "Catalog"
+                trigger = "Document open" if is_catalog else "OpenAction outside a catalog (trigger not established)"
+                if not is_catalog:
+                    self.limitations.append("An OpenAction entry was found outside a catalog; its trigger was not established.")
+                self.actions.extend(self.action(value["OpenAction"], trigger, context + " /OpenAction", set()))
             if "AA" in value:
                 additional = self.resolve(value["AA"])
                 if isinstance(additional, dict):
